@@ -1,0 +1,63 @@
+version: "3"
+
+vars:
+  BIN_NAME: shelly
+
+tasks:
+  build:
+    desc: Build the binary
+    cmds:
+      - go build -o ./bin/{{.BIN_NAME}} ./cmd/{{.BIN_NAME}}
+    sources:
+      - ./**/*.go
+      - go.mod
+      - go.sum
+
+  run:
+    desc: Run the application
+    cmds:
+      - go run ./cmd/{{.BIN_NAME}}
+
+  fmt:
+    desc: Format code with gofumpt
+    cmds:
+      - gofumpt -w .
+
+  fmt:check:
+    desc: Check formatting without writing changes
+    cmds:
+      - gofumpt -d . | diff /dev/null -
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - golangci-lint run ./...
+
+  lint:fix:
+    desc: Run golangci-lint with auto-fix
+    cmds:
+      - golangci-lint run --fix ./...
+
+  test:
+    desc: Run tests with gotestsum
+    cmds:
+      - gotestsum ./...
+
+  test:coverage:
+    desc: Run tests with coverage report
+    cmds:
+      - gotestsum -- -coverprofile=coverage.out ./...
+      - go tool cover -func=coverage.out
+
+  test:coverage:html:
+    desc: Generate HTML coverage report
+    cmds:
+      - gotestsum -- -coverprofile=coverage.out ./...
+      - go tool cover -html=coverage.out -o coverage.html
+
+  check:
+    desc: Run all checks (fmt, lint, test)
+    cmds:
+      - task: fmt:check
+      - task: lint
+      - task: test
