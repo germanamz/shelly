@@ -1,6 +1,133 @@
 # Shelly
 
-A Go CLI application.
+A provider-agnostic Go framework for building LLM chat applications. Shelly provides the foundational data model and abstractions needed to work with any large-language-model provider (OpenAI, Anthropic, etc.) without coupling to a specific API.
+
+## Architecture
+
+```
+cmd/shelly/           CLI entry point
+pkg/
+├── chatty/           Provider-agnostic chat data model
+│   ├── role/           Conversation roles (system, user, assistant, tool)
+│   ├── content/        Multi-modal content parts (text, image, tool call/result)
+│   ├── message/        Messages composed of a sender, role, and content parts
+│   └── chat/           Mutable conversation container
+├── providers/        LLM provider abstraction layer
+│   ├── model/          Provider-agnostic model configuration (name, temperature, max tokens)
+│   └── provider/       Interface that concrete provider adapters must satisfy
+└── reactor/          (reserved for future use)
+```
+
+### chatty — Chat Data Model
+
+The `chatty` package defines a complete, provider-agnostic data model for LLM conversations. It is the foundation layer that everything else builds on.
+
+- **role** defines `Role` (`System`, `User`, `Assistant`, `Tool`) with validation.
+- **content** defines the `Part` interface and four implementations: `Text`, `Image`, `ToolCall`, and `ToolResult`. Custom content types can be added by implementing the single-method `Part` interface.
+- **message** combines a `Sender`, `Role`, content `Parts`, and arbitrary `Metadata` into a single value type. The `Sender` field enables multi-agent tracking.
+- **chat** is a mutable, ordered collection of messages with filtering (`BySender`), iteration (`Each`), and convenience accessors (`SystemPrompt`, `Last`).
+
+See [`pkg/chatty/README.md`](pkg/chatty/README.md) for detailed examples.
+
+### providers — Provider Abstraction
+
+The `providers` package defines the interface and shared configuration for LLM completion providers.
+
+- **model** holds provider-agnostic LLM configuration (`Name`, `Temperature`, `MaxTokens`). The zero value is valid and means "use provider defaults". It is designed to be embedded in provider-specific config structs.
+- **provider** defines the `Provider` interface:
+
+```go
+type Provider interface {
+    Complete(ctx context.Context, c *chat.Chat) (message.Message, error)
+}
+```
+
+Concrete adapters (OpenAI, Anthropic, local models, etc.) implement this interface. The rest of the codebase programs against it, staying decoupled from any single API.
+
+See [`pkg/providers/README.md`](pkg/providers/README.md) for detailed examples.
+
+## Use Cases
+
+### Basic Conversation
+
+```go
+c := chat.New(
+    message.NewText("", role.System, "You are a helpful assistant."),
+    message.NewText("user", role.User, "What is Go?"),
+)
+
+reply, err := myProvider.Complete(ctx, c)
+if err != nil {
+    log.Fatal(err)
+}
+c.Append(reply)
+```
+
+### Tool Use
+
+```go
+// Assistant requests a tool call
+assistantMsg := message.New("bot", role.Assistant,
+    content.Text{Text: "Let me look that up."},
+    content.ToolCall{ID: "call_1", Name: "search", Arguments: `{"q":"golang"}`},
+)
+c.Append(assistantMsg)
+
+// Feed the tool result back
+toolMsg := message.New("", role.Tool,
+    content.ToolResult{ToolCallID: "call_1", Content: "Go is a statically typed language..."},
+)
+c.Append(toolMsg)
+
+// Get the assistant's final response
+reply, _ := myProvider.Complete(ctx, c)
+```
+
+### Multi-Agent Orchestration
+
+```go
+c := chat.New(
+    message.NewText("", role.System, "Collaborative session."),
+    message.NewText("user", role.User, "Summarise Go's concurrency model."),
+)
+
+for _, agent := range []string{"researcher", "critic", "writer"} {
+    resp := dispatch(agent, c) // each agent sees the full conversation
+    c.Append(message.NewText(agent, role.Assistant, resp))
+}
+
+// Inspect a single agent's contributions
+for _, m := range c.BySender("critic") {
+    fmt.Println(m.TextContent())
+}
+```
+
+### Conversation Branching
+
+```go
+shared := chat.New(
+    message.NewText("", role.System, "You are a helpful assistant."),
+    message.NewText("user", role.User, "Propose a name for a Go testing library."),
+)
+
+// Fork into independent branches
+creative := chat.New(shared.Messages()...)
+practical := chat.New(shared.Messages()...)
+```
+
+### Writing a Provider Adapter
+
+```go
+type myAdapter struct {
+    model.Model // embed shared config
+    apiKey string
+}
+
+func (a *myAdapter) Complete(ctx context.Context, c *chat.Chat) (message.Message, error) {
+    // Convert c to the provider's wire format, call the API,
+    // and return the result as a message.Message.
+}
+```
 
 ## Prerequisites
 
@@ -24,7 +151,7 @@ Make sure `$(go env GOPATH)/bin` is in your `PATH`:
 export PATH="$(go env GOPATH)/bin:$PATH"
 ```
 
-## Quick start
+## Quick Start
 
 ```bash
 task build   # Build binary to ./bin/shelly
@@ -35,8 +162,6 @@ task run     # Run without building
 ## Development
 
 ### Available tasks
-
-Run `task --list` to see all tasks. Here's the full reference:
 
 | Task | Description |
 |------|-------------|
@@ -54,7 +179,6 @@ Run `task --list` to see all tasks. Here's the full reference:
 ### Typical workflow
 
 ```bash
-# Write code, then:
 task fmt       # Format your changes
 task lint:fix  # Fix lint issues automatically
 task test      # Run tests
@@ -77,30 +201,17 @@ task check
 
 The project uses golangci-lint v2 with the `standard` preset plus these additional linters:
 
-- **gosec** - security-focused analysis
-- **gocritic** - opinionated style/performance/bug checks
-- **gocyclo** - cyclomatic complexity (threshold: 15)
-- **unconvert** - unnecessary type conversions
-- **misspell** - common spelling errors
-- **modernize** - suggests modern Go idioms
-- **testifylint** - catches testify misuse
+- **gosec** — security-focused analysis
+- **gocritic** — opinionated style/performance/bug checks
+- **gocyclo** — cyclomatic complexity (threshold: 15)
+- **unconvert** — unnecessary type conversions
+- **misspell** — common spelling errors
+- **modernize** — suggests modern Go idioms
+- **testifylint** — catches testify misuse
 
 See `.golangci.yml` for the full configuration.
 
-## Project structure
-
-```
-.
-├── main.go            # Application entry point
-├── main_test.go       # Tests
-├── go.mod             # Go module definition
-├── go.sum             # Dependency checksums
-├── Taskfile.yml       # Task runner config
-├── .golangci.yml      # Linter config
-└── CLAUDE.md          # Claude Code instructions
-```
-
-## Writing tests
+## Writing Tests
 
 Tests use the standard `testing` package with [testify](https://github.com/stretchr/testify) for assertions:
 
@@ -117,7 +228,7 @@ Use `require` instead of `assert` when a failure should stop the test immediatel
 ```go
 func TestExample(t *testing.T) {
     result, err := doSomething()
-    require.NoError(t, err)  // stops here if err != nil
+    require.NoError(t, err) // stops here if err != nil
     assert.Equal(t, "expected", result)
 }
 ```
