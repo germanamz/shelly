@@ -1,4 +1,4 @@
-module germanamz/shelly
+module github.com/germanamz/shelly
 
 go 1.25.0
 

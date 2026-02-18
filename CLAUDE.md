@@ -32,4 +32,14 @@ task check          # Run all checks (fmt:check + lint + test)
 
 ## Project Overview
 
-Shelly is a Go project (module: `germanamz/shelly`, Go 1.25). Currently a single-package CLI application with `main.go` as the entry point.
+Shelly is a Go project (module: `github.com/germanamz/shelly`, Go 1.25). CLI entry point: `cmd/shelly/shelly.go`. Tests live alongside source files (e.g., `cmd/shelly/shelly_test.go`).
+
+## Project Structure
+
+- `cmd/shelly/` — main package (entry point + tests)
+
+## Conventions
+
+- Dependencies are managed by Go modules; do not delete `go.mod` and `go.sum`
+- Linter extras enabled: gosec, gocritic, gocyclo (max 15), unconvert, misspell, modernize, testifylint
+- Tests use testify `assert` package (not `require`)
