@@ -20,6 +20,7 @@ task lint           # Run golangci-lint v2
 task lint:fix       # Run golangci-lint with auto-fix
 task test           # Run tests with gotestsum
 task test:coverage  # Run tests with coverage report
+task test:coverage:html  # Run tests with HTML coverage report
 task check          # Run all checks (fmt:check + lint + test)
 ```
 
@@ -37,9 +38,19 @@ Shelly is a Go project (module: `github.com/germanamz/shelly`, Go 1.25). CLI ent
 ## Project Structure
 
 - `cmd/shelly/` — main package (entry point + tests)
+- `pkg/chatty/` — provider-agnostic LLM chat data model (role, content, message, chat)
+- `pkg/providers/` — LLM provider abstraction layer (model config, `Provider` interface)
+- `pkg/reactor/` — reserved for future use (empty)
+
+## Architecture
+
+- `pkg/chatty/` is the foundation layer with no dependencies on other `pkg/` packages
+- `pkg/providers/` depends on `pkg/chatty/` (chat, message types)
+- `cmd/shelly/` is the entry point (currently a placeholder)
 
 ## Conventions
 
 - Dependencies are managed by Go modules; do not delete `go.mod` and `go.sum`
 - Linter extras enabled: gosec, gocritic, gocyclo (max 15), unconvert, misspell, modernize, testifylint
-- Tests use testify `assert` package (not `require`)
+- Tests use testify `assert` by default; use `require` only when a failure must stop the test immediately
+- Every package under `pkg/` must include a `README.md` explaining its purpose, architecture, and use cases
