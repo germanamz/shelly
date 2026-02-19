@@ -40,12 +40,15 @@ Shelly is a Go project (module: `github.com/germanamz/shelly`, Go 1.25). CLI ent
 - `cmd/shelly/` — main package (entry point + tests)
 - `pkg/chatty/` — provider-agnostic LLM chat data model (role, content, message, chat)
 - `pkg/providers/` — LLM provider abstraction layer (model config, `Provider` interface)
+- `pkg/tools/` — tool execution and MCP integration (toolbox, mcpclient, mcpserver)
 - `pkg/reactor/` — reserved for future use (empty)
 
 ## Architecture
 
 - `pkg/chatty/` is the foundation layer with no dependencies on other `pkg/` packages
 - `pkg/providers/` depends on `pkg/chatty/` (chat, message types)
+- `pkg/tools/toolbox/` depends on `pkg/chatty/content` (ToolCall, ToolResult types)
+- `pkg/tools/mcpclient/` and `pkg/tools/mcpserver/` depend on `pkg/tools/toolbox/` (Tool type)
 - `cmd/shelly/` is the entry point (currently a placeholder)
 
 ## Conventions
