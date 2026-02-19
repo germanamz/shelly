@@ -19,7 +19,7 @@ agents/
 | Field       | Type                 | Description                           |
 |-------------|----------------------|---------------------------------------|
 | `Name`      | `string`             | Agent identifier (used as Sender)     |
-| `Provider`  | `provider.Provider`  | LLM completion provider               |
+| `Provider`  | `provider.Completer` | LLM completion provider               |
 | `ToolBoxes` | `[]*toolbox.ToolBox` | Tool registries searched in order      |
 | `Chat`      | `*chat.Chat`         | Conversation state                    |
 

@@ -7,7 +7,8 @@ An abstraction layer for LLM completion providers. The providers package defines
 ```
 providers/
 ├── model/      Provider-agnostic model configuration (name, temperature, max tokens)
-└── provider/   Interface that concrete provider adapters must satisfy
+├── provider/   Completer interface + embeddable Provider base struct with HTTP helpers
+└── usage/      Thread-safe token usage tracker
 ```
 
 ### `model` — Model Configuration
@@ -22,103 +23,168 @@ providers/
 
 The zero value is valid — zero fields mean "use provider defaults". `Model` is designed to be **embedded** in provider-specific config structs so that shared settings are always available without duplication.
 
-### `provider` — Provider Interface
+### `provider` — Completer Interface & Provider Base
 
-Defines the single interface that all provider adapters must satisfy:
+Defines the `Completer` interface that all provider adapters must satisfy:
 
 ```go
-type Provider interface {
+type Completer interface {
     Complete(ctx context.Context, c *chat.Chat) (message.Message, error)
 }
 ```
 
 `Complete` sends a conversation to an LLM and returns the assistant's reply as a `message.Message`. It accepts the full `chat.Chat` so the provider has access to the entire conversation history, system prompt, and any tool-call context.
 
+`Provider` is an embeddable base struct that provides HTTP helpers, authentication, custom headers, and usage tracking. It implements `Completer` with a stub that returns an error — concrete types embed `Provider` and define their own `Complete` method to shadow the stub:
+
+| Field     | Type                | Description                                    |
+|-----------|---------------------|------------------------------------------------|
+| `Model`   | `model.Model`       | Embedded model configuration                   |
+| `Auth`    | `Auth`              | API key, header name, and scheme               |
+| `BaseURL` | `string`            | API base URL (no trailing slash)               |
+| `Client`  | `*http.Client`      | HTTP client (falls back to `http.DefaultClient`) |
+| `Headers` | `map[string]string` | Extra headers applied to every request         |
+| `Usage`   | `usage.Tracker`     | Token usage tracker                            |
+
+Key methods:
+- `NewRequest` — builds an `*http.Request` with base URL, auth, and custom headers applied
+- `PostJSON` — marshals payload, sends POST, checks 2xx, unmarshals response into dest
+- `Do` — low-level passthrough to `Client.Do`
+
+### `usage` — Token Usage Tracker
+
+`Tracker` accumulates `TokenCount` entries across multiple LLM calls. It is thread-safe via `sync.Mutex`.
+
+| Method    | Description                                      |
+|-----------|--------------------------------------------------|
+| `Add`     | Records a token count entry                      |
+| `Last`    | Returns the most recent entry                    |
+| `Total`   | Returns aggregate input/output counts            |
+| `Count`   | Returns the number of recorded entries            |
+| `Reset`   | Clears all entries                                |
+
 ## Examples
 
-### Basic Provider Usage
+### Implementing a Concrete Provider
+
+Embed `provider.Provider` to inherit HTTP helpers, auth, and usage tracking. Define your own `Complete` method to shadow the base stub:
 
 ```go
-var p provider.Provider = newMyProvider()
+// OpenAI is a concrete provider that calls the OpenAI chat completions API.
+type OpenAI struct {
+    provider.Provider
+}
+
+// NewOpenAI creates an OpenAI provider with the given API key and model config.
+func NewOpenAI(apiKey string, m model.Model) *OpenAI {
+    return &OpenAI{
+        Provider: provider.NewProvider(
+            "https://api.openai.com",
+            provider.Auth{Key: apiKey},  // defaults to Authorization: Bearer <key>
+            m,
+            nil,  // uses http.DefaultClient
+        ),
+    }
+}
+
+// Complete shadows the Provider stub — converts the chat to the OpenAI wire
+// format, calls the API via PostJSON, tracks usage, and returns the reply.
+func (o *OpenAI) Complete(ctx context.Context, c *chat.Chat) (message.Message, error) {
+    req := toOpenAIRequest(c, o.Model)
+
+    var resp openAIResponse
+    if err := o.PostJSON(ctx, "/v1/chat/completions", req, &resp); err != nil {
+        return message.Message{}, err
+    }
+
+    o.Usage.Add(usage.TokenCount{
+        InputTokens:  resp.Usage.PromptTokens,
+        OutputTokens: resp.Usage.CompletionTokens,
+    })
+
+    return toMessage(resp), nil
+}
+```
+
+### Using a Provider with the Agent
+
+The `Completer` interface lets the Agent accept any concrete provider:
+
+```go
+// NewOpenAI returns a *OpenAI, which satisfies provider.Completer
+p := NewOpenAI(os.Getenv("OPENAI_API_KEY"), model.Model{
+    Name:        "gpt-4",
+    MaxTokens:   1024,
+})
 
 c := chat.New(
     message.NewText("", role.System, "You are a helpful assistant."),
     message.NewText("user", role.User, "Explain goroutines."),
 )
 
-reply, err := p.Complete(ctx, c)
-if err != nil {
-    log.Fatal(err)
-}
-c.Append(reply)
-fmt.Println(reply.TextContent())
+a := agent.New("bot", p, c)
+reply, err := a.Complete(ctx)
 ```
 
-### Implementing a Provider Adapter
+### Custom Auth and Headers (Anthropic Example)
 
-Embed `model.Model` for shared configuration and implement the `Provider` interface:
-
-```go
-type openAIAdapter struct {
-    model.Model // Name, Temperature, MaxTokens
-    apiKey string
-}
-
-func (a *openAIAdapter) Complete(ctx context.Context, c *chat.Chat) (message.Message, error) {
-    // 1. Convert c to the provider's wire format
-    // 2. Call the API with a.Name, a.Temperature, a.MaxTokens, a.apiKey
-    // 3. Return the result as a message.Message
-}
-```
-
-### Model Configuration with Zero-Value Defaults
+Providers with non-standard auth (e.g. `x-api-key` header instead of Bearer) configure it through `Auth`:
 
 ```go
-// All zeros — the adapter decides what defaults to use
-m := model.Model{}
-
-// Override only what you need
-m = model.Model{
-    Name:        "claude-sonnet-4-5-20250929",
-    Temperature: 0.7,
+type Anthropic struct {
+    provider.Provider
 }
 
-// Embed in a provider-specific struct
-type anthropicAdapter struct {
-    model.Model
-    apiKey  string
-    version string
-}
+func NewAnthropic(apiKey string, m model.Model) *Anthropic {
+    p := &Anthropic{
+        Provider: provider.NewProvider(
+            "https://api.anthropic.com",
+            provider.Auth{Key: apiKey, Header: "x-api-key"},
+            m,
+            nil,
+        ),
+    }
+    p.Headers = map[string]string{"anthropic-version": "2024-01-01"}
 
-adapter := &anthropicAdapter{
-    Model:   m,
-    apiKey:  os.Getenv("ANTHROPIC_API_KEY"),
-    version: "2024-01-01",
+    return p
 }
 ```
 
-### Tool-Use Flow Through a Provider
+### Low-Level HTTP Access
+
+For APIs that don't fit `PostJSON`, use `NewRequest` and `Do` directly:
 
 ```go
-c := chat.New(
-    message.NewText("", role.System, "You can use the 'search' tool."),
-    message.NewText("user", role.User, "Find information about Go generics."),
-)
+func (o *OpenAI) ListModels(ctx context.Context) ([]string, error) {
+    req, err := o.NewRequest(ctx, http.MethodGet, "/v1/models", nil)
+    if err != nil {
+        return nil, err
+    }
 
-// First completion — the provider may return a tool call
-reply, _ := p.Complete(ctx, c)
-c.Append(reply)
+    resp, err := o.Do(req)
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Body.Close()
 
-// Check for tool calls and execute them
-for _, tc := range reply.ToolCalls() {
-    result := executeTool(tc.Name, tc.Arguments)
-    c.Append(message.New("", role.Tool,
-        content.ToolResult{ToolCallID: tc.ID, Content: result},
-    ))
+    // ... decode response
 }
+```
 
-// Second completion — the provider uses the tool result to answer
-final, _ := p.Complete(ctx, c)
-c.Append(final)
-fmt.Println(final.TextContent())
+### Tracking Token Usage
+
+The embedded `Usage` tracker accumulates token counts across calls:
+
+```go
+p := NewOpenAI(apiKey, m)
+
+p.Complete(ctx, chat1)
+p.Complete(ctx, chat2)
+
+fmt.Println(p.Usage.Count())              // 2
+fmt.Println(p.Usage.Total().InputTokens)  // sum of both calls
+fmt.Println(p.Usage.Total().Total())      // total input + output
+
+last, _ := p.Usage.Last()
+fmt.Println(last.OutputTokens)            // output tokens from chat2
 ```

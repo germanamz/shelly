@@ -19,13 +19,13 @@ import (
 // Agent is not safe for concurrent use; callers must synchronize externally.
 type Agent struct {
 	Name      string
-	Provider  provider.Provider
+	Provider  provider.Completer
 	ToolBoxes []*toolbox.ToolBox
 	Chat      *chat.Chat
 }
 
 // New creates an Agent with the given name, provider, chat, and optional toolboxes.
-func New(name string, p provider.Provider, c *chat.Chat, tbs ...*toolbox.ToolBox) *Agent {
+func New(name string, p provider.Completer, c *chat.Chat, tbs ...*toolbox.ToolBox) *Agent {
 	return &Agent{
 		Name:      name,
 		Provider:  p,

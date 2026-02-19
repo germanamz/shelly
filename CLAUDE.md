@@ -39,9 +39,10 @@ Shelly is a Go project (module: `github.com/germanamz/shelly`, Go 1.25). CLI ent
 
 - `cmd/shelly/` — main package (entry point + tests)
 - `pkg/chatty/` — provider-agnostic LLM chat data model (role, content, message, chat)
-- `pkg/providers/` — LLM provider abstraction layer (model config, `Provider` interface)
+- `pkg/providers/` — LLM provider abstraction layer (model config, `Completer` interface, `Provider` base struct, usage tracking)
 - `pkg/tools/` — tool execution and MCP integration (toolbox, mcpclient, mcpserver)
-- `pkg/reactor/` — reserved for future use (empty)
+- `pkg/agents/` — agent orchestration and ReAct loop (agent, reactor)
+- `pkg/reactor/` — reserved for future use (stub package only)
 
 ## Architecture
 
@@ -49,6 +50,8 @@ Shelly is a Go project (module: `github.com/germanamz/shelly`, Go 1.25). CLI ent
 - `pkg/providers/` depends on `pkg/chatty/` (chat, message types)
 - `pkg/tools/toolbox/` depends on `pkg/chatty/content` (ToolCall, ToolResult types)
 - `pkg/tools/mcpclient/` and `pkg/tools/mcpserver/` depend on `pkg/tools/toolbox/` (Tool type)
+- `pkg/agents/agent/` depends on `pkg/providers/`, `pkg/tools/toolbox/`, and `pkg/chatty/`
+- `pkg/agents/reactor/` depends on `pkg/agents/agent/`
 - `cmd/shelly/` is the entry point (currently a placeholder)
 
 ## Conventions
@@ -56,4 +59,4 @@ Shelly is a Go project (module: `github.com/germanamz/shelly`, Go 1.25). CLI ent
 - Dependencies are managed by Go modules; do not delete `go.mod` and `go.sum`
 - Linter extras enabled: gosec, gocritic, gocyclo (max 15), unconvert, misspell, modernize, testifylint
 - Tests use testify `assert` by default; use `require` only when a failure must stop the test immediately
-- Every package under `pkg/` must include a `README.md` explaining its purpose, architecture, and use cases
+- Every top-level package under `pkg/` must include a `README.md` explaining its purpose, architecture, and use cases
