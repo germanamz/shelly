@@ -7,9 +7,12 @@ import (
 	"context"
 	"errors"
 
-	"github.com/germanamz/shelly/pkg/agents/agent"
+	"github.com/germanamz/shelly/pkg/agents"
 	"github.com/germanamz/shelly/pkg/chats/message"
 )
+
+// Compile-time check that *ReActAgent implements agents.Agent.
+var _ agents.Agent = (*ReActAgent)(nil)
 
 // ErrMaxIterations is returned when the ReAct loop exceeds MaxIterations
 // without the provider producing a final answer.
@@ -21,12 +24,28 @@ type Options struct {
 	MaxIterations int
 }
 
-// Run executes the ReAct loop on the given agent. Each iteration calls
-// Complete to get the provider's reply, then CallTools if the reply contains
-// tool calls. The loop ends when the provider returns a message with no tool
-// calls (the final answer) or MaxIterations is reached.
-func Run(ctx context.Context, a *agent.Agent, opts Options) (message.Message, error) {
-	for i := 0; opts.MaxIterations == 0 || i < opts.MaxIterations; i++ {
+// ReActAgent implements the ReAct pattern by embedding agents.AgentBase. Each call to
+// Run drives iterative cycles of LLM completion and tool execution until the
+// provider returns a final answer with no tool calls.
+type ReActAgent struct {
+	agents.AgentBase
+	Options Options
+}
+
+// New creates a ReActAgent from an AgentBase and options.
+func New(base agents.AgentBase, opts Options) *ReActAgent {
+	return &ReActAgent{
+		AgentBase: base,
+		Options:   opts,
+	}
+}
+
+// Run executes the ReAct loop. Each iteration calls Complete to get the
+// provider's reply, then CallTools if the reply contains tool calls. The loop
+// ends when the provider returns a message with no tool calls (the final
+// answer) or MaxIterations is reached.
+func (a *ReActAgent) Run(ctx context.Context) (message.Message, error) {
+	for i := 0; a.Options.MaxIterations == 0 || i < a.Options.MaxIterations; i++ {
 		reply, err := a.Complete(ctx)
 		if err != nil {
 			return message.Message{}, err

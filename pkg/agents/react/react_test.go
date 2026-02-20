@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/germanamz/shelly/pkg/agents/agent"
+	"github.com/germanamz/shelly/pkg/agents"
 	"github.com/germanamz/shelly/pkg/chats/chat"
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/chats/message"
@@ -59,9 +59,10 @@ func TestRunNoToolCalls(t *testing.T) {
 			message.NewText("", role.Assistant, "Done."),
 		},
 	}
-	a := agent.New("bot", p, chat.New())
+	base := agents.NewAgentBase("bot", p, chat.New())
+	a := New(base, Options{})
 
-	result, err := Run(context.Background(), a, Options{})
+	result, err := a.Run(context.Background())
 
 	require.NoError(t, err)
 	assert.Equal(t, "Done.", result.TextContent())
@@ -80,9 +81,10 @@ func TestRunSingleIteration(t *testing.T) {
 			message.NewText("", role.Assistant, "Got the result."),
 		},
 	}
-	a := agent.New("bot", p, chat.New(), newEchoToolBox())
+	base := agents.NewAgentBase("bot", p, chat.New(), newEchoToolBox())
+	a := New(base, Options{})
 
-	result, err := Run(context.Background(), a, Options{})
+	result, err := a.Run(context.Background())
 
 	require.NoError(t, err)
 	assert.Equal(t, "Got the result.", result.TextContent())
@@ -101,9 +103,10 @@ func TestRunMultipleIterations(t *testing.T) {
 			message.NewText("", role.Assistant, "All done."),
 		},
 	}
-	a := agent.New("bot", p, chat.New(), newEchoToolBox())
+	base := agents.NewAgentBase("bot", p, chat.New(), newEchoToolBox())
+	a := New(base, Options{})
 
-	result, err := Run(context.Background(), a, Options{})
+	result, err := a.Run(context.Background())
 
 	require.NoError(t, err)
 	assert.Equal(t, "All done.", result.TextContent())
@@ -124,9 +127,10 @@ func TestRunMaxIterations(t *testing.T) {
 			),
 		},
 	}
-	a := agent.New("bot", p, chat.New(), newEchoToolBox())
+	base := agents.NewAgentBase("bot", p, chat.New(), newEchoToolBox())
+	a := New(base, Options{MaxIterations: 2})
 
-	_, err := Run(context.Background(), a, Options{MaxIterations: 2})
+	_, err := a.Run(context.Background())
 
 	require.ErrorIs(t, err, ErrMaxIterations)
 	assert.Equal(t, 2, p.index)
@@ -134,9 +138,10 @@ func TestRunMaxIterations(t *testing.T) {
 
 func TestRunProviderError(t *testing.T) {
 	p := &errorProvider{err: errors.New("api error")}
-	a := agent.New("bot", p, chat.New())
+	base := agents.NewAgentBase("bot", p, chat.New())
+	a := New(base, Options{})
 
-	_, err := Run(context.Background(), a, Options{})
+	_, err := a.Run(context.Background())
 
 	assert.EqualError(t, err, "api error")
 }
@@ -149,9 +154,10 @@ func TestRunProviderErrorAfterToolCall(t *testing.T) {
 			),
 		},
 	}
-	a := agent.New("bot", p, chat.New(), newEchoToolBox())
+	base := agents.NewAgentBase("bot", p, chat.New(), newEchoToolBox())
+	a := New(base, Options{})
 
-	_, err := Run(context.Background(), a, Options{})
+	_, err := a.Run(context.Background())
 
 	assert.EqualError(t, err, "no more replies")
 }
@@ -161,9 +167,10 @@ func TestRunContextCancellation(t *testing.T) {
 	cancel()
 
 	p := &errorProvider{err: ctx.Err()}
-	a := agent.New("bot", p, chat.New())
+	base := agents.NewAgentBase("bot", p, chat.New())
+	a := New(base, Options{})
 
-	_, err := Run(ctx, a, Options{})
+	_, err := a.Run(ctx)
 
 	assert.ErrorIs(t, err, context.Canceled)
 }

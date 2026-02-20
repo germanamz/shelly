@@ -1,6 +1,4 @@
-// Package agent defines the Agent type that orchestrates a ModelAdapter, ToolBoxes,
-// and a Chat into a cohesive unit for LLM interactions.
-package agent
+package agents
 
 import (
 	"context"
@@ -14,19 +12,26 @@ import (
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
-// Agent orchestrates a ModelAdapter, ToolBoxes, and a Chat. It sends conversations
-// to the model adapter for completion and executes tool calls across its toolboxes.
-// Agent is not safe for concurrent use; callers must synchronize externally.
-type Agent struct {
+// Agent is the interface implemented by all agent types. It provides a single
+// Run method that drives the agent's execution loop and returns the final message.
+type Agent interface {
+	Run(ctx context.Context) (message.Message, error)
+}
+
+// AgentBase provides shared functionality for agent types. It orchestrates a
+// ModelAdapter, ToolBoxes, and a Chat. Embed AgentBase in concrete agent structs
+// to inherit Complete, CallTools, and Tools methods.
+// AgentBase is not safe for concurrent use; callers must synchronize externally.
+type AgentBase struct {
 	Name         string
 	ModelAdapter modeladapter.Completer
 	ToolBoxes    []*toolbox.ToolBox
 	Chat         *chat.Chat
 }
 
-// New creates an Agent with the given name, model adapter, chat, and optional toolboxes.
-func New(name string, a modeladapter.Completer, c *chat.Chat, tbs ...*toolbox.ToolBox) *Agent {
-	return &Agent{
+// NewAgentBase creates an AgentBase with the given name, model adapter, chat, and optional toolboxes.
+func NewAgentBase(name string, a modeladapter.Completer, c *chat.Chat, tbs ...*toolbox.ToolBox) AgentBase {
+	return AgentBase{
 		Name:         name,
 		ModelAdapter: a,
 		ToolBoxes:    tbs,
@@ -35,15 +40,15 @@ func New(name string, a modeladapter.Completer, c *chat.Chat, tbs ...*toolbox.To
 }
 
 // Complete sends the chat to the model adapter and appends the reply to the
-// conversation. The reply's Sender is set to the agent's Name.
-func (a *Agent) Complete(ctx context.Context) (message.Message, error) {
-	reply, err := a.ModelAdapter.Complete(ctx, a.Chat)
+// conversation. The reply's Sender is set to the base's Name.
+func (b *AgentBase) Complete(ctx context.Context) (message.Message, error) {
+	reply, err := b.ModelAdapter.Complete(ctx, b.Chat)
 	if err != nil {
 		return message.Message{}, err
 	}
 
-	reply.Sender = a.Name
-	a.Chat.Append(reply)
+	reply.Sender = b.Name
+	b.Chat.Append(reply)
 
 	return reply, nil
 }
@@ -51,7 +56,7 @@ func (a *Agent) Complete(ctx context.Context) (message.Message, error) {
 // CallTools executes all tool calls in the given message and appends the
 // results to the chat. It searches each ToolBox in order for the named tool.
 // Returns nil if the message contains no tool calls.
-func (a *Agent) CallTools(ctx context.Context, msg message.Message) []content.ToolResult {
+func (b *AgentBase) CallTools(ctx context.Context, msg message.Message) []content.ToolResult {
 	calls := msg.ToolCalls()
 	if len(calls) == 0 {
 		return nil
@@ -60,19 +65,19 @@ func (a *Agent) CallTools(ctx context.Context, msg message.Message) []content.To
 	results := make([]content.ToolResult, 0, len(calls))
 
 	for _, tc := range calls {
-		result := a.callTool(ctx, tc)
+		result := b.callTool(ctx, tc)
 		results = append(results, result)
-		a.Chat.Append(message.New(a.Name, role.Tool, result))
+		b.Chat.Append(message.New(b.Name, role.Tool, result))
 	}
 
 	return results
 }
 
 // Tools returns all tools from all registered ToolBoxes.
-func (a *Agent) Tools() []toolbox.Tool {
+func (b *AgentBase) Tools() []toolbox.Tool {
 	var tools []toolbox.Tool
 
-	for _, tb := range a.ToolBoxes {
+	for _, tb := range b.ToolBoxes {
 		tools = append(tools, tb.Tools()...)
 	}
 
@@ -80,8 +85,8 @@ func (a *Agent) Tools() []toolbox.Tool {
 }
 
 // callTool searches all ToolBoxes for the named tool and executes it.
-func (a *Agent) callTool(ctx context.Context, tc content.ToolCall) content.ToolResult {
-	for _, tb := range a.ToolBoxes {
+func (b *AgentBase) callTool(ctx context.Context, tc content.ToolCall) content.ToolResult {
+	for _, tb := range b.ToolBoxes {
 		if _, ok := tb.Get(tc.Name); ok {
 			return tb.Call(ctx, tc)
 		}

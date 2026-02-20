@@ -1,40 +1,51 @@
 # agents
 
-Agent orchestration for Shelly. The agents package provides the `Agent` type that combines a Provider, ToolBoxes, and a Chat into a single unit, and the `react` sub-package that implements the ReAct (Reason + Act) loop for autonomous tool-using agents.
+Agent orchestration for Shelly. The agents package defines the `Agent` interface and the embeddable `Base` struct. Concrete agent types embed `Base` to inherit shared functionality and implement the `Agent` interface for uniform usage.
 
 ## Architecture
 
 ```
 agents/
-├── agent/    Agent type — orchestrates Provider, ToolBoxes, and Chat
-└── react/   ReAct loop — iterative completion and tool execution
+├── agent.go     Agent interface + Base struct
+├── doc.go       Package documentation
+└── react/       ReAct loop — iterative completion and tool execution
 ```
 
-**Dependency graph**: `agent` is the foundation, depending on `chats`, `providers`, and `tools`. `react` depends on `agent` and drives the ReAct loop.
+### `Agent` interface
 
-### `agent` — Agent
+```go
+type Agent interface {
+    Run(ctx context.Context) (message.Message, error)
+}
+```
 
-`Agent` orchestrates a `Provider`, one or more `ToolBox` instances, and a `Chat`:
+All agent types implement this interface, enabling polymorphic usage by upstream code.
 
-| Field       | Type                 | Description                           |
-|-------------|----------------------|---------------------------------------|
-| `Name`      | `string`             | Agent identifier (used as Sender)     |
-| `Provider`  | `provider.Completer` | LLM completion provider               |
-| `ToolBoxes` | `[]*toolbox.ToolBox` | Tool registries searched in order      |
-| `Chat`      | `*chat.Chat`         | Conversation state                    |
+### `Base` struct
 
-- `New(name, provider, chat, ...toolboxes)` — creates an Agent
-- `Complete(ctx) (Message, error)` — calls the provider, appends the reply to Chat, sets the Sender
+`Base` provides shared functionality for agent types. Embed it in concrete agent structs to inherit `Complete`, `CallTools`, and `Tools` methods.
+
+| Field          | Type                 | Description                           |
+|----------------|----------------------|---------------------------------------|
+| `Name`         | `string`             | Agent identifier (used as Sender)     |
+| `ModelAdapter` | `modeladapter.Completer` | LLM completion adapter            |
+| `ToolBoxes`    | `[]*toolbox.ToolBox` | Tool registries searched in order     |
+| `Chat`         | `*chat.Chat`         | Conversation state                    |
+
+- `NewBase(name, adapter, chat, ...toolboxes)` — creates a Base value
+- `Complete(ctx) (Message, error)` — calls the adapter, appends the reply to Chat, sets the Sender
 - `CallTools(ctx, msg) []ToolResult` — executes all tool calls in the message, appends results to Chat
 - `Tools() []Tool` — returns all tools from all ToolBoxes
 
-`Agent` is **not** safe for concurrent use; callers must synchronize externally.
+`Base` is **not** safe for concurrent use; callers must synchronize externally.
 
 ### `react` — ReAct Loop
 
 Implements the Reason + Act pattern: the agent reasons (LLM completion), acts (tool execution), observes (tool results fed back), and repeats until the provider returns a final answer with no tool calls.
 
-- `Run(ctx, agent, opts) (Message, error)` — drives the ReAct loop
+- `Agent` struct embedding `agents.Base`
+- `New(base, opts) *Agent` — creates a ReAct agent
+- `Run(ctx) (Message, error)` — drives the ReAct loop
 - `Options{MaxIterations}` — limits the number of cycles (zero means no limit)
 - `ErrMaxIterations` — returned when the limit is reached
 
@@ -43,18 +54,17 @@ Implements the Reason + Act pattern: the agent reasons (LLM completion), acts (t
 ### Basic Agent Usage
 
 ```go
-p := myProvider()
+p := myAdapter()
 c := chat.New(
     message.NewText("", role.System, "You are a helpful assistant."),
     message.NewText("user", role.User, "Hello!"),
 )
 
-a := agent.New("bot", p, c)
-reply, err := a.Complete(ctx)
-fmt.Println(reply.TextContent())
+base := agents.NewBase("bot", p, c)
+// Use base.Complete(ctx) for single-shot completion
 ```
 
-### Agent with Tools
+### ReAct Agent with Tools
 
 ```go
 tb := toolbox.New()
@@ -63,45 +73,38 @@ tb.Register(toolbox.Tool{
     Description: "Searches the web",
     InputSchema: json.RawMessage(`{"type":"object","properties":{"q":{"type":"string"}}}`),
     Handler: func(ctx context.Context, input json.RawMessage) (string, error) {
-        // ... execute search ...
         return "results", nil
     },
 })
 
-a := agent.New("bot", p, c, tb)
-reply, _ := a.Complete(ctx)
-results := a.CallTools(ctx, reply)
-```
+base := agents.NewBase("bot", p, c, tb)
+a := react.New(base, react.Options{MaxIterations: 10})
 
-### Multiple ToolBoxes
-
-```go
-localTools := toolbox.New()
-localTools.Register(myLocalTool)
-
-mcpTools := toolbox.New()
-remoteTools, _ := mcpClient.ListTools(ctx)
-mcpTools.Register(remoteTools...)
-
-// Agent searches toolboxes in order
-a := agent.New("bot", p, c, localTools, mcpTools)
-```
-
-### ReAct Loop
-
-```go
-a := agent.New("bot", p, c, tb)
-
-// Run until the provider produces a final answer
-reply, err := react.Run(ctx, a, react.Options{})
+reply, err := a.Run(ctx)
 fmt.Println(reply.TextContent())
 ```
 
 ### ReAct Loop with Iteration Limit
 
 ```go
-reply, err := react.Run(ctx, a, react.Options{MaxIterations: 10})
+base := agents.NewBase("bot", p, c, tb)
+a := react.New(base, react.Options{MaxIterations: 10})
+
+reply, err := a.Run(ctx)
 if errors.Is(err, react.ErrMaxIterations) {
     fmt.Println("Agent did not converge within 10 iterations")
 }
+```
+
+### Polymorphic Usage
+
+```go
+func runAgent(ctx context.Context, a agents.Agent) {
+    reply, err := a.Run(ctx)
+    // ...
+}
+
+base := agents.NewBase("bot", p, c, tb)
+a := react.New(base, react.Options{})
+runAgent(ctx, a)
 ```

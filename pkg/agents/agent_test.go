@@ -1,4 +1,4 @@
-package agent
+package agents
 
 import (
 	"context"
@@ -41,23 +41,23 @@ func newTestToolBox() *toolbox.ToolBox {
 	return tb
 }
 
-func TestNew(t *testing.T) {
+func TestNewAgentBase(t *testing.T) {
 	p := &mockProvider{}
 	c := chat.New()
 	tb := newTestToolBox()
 
-	a := New("bot", p, c, tb)
+	b := NewAgentBase("bot", p, c, tb)
 
-	assert.Equal(t, "bot", a.Name)
-	assert.Equal(t, p, a.ModelAdapter)
-	assert.Equal(t, c, a.Chat)
-	assert.Len(t, a.ToolBoxes, 1)
+	assert.Equal(t, "bot", b.Name)
+	assert.Equal(t, p, b.ModelAdapter)
+	assert.Equal(t, c, b.Chat)
+	assert.Len(t, b.ToolBoxes, 1)
 }
 
-func TestNewNoToolBoxes(t *testing.T) {
-	a := New("bot", &mockProvider{}, chat.New())
+func TestNewAgentBaseNoToolBoxes(t *testing.T) {
+	b := NewAgentBase("bot", &mockProvider{}, chat.New())
 
-	assert.Empty(t, a.ToolBoxes)
+	assert.Empty(t, b.ToolBoxes)
 }
 
 func TestComplete(t *testing.T) {
@@ -67,9 +67,9 @@ func TestComplete(t *testing.T) {
 	c := chat.New(
 		message.NewText("user", role.User, "Hi"),
 	)
-	a := New("bot", p, c)
+	b := NewAgentBase("bot", p, c)
 
-	reply, err := a.Complete(context.Background())
+	reply, err := b.Complete(context.Background())
 
 	require.NoError(t, err)
 	assert.Equal(t, "bot", reply.Sender)
@@ -82,14 +82,14 @@ func TestCompleteSetsSender(t *testing.T) {
 	p := &mockProvider{
 		reply: message.NewText("other", role.Assistant, "Reply"),
 	}
-	a := New("myagent", p, chat.New())
+	b := NewAgentBase("myagent", p, chat.New())
 
-	reply, err := a.Complete(context.Background())
+	reply, err := b.Complete(context.Background())
 
 	require.NoError(t, err)
 	assert.Equal(t, "myagent", reply.Sender)
 
-	last, ok := a.Chat.Last()
+	last, ok := b.Chat.Last()
 	require.True(t, ok)
 	assert.Equal(t, "myagent", last.Sender)
 }
@@ -98,50 +98,50 @@ func TestCompleteError(t *testing.T) {
 	p := &mockProvider{
 		err: errors.New("provider failed"),
 	}
-	a := New("bot", p, chat.New())
+	b := NewAgentBase("bot", p, chat.New())
 
-	_, err := a.Complete(context.Background())
+	_, err := b.Complete(context.Background())
 
 	require.EqualError(t, err, "provider failed")
-	assert.Equal(t, 0, a.Chat.Len())
+	assert.Equal(t, 0, b.Chat.Len())
 }
 
 func TestCallTools(t *testing.T) {
 	tb := newTestToolBox()
-	a := New("bot", &mockProvider{}, chat.New(), tb)
+	b := NewAgentBase("bot", &mockProvider{}, chat.New(), tb)
 
 	msg := message.New("bot", role.Assistant,
 		content.Text{Text: "Let me call a tool."},
 		content.ToolCall{ID: "call-1", Name: "echo", Arguments: `{"text":"hi"}`},
 	)
 
-	results := a.CallTools(context.Background(), msg)
+	results := b.CallTools(context.Background(), msg)
 
 	require.Len(t, results, 1)
 	assert.Equal(t, "call-1", results[0].ToolCallID)
 	assert.JSONEq(t, `{"text":"hi"}`, results[0].Content)
 	assert.False(t, results[0].IsError)
-	assert.Equal(t, 1, a.Chat.Len())
+	assert.Equal(t, 1, b.Chat.Len())
 }
 
 func TestCallToolsNoToolCalls(t *testing.T) {
-	a := New("bot", &mockProvider{}, chat.New(), newTestToolBox())
+	b := NewAgentBase("bot", &mockProvider{}, chat.New(), newTestToolBox())
 
 	msg := message.NewText("bot", role.Assistant, "No tools needed.")
-	results := a.CallTools(context.Background(), msg)
+	results := b.CallTools(context.Background(), msg)
 
 	assert.Nil(t, results)
-	assert.Equal(t, 0, a.Chat.Len())
+	assert.Equal(t, 0, b.Chat.Len())
 }
 
 func TestCallToolsNotFound(t *testing.T) {
-	a := New("bot", &mockProvider{}, chat.New(), newTestToolBox())
+	b := NewAgentBase("bot", &mockProvider{}, chat.New(), newTestToolBox())
 
 	msg := message.New("bot", role.Assistant,
 		content.ToolCall{ID: "call-1", Name: "missing", Arguments: `{}`},
 	)
 
-	results := a.CallTools(context.Background(), msg)
+	results := b.CallTools(context.Background(), msg)
 
 	require.Len(t, results, 1)
 	assert.True(t, results[0].IsError)
@@ -161,32 +161,32 @@ func TestCallToolsMultipleToolBoxes(t *testing.T) {
 
 	tb2 := newTestToolBox() // has "echo"
 
-	a := New("bot", &mockProvider{}, chat.New(), tb1, tb2)
+	b := NewAgentBase("bot", &mockProvider{}, chat.New(), tb1, tb2)
 
 	msg := message.New("bot", role.Assistant,
 		content.ToolCall{ID: "c1", Name: "greet", Arguments: `{}`},
 		content.ToolCall{ID: "c2", Name: "echo", Arguments: `{"x":1}`},
 	)
 
-	results := a.CallTools(context.Background(), msg)
+	results := b.CallTools(context.Background(), msg)
 
 	require.Len(t, results, 2)
 	assert.Equal(t, "hello", results[0].Content)
 	assert.False(t, results[0].IsError)
 	assert.Equal(t, `{"x":1}`, results[1].Content)
 	assert.False(t, results[1].IsError)
-	assert.Equal(t, 2, a.Chat.Len())
+	assert.Equal(t, 2, b.Chat.Len())
 }
 
 func TestCallToolsAppendsSender(t *testing.T) {
-	a := New("myagent", &mockProvider{}, chat.New(), newTestToolBox())
+	b := NewAgentBase("myagent", &mockProvider{}, chat.New(), newTestToolBox())
 
 	msg := message.New("myagent", role.Assistant,
 		content.ToolCall{ID: "c1", Name: "echo", Arguments: `{}`},
 	)
-	a.CallTools(context.Background(), msg)
+	b.CallTools(context.Background(), msg)
 
-	last, ok := a.Chat.Last()
+	last, ok := b.Chat.Last()
 	require.True(t, ok)
 	assert.Equal(t, "myagent", last.Sender)
 	assert.Equal(t, role.Tool, last.Role)
@@ -200,9 +200,9 @@ func TestTools(t *testing.T) {
 	tb2 := toolbox.New()
 	tb2.Register(toolbox.Tool{Name: "c"})
 
-	a := New("bot", &mockProvider{}, chat.New(), tb1, tb2)
+	b := NewAgentBase("bot", &mockProvider{}, chat.New(), tb1, tb2)
 
-	tools := a.Tools()
+	tools := b.Tools()
 	assert.Len(t, tools, 3)
 
 	names := make(map[string]bool)
@@ -215,7 +215,7 @@ func TestTools(t *testing.T) {
 }
 
 func TestToolsEmpty(t *testing.T) {
-	a := New("bot", &mockProvider{}, chat.New())
+	b := NewAgentBase("bot", &mockProvider{}, chat.New())
 
-	assert.Empty(t, a.Tools())
+	assert.Empty(t, b.Tools())
 }
