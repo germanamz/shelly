@@ -49,7 +49,7 @@ func TestNew(t *testing.T) {
 	a := New("bot", p, c, tb)
 
 	assert.Equal(t, "bot", a.Name)
-	assert.Equal(t, p, a.Provider)
+	assert.Equal(t, p, a.ModelAdapter)
 	assert.Equal(t, c, a.Chat)
 	assert.Len(t, a.ToolBoxes, 1)
 }

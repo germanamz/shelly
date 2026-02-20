@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/germanamz/shelly/pkg/providers/usage"
+	"github.com/germanamz/shelly/pkg/modeladapter/usage"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -1,4 +1,4 @@
-package provider_test
+package modeladapter_test
 
 import (
 	"context"
@@ -9,11 +9,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/germanamz/shelly/pkg/modeladapter"
 	"github.com/germanamz/shelly/pkg/chatty/chat"
 	"github.com/germanamz/shelly/pkg/chatty/message"
 	"github.com/germanamz/shelly/pkg/chatty/role"
-	"github.com/germanamz/shelly/pkg/providers/model"
-	"github.com/germanamz/shelly/pkg/providers/provider"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,7 +20,7 @@ import (
 // --- Completer interface tests ---
 
 // Compile-time interface check: a mock satisfies Completer.
-var _ provider.Completer = (*mockCompleter)(nil)
+var _ modeladapter.Completer = (*mockCompleter)(nil)
 
 type mockCompleter struct {
 	msg message.Message
@@ -53,76 +52,78 @@ func TestCompleter_Error(t *testing.T) {
 	assert.EqualError(t, err, "api error")
 }
 
-// Compile-time interface check: Provider itself satisfies Completer.
-var _ provider.Completer = (*provider.Provider)(nil)
+// Compile-time interface check: ModelAdapter itself satisfies Completer.
+var _ modeladapter.Completer = (*modeladapter.ModelAdapter)(nil)
 
-// --- Provider struct (base) tests ---
+// --- ModelAdapter struct (base) tests ---
 
-func TestProvider_StubComplete(t *testing.T) {
-	var p provider.Provider
+func TestModelAdapter_StubComplete(t *testing.T) {
+	var a modeladapter.ModelAdapter
 
-	_, err := p.Complete(context.Background(), chat.New())
-	assert.EqualError(t, err, "provider: Complete not implemented")
+	_, err := a.Complete(context.Background(), chat.New())
+	assert.EqualError(t, err, "adapter: Complete not implemented")
 }
 
-func TestNewProvider_DefaultClient(t *testing.T) {
-	p := provider.NewProvider("https://api.example.com", provider.Auth{}, model.Model{}, nil)
-	assert.Nil(t, p.Client)
+func TestNew_DefaultClient(t *testing.T) {
+	a := modeladapter.New("https://api.example.com", modeladapter.Auth{}, nil)
+	assert.Nil(t, a.Client)
 }
 
-func TestNewProvider_ModelEmbedding(t *testing.T) {
-	m := model.Model{Name: "gpt-4", Temperature: 0.7, MaxTokens: 1024}
-	p := provider.NewProvider("https://api.example.com", provider.Auth{}, m, nil)
+func TestNew_ModelFields(t *testing.T) {
+	a := modeladapter.New("https://api.example.com", modeladapter.Auth{}, nil)
+	a.Name = "gpt-4"
+	a.Temperature = 0.7
+	a.MaxTokens = 1024
 
-	assert.Equal(t, "gpt-4", p.Name)
-	assert.InDelta(t, 0.7, p.Temperature, 1e-9)
-	assert.Equal(t, 1024, p.MaxTokens)
+	assert.Equal(t, "gpt-4", a.Name)
+	assert.InDelta(t, 0.7, a.Temperature, 1e-9)
+	assert.Equal(t, 1024, a.MaxTokens)
 }
 
 func TestNewRequest_BearerAuth(t *testing.T) {
-	p := provider.NewProvider("https://api.example.com", provider.Auth{Key: "sk-test"}, model.Model{}, nil)
+	a := modeladapter.New("https://api.example.com", modeladapter.Auth{Key: "sk-test"}, nil)
 
-	req, err := p.NewRequest(context.Background(), http.MethodGet, "/v1/chat", nil)
+	req, err := a.NewRequest(context.Background(), http.MethodGet, "/v1/chat", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "https://api.example.com/v1/chat", req.URL.String())
 	assert.Equal(t, "Bearer sk-test", req.Header.Get("Authorization"))
 }
 
 func TestNewRequest_CustomHeader(t *testing.T) {
-	auth := provider.Auth{Key: "sk-test", Header: "x-api-key"}
-	p := provider.NewProvider("https://api.example.com", auth, model.Model{}, nil)
+	auth := modeladapter.Auth{Key: "sk-test", Header: "x-api-key"}
+	a := modeladapter.New("https://api.example.com", auth, nil)
 
-	req, err := p.NewRequest(context.Background(), http.MethodGet, "/v1/chat", nil)
+	req, err := a.NewRequest(context.Background(), http.MethodGet, "/v1/chat", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "sk-test", req.Header.Get("x-api-key"))
 	assert.Empty(t, req.Header.Get("Authorization"))
 }
 
 func TestNewRequest_CustomHeaderWithScheme(t *testing.T) {
-	auth := provider.Auth{Key: "sk-test", Header: "x-api-key", Scheme: "Token"}
-	p := provider.NewProvider("https://api.example.com", auth, model.Model{}, nil)
+	auth := modeladapter.Auth{Key: "sk-test", Header: "x-api-key", Scheme: "Token"}
+	a := modeladapter.New("https://api.example.com", auth, nil)
 
-	req, err := p.NewRequest(context.Background(), http.MethodGet, "/v1/chat", nil)
+	req, err := a.NewRequest(context.Background(), http.MethodGet, "/v1/chat", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "Token sk-test", req.Header.Get("x-api-key"))
 }
 
 func TestNewRequest_NoAuth(t *testing.T) {
-	p := provider.NewProvider("https://api.example.com", provider.Auth{}, model.Model{}, nil)
+	a := modeladapter.New("https://api.example.com", modeladapter.Auth{}, nil)
 
-	req, err := p.NewRequest(context.Background(), http.MethodGet, "/v1/chat", nil)
+	req, err := a.NewRequest(context.Background(), http.MethodGet, "/v1/chat", nil)
 	require.NoError(t, err)
 	assert.Empty(t, req.Header.Get("Authorization"))
 }
 
 func TestNewRequest_ExtraHeaders(t *testing.T) {
-	p := provider.NewProvider("https://api.example.com", provider.Auth{}, model.Model{}, nil)
-	p.Headers = map[string]string{
+	a := modeladapter.New("https://api.example.com", modeladapter.Auth{}, nil)
+	a.Headers = map[string]string{
 		"anthropic-version": "2024-01-01",
 		"x-custom":          "value",
 	}
 
-	req, err := p.NewRequest(context.Background(), http.MethodGet, "/v1/chat", nil)
+	req, err := a.NewRequest(context.Background(), http.MethodGet, "/v1/chat", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "2024-01-01", req.Header.Get("anthropic-version"))
 	assert.Equal(t, "value", req.Header.Get("x-custom"))
@@ -135,12 +136,12 @@ func TestDo_Passthrough(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := provider.NewProvider(srv.URL, provider.Auth{}, model.Model{}, srv.Client())
+	a := modeladapter.New(srv.URL, modeladapter.Auth{}, srv.Client())
 
-	req, err := p.NewRequest(context.Background(), http.MethodGet, "/ping", nil)
+	req, err := a.NewRequest(context.Background(), http.MethodGet, "/ping", nil)
 	require.NoError(t, err)
 
-	resp, err := p.Do(req)
+	resp, err := a.Do(req)
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 
@@ -170,10 +171,10 @@ func TestPostJSON_Success(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := provider.NewProvider(srv.URL, provider.Auth{Key: "sk-test"}, model.Model{}, srv.Client())
+	a := modeladapter.New(srv.URL, modeladapter.Auth{Key: "sk-test"}, srv.Client())
 
 	var dest respBody
-	err := p.PostJSON(context.Background(), "/v1/chat", reqBody{Model: "gpt-4"}, &dest)
+	err := a.PostJSON(context.Background(), "/v1/chat", reqBody{Model: "gpt-4"}, &dest)
 	require.NoError(t, err)
 	assert.Equal(t, "chatcmpl-123", dest.ID)
 }
@@ -185,17 +186,17 @@ func TestPostJSON_ErrorStatus(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := provider.NewProvider(srv.URL, provider.Auth{}, model.Model{}, srv.Client())
+	a := modeladapter.New(srv.URL, modeladapter.Auth{}, srv.Client())
 
 	var dest map[string]string
-	err := p.PostJSON(context.Background(), "/v1/chat", map[string]string{"model": "gpt-4"}, &dest)
+	err := a.PostJSON(context.Background(), "/v1/chat", map[string]string{"model": "gpt-4"}, &dest)
 	assert.ErrorContains(t, err, "unexpected status 401")
 }
 
 func TestPostJSON_MarshalError(t *testing.T) {
-	p := provider.NewProvider("https://api.example.com", provider.Auth{}, model.Model{}, nil)
+	a := modeladapter.New("https://api.example.com", modeladapter.Auth{}, nil)
 
-	err := p.PostJSON(context.Background(), "/v1/chat", make(chan int), nil)
+	err := a.PostJSON(context.Background(), "/v1/chat", make(chan int), nil)
 	assert.ErrorContains(t, err, "marshal payload")
 }
 
@@ -206,8 +207,8 @@ func TestPostJSON_NilDest(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := provider.NewProvider(srv.URL, provider.Auth{}, model.Model{}, srv.Client())
+	a := modeladapter.New(srv.URL, modeladapter.Auth{}, srv.Client())
 
-	err := p.PostJSON(context.Background(), "/v1/chat", map[string]string{"model": "gpt-4"}, nil)
+	err := a.PostJSON(context.Background(), "/v1/chat", map[string]string{"model": "gpt-4"}, nil)
 	assert.NoError(t, err)
 }

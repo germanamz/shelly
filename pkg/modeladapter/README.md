@@ -1,29 +1,16 @@
-# providers
+# modeladapter
 
-An abstraction layer for LLM completion providers. The providers package defines the shared configuration and interface that concrete provider adapters (OpenAI, Anthropic, local models, etc.) must implement. It depends on the `chatty` package for its chat, message, and content types.
+An abstraction layer for LLM completion adapters. The modeladapter package defines the shared configuration and interface that concrete provider adapters (OpenAI, Anthropic, local models, etc.) must implement. It depends on the `chatty` package for its chat, message, and content types.
 
 ## Architecture
 
 ```
-providers/
-├── model/      Provider-agnostic model configuration (name, temperature, max tokens)
-├── provider/   Completer interface + embeddable Provider base struct with HTTP helpers
-└── usage/      Thread-safe token usage tracker
+modeladapter/
+├── modeladapter.go   Completer interface + embeddable ModelAdapter base struct with HTTP helpers
+└── usage/       Thread-safe token usage tracker
 ```
 
-### `model` — Model Configuration
-
-`Model` holds provider-agnostic LLM settings shared by all adapters:
-
-| Field         | Type      | Description                       |
-|---------------|-----------|-----------------------------------|
-| `Name`        | `string`  | Model identifier (e.g. `"gpt-4"`) |
-| `Temperature` | `float64` | Sampling temperature               |
-| `MaxTokens`   | `int`     | Maximum tokens in the response     |
-
-The zero value is valid — zero fields mean "use provider defaults". `Model` is designed to be **embedded** in provider-specific config structs so that shared settings are always available without duplication.
-
-### `provider` — Completer Interface & Provider Base
+### `ModelAdapter` — Completer Interface & ModelAdapter Base
 
 Defines the `Completer` interface that all provider adapters must satisfy:
 
@@ -35,16 +22,18 @@ type Completer interface {
 
 `Complete` sends a conversation to an LLM and returns the assistant's reply as a `message.Message`. It accepts the full `chat.Chat` so the provider has access to the entire conversation history, system prompt, and any tool-call context.
 
-`Provider` is an embeddable base struct that provides HTTP helpers, authentication, custom headers, and usage tracking. It implements `Completer` with a stub that returns an error — concrete types embed `Provider` and define their own `Complete` method to shadow the stub:
+`ModelAdapter` is an embeddable base struct that provides HTTP helpers, authentication, custom headers, and usage tracking. It implements `Completer` with a stub that returns an error — concrete types embed `ModelAdapter` and define their own `Complete` method to shadow the stub:
 
-| Field     | Type                | Description                                    |
-|-----------|---------------------|------------------------------------------------|
-| `Model`   | `model.Model`       | Embedded model configuration                   |
-| `Auth`    | `Auth`              | API key, header name, and scheme               |
-| `BaseURL` | `string`            | API base URL (no trailing slash)               |
-| `Client`  | `*http.Client`      | HTTP client (falls back to `http.DefaultClient`) |
-| `Headers` | `map[string]string` | Extra headers applied to every request         |
-| `Usage`   | `usage.Tracker`     | Token usage tracker                            |
+| Field         | Type                | Description                                      |
+|---------------|---------------------|--------------------------------------------------|
+| `Name`        | `string`            | Model identifier (e.g. `"gpt-4"`)               |
+| `Temperature` | `float64`           | Sampling temperature                             |
+| `MaxTokens`   | `int`               | Maximum tokens in the response                   |
+| `Auth`        | `Auth`              | API key, header name, and scheme                 |
+| `BaseURL`     | `string`            | API base URL (no trailing slash)                 |
+| `Client`      | `*http.Client`      | HTTP client (falls back to `http.DefaultClient`) |
+| `Headers`     | `map[string]string` | Extra headers applied to every request           |
+| `Usage`       | `usage.Tracker`     | Token usage tracker                              |
 
 Key methods:
 - `NewRequest` — builds an `*http.Request` with base URL, auth, and custom headers applied
@@ -67,30 +56,33 @@ Key methods:
 
 ### Implementing a Concrete Provider
 
-Embed `provider.Provider` to inherit HTTP helpers, auth, and usage tracking. Define your own `Complete` method to shadow the base stub:
+Embed `modeladapter.ModelAdapter` to inherit HTTP helpers, auth, and usage tracking. Define your own `Complete` method to shadow the base stub:
 
 ```go
 // OpenAI is a concrete provider that calls the OpenAI chat completions API.
 type OpenAI struct {
-    provider.Provider
+    modeladapter.ModelAdapter
 }
 
 // NewOpenAI creates an OpenAI provider with the given API key and model config.
-func NewOpenAI(apiKey string, m model.Model) *OpenAI {
-    return &OpenAI{
-        Provider: provider.NewProvider(
+func NewOpenAI(apiKey string) *OpenAI {
+    o := &OpenAI{
+        ModelAdapter: modeladapter.New(
             "https://api.openai.com",
-            provider.Auth{Key: apiKey},  // defaults to Authorization: Bearer <key>
-            m,
-            nil,  // uses http.DefaultClient
+            modeladapter.Auth{Key: apiKey},  // defaults to Authorization: Bearer <key>
+            nil,                        // uses http.DefaultClient
         ),
     }
+    o.Name = "gpt-4"
+    o.MaxTokens = 1024
+
+    return o
 }
 
-// Complete shadows the Provider stub — converts the chat to the OpenAI wire
+// Complete shadows the ModelAdapter stub — converts the chat to the OpenAI wire
 // format, calls the API via PostJSON, tracks usage, and returns the reply.
 func (o *OpenAI) Complete(ctx context.Context, c *chat.Chat) (message.Message, error) {
-    req := toOpenAIRequest(c, o.Model)
+    req := toOpenAIRequest(c, o.Name, o.Temperature, o.MaxTokens)
 
     var resp openAIResponse
     if err := o.PostJSON(ctx, "/v1/chat/completions", req, &resp); err != nil {
@@ -106,16 +98,13 @@ func (o *OpenAI) Complete(ctx context.Context, c *chat.Chat) (message.Message, e
 }
 ```
 
-### Using a Provider with the Agent
+### Using a ModelAdapter with the Agent
 
-The `Completer` interface lets the Agent accept any concrete provider:
+The `Completer` interface lets the Agent accept any concrete model adapter:
 
 ```go
-// NewOpenAI returns a *OpenAI, which satisfies provider.Completer
-p := NewOpenAI(os.Getenv("OPENAI_API_KEY"), model.Model{
-    Name:        "gpt-4",
-    MaxTokens:   1024,
-})
+// NewOpenAI returns a *OpenAI, which satisfies modeladapter.Completer
+p := NewOpenAI(os.Getenv("OPENAI_API_KEY"))
 
 c := chat.New(
     message.NewText("", role.System, "You are a helpful assistant."),
@@ -132,21 +121,21 @@ Providers with non-standard auth (e.g. `x-api-key` header instead of Bearer) con
 
 ```go
 type Anthropic struct {
-    provider.Provider
+    modeladapter.ModelAdapter
 }
 
-func NewAnthropic(apiKey string, m model.Model) *Anthropic {
-    p := &Anthropic{
-        Provider: provider.NewProvider(
+func NewAnthropic(apiKey string) *Anthropic {
+    a := &Anthropic{
+        ModelAdapter: modeladapter.New(
             "https://api.anthropic.com",
-            provider.Auth{Key: apiKey, Header: "x-api-key"},
-            m,
+            modeladapter.Auth{Key: apiKey, Header: "x-api-key"},
             nil,
         ),
     }
-    p.Headers = map[string]string{"anthropic-version": "2024-01-01"}
+    a.Name = "claude-sonnet-4-6-20250514"
+    a.Headers = map[string]string{"anthropic-version": "2024-01-01"}
 
-    return p
+    return a
 }
 ```
 
@@ -176,7 +165,7 @@ func (o *OpenAI) ListModels(ctx context.Context) ([]string, error) {
 The embedded `Usage` tracker accumulates token counts across calls:
 
 ```go
-p := NewOpenAI(apiKey, m)
+p := NewOpenAI(apiKey)
 
 p.Complete(ctx, chat1)
 p.Complete(ctx, chat2)

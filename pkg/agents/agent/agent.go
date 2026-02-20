@@ -1,4 +1,4 @@
-// Package agent defines the Agent type that orchestrates a Provider, ToolBoxes,
+// Package agent defines the Agent type that orchestrates a ModelAdapter, ToolBoxes,
 // and a Chat into a cohesive unit for LLM interactions.
 package agent
 
@@ -6,38 +6,38 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/germanamz/shelly/pkg/modeladapter"
 	"github.com/germanamz/shelly/pkg/chatty/chat"
 	"github.com/germanamz/shelly/pkg/chatty/content"
 	"github.com/germanamz/shelly/pkg/chatty/message"
 	"github.com/germanamz/shelly/pkg/chatty/role"
-	"github.com/germanamz/shelly/pkg/providers/provider"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
-// Agent orchestrates a Provider, ToolBoxes, and a Chat. It sends conversations
-// to the provider for completion and executes tool calls across its toolboxes.
+// Agent orchestrates a ModelAdapter, ToolBoxes, and a Chat. It sends conversations
+// to the model adapter for completion and executes tool calls across its toolboxes.
 // Agent is not safe for concurrent use; callers must synchronize externally.
 type Agent struct {
-	Name      string
-	Provider  provider.Completer
-	ToolBoxes []*toolbox.ToolBox
-	Chat      *chat.Chat
+	Name         string
+	ModelAdapter modeladapter.Completer
+	ToolBoxes    []*toolbox.ToolBox
+	Chat         *chat.Chat
 }
 
-// New creates an Agent with the given name, provider, chat, and optional toolboxes.
-func New(name string, p provider.Completer, c *chat.Chat, tbs ...*toolbox.ToolBox) *Agent {
+// New creates an Agent with the given name, model adapter, chat, and optional toolboxes.
+func New(name string, a modeladapter.Completer, c *chat.Chat, tbs ...*toolbox.ToolBox) *Agent {
 	return &Agent{
-		Name:      name,
-		Provider:  p,
-		ToolBoxes: tbs,
-		Chat:      c,
+		Name:         name,
+		ModelAdapter: a,
+		ToolBoxes:    tbs,
+		Chat:         c,
 	}
 }
 
-// Complete sends the chat to the provider and appends the reply to the
+// Complete sends the chat to the model adapter and appends the reply to the
 // conversation. The reply's Sender is set to the agent's Name.
 func (a *Agent) Complete(ctx context.Context) (message.Message, error) {
-	reply, err := a.Provider.Complete(ctx, a.Chat)
+	reply, err := a.ModelAdapter.Complete(ctx, a.Chat)
 	if err != nil {
 		return message.Message{}, err
 	}
