@@ -10,7 +10,7 @@ agents/
 └── reactor/  ReAct loop — iterative completion and tool execution
 ```
 
-**Dependency graph**: `agent` is the foundation, depending on `chatty`, `providers`, and `tools`. `reactor` depends on `agent` and drives the ReAct loop.
+**Dependency graph**: `agent` is the foundation, depending on `chats`, `providers`, and `tools`. `reactor` depends on `agent` and drives the ReAct loop.
 
 ### `agent` — Agent
 

@@ -11,8 +11,8 @@ import (
 	"strings"
 
 	"github.com/coder/websocket"
-	"github.com/germanamz/shelly/pkg/chatty/chat"
-	"github.com/germanamz/shelly/pkg/chatty/message"
+	"github.com/germanamz/shelly/pkg/chats/chat"
+	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/modeladapter/usage"
 )
 

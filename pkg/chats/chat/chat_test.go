@@ -3,8 +3,8 @@ package chat
 import (
 	"testing"
 
-	"github.com/germanamz/shelly/pkg/chatty/message"
-	"github.com/germanamz/shelly/pkg/chatty/role"
+	"github.com/germanamz/shelly/pkg/chats/message"
+	"github.com/germanamz/shelly/pkg/chats/role"
 
 	"github.com/stretchr/testify/assert"
 )

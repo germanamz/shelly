@@ -10,9 +10,9 @@ import (
 	"testing"
 
 	"github.com/coder/websocket"
-	"github.com/germanamz/shelly/pkg/chatty/chat"
-	"github.com/germanamz/shelly/pkg/chatty/message"
-	"github.com/germanamz/shelly/pkg/chatty/role"
+	"github.com/germanamz/shelly/pkg/chats/chat"
+	"github.com/germanamz/shelly/pkg/chats/message"
+	"github.com/germanamz/shelly/pkg/chats/role"
 	"github.com/germanamz/shelly/pkg/modeladapter"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

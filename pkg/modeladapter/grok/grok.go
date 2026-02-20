@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/germanamz/shelly/pkg/chatty/chat"
-	"github.com/germanamz/shelly/pkg/chatty/content"
-	"github.com/germanamz/shelly/pkg/chatty/message"
-	"github.com/germanamz/shelly/pkg/chatty/role"
+	"github.com/germanamz/shelly/pkg/chats/chat"
+	"github.com/germanamz/shelly/pkg/chats/content"
+	"github.com/germanamz/shelly/pkg/chats/message"
+	"github.com/germanamz/shelly/pkg/chats/role"
 	"github.com/germanamz/shelly/pkg/modeladapter"
 	"github.com/germanamz/shelly/pkg/modeladapter/usage"
 )
@@ -152,7 +152,7 @@ func convertMessages(c *chat.Chat) []apiMessage {
 	return msgs
 }
 
-// convertResponse transforms an API message into a chatty Message.
+// convertResponse transforms an API message into a chats Message.
 func convertResponse(am apiMessage) message.Message {
 	var parts []content.Part
 

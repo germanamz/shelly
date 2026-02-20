@@ -6,10 +6,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/germanamz/shelly/pkg/chatty/chat"
-	"github.com/germanamz/shelly/pkg/chatty/content"
-	"github.com/germanamz/shelly/pkg/chatty/message"
-	"github.com/germanamz/shelly/pkg/chatty/role"
+	"github.com/germanamz/shelly/pkg/chats/chat"
+	"github.com/germanamz/shelly/pkg/chats/content"
+	"github.com/germanamz/shelly/pkg/chats/message"
+	"github.com/germanamz/shelly/pkg/chats/role"
 	"github.com/germanamz/shelly/pkg/modeladapter"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )

@@ -1,11 +1,11 @@
-# chatty
+# chats
 
-A provider-agnostic data model for LLM chat interactions. Chatty defines the core types — roles, content parts, messages, and conversations — without coupling to any specific LLM provider or API. It serves as a foundation layer that adapters can build on.
+A provider-agnostic data model for LLM chat interactions. Chats defines the core types — roles, content parts, messages, and conversations — without coupling to any specific LLM provider or API. It serves as a foundation layer that adapters can build on.
 
 ## Architecture
 
 ```
-chatty/
+chats/
 ├── role/       Conversation roles (system, user, assistant, tool)
 ├── content/    Multi-modal content parts (text, image, tool call/result)
 ├── message/    Messages composed of a sender, role, and content parts

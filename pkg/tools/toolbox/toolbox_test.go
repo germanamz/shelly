@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/germanamz/shelly/pkg/chatty/content"
+	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

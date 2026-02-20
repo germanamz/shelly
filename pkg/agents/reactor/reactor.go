@@ -8,7 +8,7 @@ import (
 	"errors"
 
 	"github.com/germanamz/shelly/pkg/agents/agent"
-	"github.com/germanamz/shelly/pkg/chatty/message"
+	"github.com/germanamz/shelly/pkg/chats/message"
 )
 
 // ErrMaxIterations is returned when the ReAct loop exceeds MaxIterations

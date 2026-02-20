@@ -7,7 +7,7 @@ A provider-agnostic Go framework for building LLM chat applications. Shelly prov
 ```
 cmd/shelly/           CLI entry point
 pkg/
-├── chatty/           Provider-agnostic chat data model
+├── chats/            Provider-agnostic chat data model
 │   ├── role/           Conversation roles (system, user, assistant, tool)
 │   ├── content/        Multi-modal content parts (text, image, tool call/result)
 │   ├── message/        Messages composed of a sender, role, and content parts
@@ -18,16 +18,16 @@ pkg/
 └── reactor/          (reserved for future use)
 ```
 
-### chatty — Chat Data Model
+### chats — Chat Data Model
 
-The `chatty` package defines a complete, provider-agnostic data model for LLM conversations. It is the foundation layer that everything else builds on.
+The `chats` package defines a complete, provider-agnostic data model for LLM conversations. It is the foundation layer that everything else builds on.
 
 - **role** defines `Role` (`System`, `User`, `Assistant`, `Tool`) with validation.
 - **content** defines the `Part` interface and four implementations: `Text`, `Image`, `ToolCall`, and `ToolResult`. Custom content types can be added by implementing the single-method `Part` interface.
 - **message** combines a `Sender`, `Role`, content `Parts`, and arbitrary `Metadata` into a single value type. The `Sender` field enables multi-agent tracking.
 - **chat** is a mutable, ordered collection of messages with filtering (`BySender`), iteration (`Each`), and convenience accessors (`SystemPrompt`, `Last`).
 
-See [`pkg/chatty/README.md`](pkg/chatty/README.md) for detailed examples.
+See [`pkg/chats/README.md`](pkg/chats/README.md) for detailed examples.
 
 ### providers — Provider Abstraction
 

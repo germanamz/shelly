@@ -1,6 +1,6 @@
 # modeladapter
 
-An abstraction layer for LLM completion adapters. The modeladapter package defines the shared configuration and interface that concrete provider adapters (OpenAI, Anthropic, local models, etc.) must implement. It depends on the `chatty` package for its chat, message, and content types.
+An abstraction layer for LLM completion adapters. The modeladapter package defines the shared configuration and interface that concrete provider adapters (OpenAI, Anthropic, local models, etc.) must implement. It depends on the `chats` package for its chat, message, and content types.
 
 ## Architecture
 

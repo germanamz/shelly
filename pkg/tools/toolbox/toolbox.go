@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/germanamz/shelly/pkg/chatty/content"
+	"github.com/germanamz/shelly/pkg/chats/content"
 )
 
 // ToolBox orchestrates a collection of tools. It allows registering, retrieving,

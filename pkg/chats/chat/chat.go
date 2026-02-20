@@ -2,8 +2,8 @@
 package chat
 
 import (
-	"github.com/germanamz/shelly/pkg/chatty/message"
-	"github.com/germanamz/shelly/pkg/chatty/role"
+	"github.com/germanamz/shelly/pkg/chats/message"
+	"github.com/germanamz/shelly/pkg/chats/role"
 )
 
 // Chat is a mutable conversation container. The zero value is ready to use.
