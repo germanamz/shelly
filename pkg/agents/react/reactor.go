@@ -1,7 +1,7 @@
-// Package reactor implements the ReAct (Reason + Act) agent pattern. It
+// Package react implements the ReAct (Reason + Act) agent pattern. It
 // drives an Agent through iterative cycles of LLM completion and tool
 // execution until the provider returns a final answer with no tool calls.
-package reactor
+package react
 
 import (
 	"context"

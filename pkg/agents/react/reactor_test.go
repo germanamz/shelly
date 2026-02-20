@@ -1,4 +1,4 @@
-package reactor
+package react
 
 import (
 	"context"
