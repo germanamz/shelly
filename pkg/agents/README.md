@@ -1,16 +1,16 @@
 # agents
 
-Agent orchestration for Shelly. The agents package provides the `Agent` type that combines a Provider, ToolBoxes, and a Chat into a single unit, and the `reactor` sub-package that implements the ReAct (Reason + Act) loop for autonomous tool-using agents.
+Agent orchestration for Shelly. The agents package provides the `Agent` type that combines a Provider, ToolBoxes, and a Chat into a single unit, and the `react` sub-package that implements the ReAct (Reason + Act) loop for autonomous tool-using agents.
 
 ## Architecture
 
 ```
 agents/
 ├── agent/    Agent type — orchestrates Provider, ToolBoxes, and Chat
-└── reactor/  ReAct loop — iterative completion and tool execution
+└── react/   ReAct loop — iterative completion and tool execution
 ```
 
-**Dependency graph**: `agent` is the foundation, depending on `chats`, `providers`, and `tools`. `reactor` depends on `agent` and drives the ReAct loop.
+**Dependency graph**: `agent` is the foundation, depending on `chats`, `providers`, and `tools`. `react` depends on `agent` and drives the ReAct loop.
 
 ### `agent` — Agent
 
@@ -30,7 +30,7 @@ agents/
 
 `Agent` is **not** safe for concurrent use; callers must synchronize externally.
 
-### `reactor` — ReAct Loop
+### `react` — ReAct Loop
 
 Implements the Reason + Act pattern: the agent reasons (LLM completion), acts (tool execution), observes (tool results fed back), and repeats until the provider returns a final answer with no tool calls.
 
@@ -93,15 +93,15 @@ a := agent.New("bot", p, c, localTools, mcpTools)
 a := agent.New("bot", p, c, tb)
 
 // Run until the provider produces a final answer
-reply, err := reactor.Run(ctx, a, reactor.Options{})
+reply, err := react.Run(ctx, a, react.Options{})
 fmt.Println(reply.TextContent())
 ```
 
 ### ReAct Loop with Iteration Limit
 
 ```go
-reply, err := reactor.Run(ctx, a, reactor.Options{MaxIterations: 10})
-if errors.Is(err, reactor.ErrMaxIterations) {
+reply, err := react.Run(ctx, a, react.Options{MaxIterations: 10})
+if errors.Is(err, react.ErrMaxIterations) {
     fmt.Println("Agent did not converge within 10 iterations")
 }
 ```

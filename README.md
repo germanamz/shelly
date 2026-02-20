@@ -15,7 +15,7 @@ pkg/
 ├── providers/        LLM provider abstraction layer
 │   ├── model/          Provider-agnostic model configuration (name, temperature, max tokens)
 │   └── provider/       Interface that concrete provider adapters must satisfy
-└── reactor/          (reserved for future use)
+└── react/            (reserved for future use)
 ```
 
 ### chats — Chat Data Model

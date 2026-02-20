@@ -13,7 +13,7 @@ import (
 
 // ErrMaxIterations is returned when the ReAct loop exceeds MaxIterations
 // without the provider producing a final answer.
-var ErrMaxIterations = errors.New("reactor: max iterations reached")
+var ErrMaxIterations = errors.New("react: max iterations reached")
 
 // Options configures the ReAct loop.
 type Options struct {
