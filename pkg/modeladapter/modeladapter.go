@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
-	"github.com/germanamz/shelly/pkg/modeladapter/usage"
+	"github.com/coder/websocket"
 	"github.com/germanamz/shelly/pkg/chatty/chat"
 	"github.com/germanamz/shelly/pkg/chatty/message"
+	"github.com/germanamz/shelly/pkg/modeladapter/usage"
 )
 
 // Completer sends a conversation to an LLM and returns the assistant's reply.
@@ -147,4 +149,72 @@ func (a *ModelAdapter) PostJSON(ctx context.Context, path string, payload any, d
 	}
 
 	return nil
+}
+
+// wsURL converts the BaseURL to a WebSocket URL and appends the path.
+// https becomes wss, http becomes ws. URLs that already use ws/wss are
+// left unchanged.
+func (a *ModelAdapter) wsURL(path string) string {
+	u := a.BaseURL + path
+
+	if strings.HasPrefix(u, "https://") {
+		return "wss://" + u[len("https://"):]
+	}
+
+	if strings.HasPrefix(u, "http://") {
+		return "ws://" + u[len("http://"):]
+	}
+
+	return u
+}
+
+// wsHeaders returns an http.Header with auth and custom headers applied,
+// for use with WebSocket dial options.
+func (a *ModelAdapter) wsHeaders() http.Header {
+	h := make(http.Header)
+
+	if a.Auth.Key != "" {
+		header := a.Auth.Header
+		if header == "" {
+			header = "Authorization"
+		}
+
+		value := a.Auth.Key
+		if header == "Authorization" {
+			scheme := a.Auth.Scheme
+			if scheme == "" {
+				scheme = "Bearer"
+			}
+
+			value = scheme + " " + value
+		} else if a.Auth.Scheme != "" {
+			value = a.Auth.Scheme + " " + value
+		}
+
+		h.Set(header, value)
+	}
+
+	for k, v := range a.Headers {
+		h.Set(k, v)
+	}
+
+	return h
+}
+
+// DialWS establishes a WebSocket connection to the given path with auth and
+// custom headers applied. The URL scheme is derived from BaseURL: https
+// becomes wss, http becomes ws. It returns the WebSocket connection and the
+// HTTP response from the handshake.
+func (a *ModelAdapter) DialWS(ctx context.Context, path string) (*websocket.Conn, *http.Response, error) {
+	u := a.wsURL(path)
+
+	conn, resp, err := websocket.Dial(ctx, u, &websocket.DialOptions{
+		HTTPClient: a.httpClient(),
+		HTTPHeader: a.wsHeaders(),
+	})
+	if err != nil {
+		return nil, resp, fmt.Errorf("dial websocket: %w", err)
+	}
+
+	return conn, resp, nil
 }

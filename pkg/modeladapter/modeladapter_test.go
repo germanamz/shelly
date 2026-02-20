@@ -9,10 +9,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/germanamz/shelly/pkg/modeladapter"
+	"github.com/coder/websocket"
 	"github.com/germanamz/shelly/pkg/chatty/chat"
 	"github.com/germanamz/shelly/pkg/chatty/message"
 	"github.com/germanamz/shelly/pkg/chatty/role"
+	"github.com/germanamz/shelly/pkg/modeladapter"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -211,4 +212,132 @@ func TestPostJSON_NilDest(t *testing.T) {
 
 	err := a.PostJSON(context.Background(), "/v1/chat", map[string]string{"model": "gpt-4"}, nil)
 	assert.NoError(t, err)
+}
+
+// --- WebSocket tests ---
+
+func wsEchoHandler(t *testing.T) http.HandlerFunc {
+	t.Helper()
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			t.Logf("ws accept: %v", err)
+			return
+		}
+		defer func() { _ = conn.CloseNow() }()
+
+		typ, msg, err := conn.Read(r.Context())
+		if err != nil {
+			return
+		}
+
+		_ = conn.Write(r.Context(), typ, msg)
+		_ = conn.Close(websocket.StatusNormalClosure, "")
+	}
+}
+
+func TestDialWS_Success(t *testing.T) {
+	srv := httptest.NewServer(wsEchoHandler(t))
+	defer srv.Close()
+
+	a := modeladapter.New(srv.URL, modeladapter.Auth{Key: "sk-test"}, srv.Client())
+
+	ctx := context.Background()
+
+	conn, resp, err := a.DialWS(ctx, "/ws")
+	require.NoError(t, err)
+	defer func() { _ = conn.CloseNow() }()
+
+	assert.Equal(t, http.StatusSwitchingProtocols, resp.StatusCode)
+
+	// Verify echo round-trip.
+	err = conn.Write(ctx, websocket.MessageText, []byte("hello"))
+	require.NoError(t, err)
+
+	typ, msg, err := conn.Read(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, websocket.MessageText, typ)
+	assert.Equal(t, "hello", string(msg))
+}
+
+func TestDialWS_BearerAuth(t *testing.T) {
+	var gotAuth string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+
+		_ = conn.Close(websocket.StatusNormalClosure, "")
+	}))
+	defer srv.Close()
+
+	a := modeladapter.New(srv.URL, modeladapter.Auth{Key: "sk-test"}, srv.Client())
+
+	conn, _, err := a.DialWS(context.Background(), "/ws")
+	require.NoError(t, err)
+	defer func() { _ = conn.CloseNow() }()
+
+	assert.Equal(t, "Bearer sk-test", gotAuth)
+}
+
+func TestDialWS_CustomHeaderAuth(t *testing.T) {
+	var gotKey string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotKey = r.Header.Get("x-api-key")
+
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+
+		_ = conn.Close(websocket.StatusNormalClosure, "")
+	}))
+	defer srv.Close()
+
+	auth := modeladapter.Auth{Key: "sk-test", Header: "x-api-key"}
+	a := modeladapter.New(srv.URL, auth, srv.Client())
+
+	conn, _, err := a.DialWS(context.Background(), "/ws")
+	require.NoError(t, err)
+	defer func() { _ = conn.CloseNow() }()
+
+	assert.Equal(t, "sk-test", gotKey)
+}
+
+func TestDialWS_ExtraHeaders(t *testing.T) {
+	var gotCustom string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCustom = r.Header.Get("x-custom")
+
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+
+		_ = conn.Close(websocket.StatusNormalClosure, "")
+	}))
+	defer srv.Close()
+
+	a := modeladapter.New(srv.URL, modeladapter.Auth{}, srv.Client())
+	a.Headers = map[string]string{"x-custom": "value"}
+
+	conn, _, err := a.DialWS(context.Background(), "/ws")
+	require.NoError(t, err)
+	defer func() { _ = conn.CloseNow() }()
+
+	assert.Equal(t, "value", gotCustom)
+}
+
+func TestDialWS_ConnectionError(t *testing.T) {
+	a := modeladapter.New("http://127.0.0.1:1", modeladapter.Auth{}, nil)
+
+	_, _, err := a.DialWS(context.Background(), "/ws")
+	assert.ErrorContains(t, err, "dial websocket")
 }

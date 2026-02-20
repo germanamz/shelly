@@ -6,7 +6,7 @@ An abstraction layer for LLM completion adapters. The modeladapter package defin
 
 ```
 modeladapter/
-├── modeladapter.go   Completer interface + embeddable ModelAdapter base struct with HTTP helpers
+├── modeladapter.go   Completer interface + embeddable ModelAdapter base struct with HTTP/WebSocket helpers
 └── usage/       Thread-safe token usage tracker
 ```
 
@@ -39,6 +39,7 @@ Key methods:
 - `NewRequest` — builds an `*http.Request` with base URL, auth, and custom headers applied
 - `PostJSON` — marshals payload, sends POST, checks 2xx, unmarshals response into dest
 - `Do` — low-level passthrough to `Client.Do`
+- `DialWS` — establishes a WebSocket connection with auth and custom headers applied (scheme auto-converted from http/https to ws/wss)
 
 ### `usage` — Token Usage Tracker
 
@@ -138,6 +139,37 @@ func NewAnthropic(apiKey string) *Anthropic {
     return a
 }
 ```
+
+### WebSocket Streaming
+
+For providers that offer WebSocket-based APIs (e.g. realtime or streaming endpoints), use `DialWS` to establish a connection with auth and headers pre-applied:
+
+```go
+func (o *OpenAI) StreamRealtime(ctx context.Context) error {
+    conn, _, err := o.DialWS(ctx, "/v1/realtime?model=gpt-4o-realtime")
+    if err != nil {
+        return err
+    }
+    defer conn.CloseNow()
+
+    // Send and receive messages over the WebSocket...
+    err = conn.Write(ctx, websocket.MessageText, []byte(`{"type":"session.update"}`))
+    if err != nil {
+        return err
+    }
+
+    _, msg, err := conn.Read(ctx)
+    if err != nil {
+        return err
+    }
+
+    fmt.Println(string(msg))
+
+    return conn.Close(websocket.StatusNormalClosure, "done")
+}
+```
+
+The URL scheme is derived from `BaseURL` automatically: `https` becomes `wss`, `http` becomes `ws`.
 
 ### Low-Level HTTP Access
 
