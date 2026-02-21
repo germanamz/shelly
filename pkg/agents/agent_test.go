@@ -219,3 +219,16 @@ func TestToolsEmpty(t *testing.T) {
 
 	assert.Empty(t, b.Tools())
 }
+
+func TestAgentBaseAgentName(t *testing.T) {
+	b := NewAgentBase("mybot", &mockProvider{}, chat.New())
+
+	assert.Equal(t, "mybot", b.AgentName())
+}
+
+func TestAgentBaseAgentChat(t *testing.T) {
+	c := chat.New()
+	b := NewAgentBase("bot", &mockProvider{}, c)
+
+	assert.Same(t, c, b.AgentChat())
+}

@@ -84,6 +84,12 @@ func (b *AgentBase) Tools() []toolbox.Tool {
 	return tools
 }
 
+// AgentName returns the agent's name.
+func (b *AgentBase) AgentName() string { return b.Name }
+
+// AgentChat returns the agent's chat.
+func (b *AgentBase) AgentChat() *chat.Chat { return b.Chat }
+
 // callTool searches all ToolBoxes for the named tool and executes it.
 func (b *AgentBase) callTool(ctx context.Context, tc content.ToolCall) content.ToolResult {
 	for _, tb := range b.ToolBoxes {
