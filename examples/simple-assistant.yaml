@@ -1,7 +1,7 @@
 providers:
   - name: grok
     kind: grok
-    api_key: <your-grok-api-key>
+    api_key: ${GROK_API_KEY}
     model: grok-3
 
 agents:

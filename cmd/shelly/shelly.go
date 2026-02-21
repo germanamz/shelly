@@ -8,12 +8,15 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+
+	"github.com/joho/godotenv"
 
 	"github.com/germanamz/shelly/pkg/chats/chat"
 	"github.com/germanamz/shelly/pkg/chats/content"
@@ -35,14 +38,30 @@ const (
 
 func main() {
 	configPath := flag.String("config", "shelly.yaml", "path to configuration file")
+	envFile := flag.String("env", ".env", "path to .env file (ignored if missing)")
 	agentName := flag.String("agent", "", "agent to start with (overrides entry_agent in config)")
 	verbose := flag.Bool("verbose", false, "show tool arguments and results")
 	flag.Parse()
+
+	if err := loadDotEnv(*envFile); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
 
 	if err := run(*configPath, *agentName, *verbose); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// loadDotEnv loads environment variables from path. If the file does not exist
+// it is silently ignored so that .env files remain optional.
+func loadDotEnv(path string) error {
+	err := godotenv.Load(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 // run loads the engine from configPath, creates a session for agentName

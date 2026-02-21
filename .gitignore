@@ -11,3 +11,6 @@ bin/
 
 # Vendor
 vendor/
+
+# Environment secrets
+.env

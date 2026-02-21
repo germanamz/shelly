@@ -47,6 +47,7 @@ func TestLoadConfig(t *testing.T) {
 	assert.Equal(t, "default", cfg.Providers[0].Name)
 	assert.Equal(t, "anthropic", cfg.Providers[0].Kind)
 	assert.Equal(t, "sk-test", cfg.Providers[0].APIKey)
+	assert.Equal(t, "claude-sonnet-4-20250514", cfg.Providers[0].Model)
 
 	assert.Len(t, cfg.MCPServers, 1)
 	assert.Equal(t, "search", cfg.MCPServers[0].Name)
@@ -65,6 +66,50 @@ func TestLoadConfig(t *testing.T) {
 func TestLoadConfig_FileNotFound(t *testing.T) {
 	_, err := LoadConfig("/no/such/file.yaml")
 	assert.Error(t, err)
+}
+
+func TestLoadConfig_ExpandsEnvVars(t *testing.T) {
+	t.Setenv("SHELLY_TEST_API_KEY", "sk-from-env")
+
+	yaml := `
+providers:
+  - name: p1
+    kind: anthropic
+    api_key: ${SHELLY_TEST_API_KEY}
+    model: claude-sonnet-4-20250514
+agents:
+  - name: a1
+    provider: p1
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(yaml), 0o600))
+
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "sk-from-env", cfg.Providers[0].APIKey)
+}
+
+func TestLoadConfig_UnsetEnvVarExpandsToEmpty(t *testing.T) {
+	yaml := `
+providers:
+  - name: p1
+    kind: anthropic
+    api_key: ${SHELLY_TEST_UNSET_VAR_12345}
+    model: m1
+agents:
+  - name: a1
+    provider: p1
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(yaml), 0o600))
+
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+
+	assert.Empty(t, cfg.Providers[0].APIKey)
 }
 
 func TestConfig_Validate_Valid(t *testing.T) {

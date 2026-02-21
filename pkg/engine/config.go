@@ -50,14 +50,20 @@ type AgentOptions struct {
 }
 
 // LoadConfig reads a YAML file and returns a Config.
+// Environment variables referenced as ${VAR} or $VAR in the YAML are expanded
+// before parsing. This allows API keys and other secrets to be kept in
+// environment variables (e.g. loaded from a .env file) rather than committed
+// in the config.
 func LoadConfig(path string) (Config, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // path is caller-provided configuration, not user input
 	if err != nil {
 		return Config{}, fmt.Errorf("engine: load config: %w", err)
 	}
 
+	expanded := os.ExpandEnv(string(data))
+
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
 		return Config{}, fmt.Errorf("engine: parse config: %w", err)
 	}
 
