@@ -9,6 +9,9 @@ Anthropic Messages API (Claude models).
 and response mapping. It uses `ModelAdapter.PostJSON` for HTTP calls and sets the
 `x-api-key` header (not Bearer) plus the required `anthropic-version` header.
 
+`Adapter` implements `modeladapter.ToolAware` via `SetTools()`, allowing the
+engine to inject tool declarations before agent execution.
+
 Key mapping details:
 
 - System prompts are extracted from the chat and sent as a top-level `system`
@@ -22,7 +25,7 @@ Key mapping details:
 
 ```go
 adapter := anthropic.New("https://api.anthropic.com", apiKey, "claude-sonnet-4-20250514")
-adapter.Tools = tools // optional []toolbox.Tool
+adapter.SetTools(tools) // or adapter.Tools = tools directly
 
 msg, err := adapter.Complete(ctx, myChat)
 ```

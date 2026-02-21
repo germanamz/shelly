@@ -9,6 +9,9 @@ OpenAI Chat Completions API.
 response mapping. It uses `ModelAdapter.PostJSON` for HTTP calls with the default
 `Authorization: Bearer` header scheme.
 
+`Adapter` implements `modeladapter.ToolAware` via `SetTools()`, allowing the
+engine to inject tool declarations before agent execution.
+
 Key mapping details:
 
 - System prompts are sent as `"system"` role messages in the messages array.
@@ -20,7 +23,7 @@ Key mapping details:
 
 ```go
 adapter := openai.New("https://api.openai.com", apiKey, "gpt-4")
-adapter.Tools = tools // optional []toolbox.Tool
+adapter.SetTools(tools) // or adapter.Tools = tools directly
 
 msg, err := adapter.Complete(ctx, myChat)
 ```

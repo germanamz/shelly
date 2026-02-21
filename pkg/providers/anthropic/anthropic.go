@@ -41,6 +41,11 @@ func New(baseURL, apiKey, model string) *Adapter {
 	return a
 }
 
+// SetTools sets the tools that will be declared in API requests.
+func (a *Adapter) SetTools(tools []toolbox.Tool) {
+	a.Tools = tools
+}
+
 // Complete sends a conversation to the Anthropic Messages API and returns the
 // assistant's reply.
 func (a *Adapter) Complete(ctx context.Context, c *chat.Chat) (message.Message, error) {

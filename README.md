@@ -12,10 +12,19 @@ pkg/
 │   ├── content/        Multi-modal content parts (text, image, tool call/result)
 │   ├── message/        Messages composed of a sender, role, and content parts
 │   └── chat/           Mutable conversation container
-├── providers/        LLM provider abstraction layer
-│   ├── model/          Provider-agnostic model configuration (name, temperature, max tokens)
-│   └── provider/       Interface that concrete provider adapters must satisfy
-└── react/            (reserved for future use)
+├── modeladapter/     LLM adapter abstraction (Completer, ToolAware, ModelAdapter base, usage tracking)
+├── providers/        LLM provider implementations
+│   ├── anthropic/      Anthropic Messages API adapter
+│   ├── openai/         OpenAI Chat Completions API adapter
+│   └── grok/           xAI Grok API adapter
+├── tools/            Tool execution and MCP integration
+│   ├── toolbox/        Tool type, ToolBox collection, and handlers
+│   ├── mcpclient/      MCP client (connects to external MCP servers)
+│   └── mcpserver/      MCP server (exposes tools over MCP protocol)
+├── skill/            Skill loading from markdown files
+├── agent/            Unified agent with ReAct loop, registry, delegation, and middleware
+├── state/            Key-value state store for inter-agent data sharing
+└── engine/           Composition root — wires everything from config, exposes Engine/Session/EventBus
 ```
 
 ### chats — Chat Data Model
@@ -45,6 +54,18 @@ type Provider interface {
 Concrete adapters (OpenAI, Anthropic, local models, etc.) implement this interface. The rest of the codebase programs against it, staying decoupled from any single API.
 
 See [`pkg/providers/README.md`](pkg/providers/README.md) for detailed examples.
+
+### engine — Composition Root
+
+The `engine` package is the top-level wiring layer that assembles all framework components from a YAML configuration and exposes them through a frontend-agnostic API.
+
+- **Engine** creates provider adapters, connects MCP servers, loads skills, registers agent factories, and manages sessions.
+- **Session** represents one interactive conversation — call `Send()` to run the agent loop and get a reply.
+- **EventBus** provides a channel-based push model for observing engine activity (agent start/end, tool calls, errors).
+
+Frontends (CLI, web, desktop) interact with `Engine` and `Session` types and never import lower-level packages directly.
+
+See [`pkg/engine/README.md`](pkg/engine/README.md) for configuration details and integration patterns.
 
 ## Use Cases
 

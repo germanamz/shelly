@@ -7,7 +7,8 @@ An abstraction layer for LLM completion adapters. The modeladapter package defin
 ```
 modeladapter/
 ├── modeladapter.go   Completer interface + embeddable ModelAdapter base struct with HTTP/WebSocket helpers
-└── usage/       Thread-safe token usage tracker
+├── toolaware.go      ToolAware interface for providers that accept tool declarations
+└── usage/            Thread-safe token usage tracker
 ```
 
 ### `ModelAdapter` — Completer Interface & ModelAdapter Base
@@ -40,6 +41,18 @@ Key methods:
 - `PostJSON` — marshals payload, sends POST, checks 2xx, unmarshals response into dest
 - `Do` — low-level passthrough to `Client.Do`
 - `DialWS` — establishes a WebSocket connection with auth and custom headers applied (scheme auto-converted from http/https to ws/wss)
+
+### `ToolAware` — Optional Tool Declaration Interface
+
+`ToolAware` is an optional interface that `Completer` implementations can satisfy to receive tool declarations from the engine:
+
+```go
+type ToolAware interface {
+    SetTools(tools []toolbox.Tool)
+}
+```
+
+The engine calls `SetTools` before creating agents so the provider knows which tools to declare in API requests. Both the `anthropic.Adapter` and `openai.Adapter` implement this interface. Providers that don't support tools (or manage them differently) can simply not implement it — the engine checks with a type assertion.
 
 ### `usage` — Token Usage Tracker
 

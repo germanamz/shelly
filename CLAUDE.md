@@ -45,16 +45,18 @@ Shelly is a Go project (module: `github.com/germanamz/shelly`, Go 1.25). CLI ent
 - `pkg/skill/` — skill loading from markdown files (procedures agents follow)
 - `pkg/agent/` — unified agent with ReAct loop, registry-based delegation, middleware, and orchestration tools
 - `pkg/state/` — key-value state store for agents
+- `pkg/engine/` — composition root that wires all components from YAML config, exposes frontend-agnostic Engine/Session/EventBus API
 
 ## Architecture
 
 - `pkg/chats/` is the foundation layer with no dependencies on other `pkg/` packages
-- `pkg/modeladapter/` depends on `pkg/chats/` (chat, message types)
+- `pkg/modeladapter/` depends on `pkg/chats/` and `pkg/tools/toolbox/` (chat, message types, ToolAware interface)
 - `pkg/providers/` depends on `pkg/modeladapter/` and `pkg/chats/`
 - `pkg/tools/toolbox/` depends on `pkg/chats/content` (ToolCall, ToolResult types)
 - `pkg/tools/mcpclient/` and `pkg/tools/mcpserver/` depend on `pkg/tools/toolbox/` (Tool type)
 - `pkg/skill/` has no dependencies on other `pkg/` packages
 - `pkg/agent/` depends on `pkg/modeladapter/`, `pkg/tools/toolbox/`, `pkg/chats/`, and `pkg/skill/`
+- `pkg/engine/` depends on all other `pkg/` packages — it is the top-level composition root
 - `cmd/shelly/` is the entry point (currently a placeholder)
 
 ## Conventions
