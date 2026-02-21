@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/germanamz/shelly/pkg/agent"
 	"github.com/germanamz/shelly/pkg/modeladapter"
 	"github.com/germanamz/shelly/pkg/skill"
 	"github.com/germanamz/shelly/pkg/state"
+	"github.com/germanamz/shelly/pkg/tools/ask"
 	"github.com/germanamz/shelly/pkg/tools/mcpclient"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
@@ -19,6 +21,7 @@ type Engine struct {
 	cfg        Config
 	events     *EventBus
 	store      *state.Store
+	responder  *ask.Responder
 	registry   *agent.Registry
 	completers map[string]modeladapter.Completer
 	toolboxes  map[string]*toolbox.ToolBox
@@ -81,6 +84,20 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		e.toolboxes["state"] = e.store.Tools("shared")
 	}
 
+	// Create ask responder.
+	e.responder = ask.NewResponder(func(ctx context.Context, q ask.Question) {
+		sid, _ := sessionIDFromContext(ctx)
+		aname, _ := agentNameFromContext(ctx)
+		e.events.Publish(Event{
+			Kind:      EventAskUser,
+			SessionID: sid,
+			Agent:     aname,
+			Timestamp: time.Now(),
+			Data:      q,
+		})
+	})
+	e.toolboxes["ask"] = e.responder.Tools()
+
 	// Register agent factories.
 	for _, ac := range cfg.Agents {
 		if err := e.registerAgent(ac); err != nil {
@@ -122,7 +139,7 @@ func (e *Engine) NewSession(agentName string) (*Session, error) {
 	a := factory()
 	a.SetRegistry(e.registry)
 
-	s := newSession(id, a, e.events)
+	s := newSession(id, a, e.events, e.responder)
 
 	e.mu.Lock()
 	e.sessions[id] = s

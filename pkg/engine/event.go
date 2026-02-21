@@ -14,6 +14,7 @@ const (
 	EventToolCallEnd   EventKind = "tool_call_end"
 	EventAgentStart    EventKind = "agent_start"
 	EventAgentEnd      EventKind = "agent_end"
+	EventAskUser       EventKind = "ask_user"
 	EventError         EventKind = "error"
 )
 

@@ -123,7 +123,7 @@ func (c Config) Validate() error {
 		}
 
 		for _, tb := range a.ToolBoxNames {
-			if tb == "state" {
+			if tb == "state" || tb == "ask" {
 				continue
 			}
 			if _, ok := mcpNames[tb]; !ok {

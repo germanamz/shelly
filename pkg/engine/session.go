@@ -11,25 +11,28 @@ import (
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/chats/role"
+	"github.com/germanamz/shelly/pkg/tools/ask"
 )
 
 // Session represents one interactive conversation. It owns a chat and an agent
 // instance. Only one Send call may be active at a time.
 type Session struct {
-	id     string
-	agent  *agent.Agent
-	events *EventBus
+	id        string
+	agent     *agent.Agent
+	events    *EventBus
+	responder *ask.Responder
 
 	mu     sync.Mutex
 	active bool
 }
 
-// newSession creates a session with the given ID, agent, and event bus.
-func newSession(id string, a *agent.Agent, events *EventBus) *Session {
+// newSession creates a session with the given ID, agent, event bus, and responder.
+func newSession(id string, a *agent.Agent, events *EventBus, responder *ask.Responder) *Session {
 	return &Session{
-		id:     id,
-		agent:  a,
-		events: events,
+		id:        id,
+		agent:     a,
+		events:    events,
+		responder: responder,
 	}
 }
 
@@ -59,6 +62,9 @@ func (s *Session) SendParts(ctx context.Context, parts ...content.Part) (message
 		Agent:     s.agent.Name(),
 		Timestamp: time.Now(),
 	})
+
+	ctx = withSessionID(ctx, s.id)
+	ctx = withAgentName(ctx, s.agent.Name())
 
 	s.agent.Chat().Append(message.New("user", role.User, parts...))
 
@@ -106,4 +112,34 @@ func (s *Session) release() {
 	defer s.mu.Unlock()
 
 	s.active = false
+}
+
+// Respond delivers a user response to a pending ask_user question.
+func (s *Session) Respond(questionID, response string) error {
+	return s.responder.Respond(questionID, response)
+}
+
+// --- context helpers ---
+
+type (
+	sessionIDCtxKey struct{}
+	agentNameCtxKey struct{}
+)
+
+func withSessionID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, sessionIDCtxKey{}, id)
+}
+
+func sessionIDFromContext(ctx context.Context) (string, bool) {
+	v, ok := ctx.Value(sessionIDCtxKey{}).(string)
+	return v, ok
+}
+
+func withAgentName(ctx context.Context, name string) context.Context {
+	return context.WithValue(ctx, agentNameCtxKey{}, name)
+}
+
+func agentNameFromContext(ctx context.Context) (string, bool) {
+	v, ok := ctx.Value(agentNameCtxKey{}).(string)
+	return v, ok
 }
