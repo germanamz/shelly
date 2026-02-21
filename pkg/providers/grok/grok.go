@@ -14,6 +14,7 @@ import (
 	"github.com/germanamz/shelly/pkg/chats/role"
 	"github.com/germanamz/shelly/pkg/modeladapter"
 	"github.com/germanamz/shelly/pkg/modeladapter/usage"
+	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
 // DefaultBaseURL is the base URL for the xAI API.
@@ -22,6 +23,12 @@ const DefaultBaseURL = "https://api.x.ai/v1"
 // GrokAdapter sends chat completions to xAI's Grok API.
 type GrokAdapter struct {
 	modeladapter.ModelAdapter
+	Tools []toolbox.Tool
+}
+
+// SetTools sets the tools that will be declared in API requests.
+func (g *GrokAdapter) SetTools(tools []toolbox.Tool) {
+	g.Tools = tools
 }
 
 // New creates a GrokAdapter with the given API key and HTTP client.
@@ -40,6 +47,15 @@ func (g *GrokAdapter) Complete(ctx context.Context, c *chat.Chat) (message.Messa
 		Messages:    convertMessages(c),
 		Temperature: g.Temperature,
 		MaxTokens:   g.MaxTokens,
+	}
+
+	for _, t := range g.Tools {
+		schema := t.InputSchema
+		if schema == nil {
+			schema = json.RawMessage(`{"type":"object"}`)
+		}
+
+		req.Tools = append(req.Tools, MarshalToolDef(t.Name, t.Description, schema))
 	}
 
 	var resp chatResponse
@@ -66,6 +82,7 @@ type chatRequest struct {
 	Messages    []apiMessage `json:"messages"`
 	Temperature float64      `json:"temperature,omitempty"`
 	MaxTokens   int          `json:"max_tokens,omitempty"`
+	Tools       []apiTool    `json:"tools,omitempty"`
 }
 
 type apiMessage struct {
@@ -173,6 +190,9 @@ func convertResponse(am apiMessage) message.Message {
 
 // verifyCompleter ensures GrokAdapter satisfies the Completer interface at compile time.
 var _ modeladapter.Completer = (*GrokAdapter)(nil)
+
+// verifyToolAware ensures GrokAdapter satisfies the ToolAware interface at compile time.
+var _ modeladapter.ToolAware = (*GrokAdapter)(nil)
 
 // MarshalToolDef converts a tool name, description, and JSON schema into the
 // API tool format used in the chat request. This is a convenience for callers

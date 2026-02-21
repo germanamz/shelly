@@ -11,8 +11,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -22,6 +24,7 @@ import (
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/chats/role"
+	"github.com/germanamz/shelly/pkg/codingtoolbox/ask"
 	"github.com/germanamz/shelly/pkg/engine"
 )
 
@@ -89,24 +92,28 @@ func run(configPath, agentName string, verbose bool) error {
 	fmt.Printf("%sshelly%s — interactive chat (session %s)\n", ansiBold, ansiReset, sess.ID())
 	fmt.Printf("Type %s/help%s for commands, %s/quit%s to exit.\n\n", ansiDim, ansiReset, ansiDim, ansiReset)
 
-	return chatLoop(ctx, sess, verbose)
+	return chatLoop(ctx, sess, eng.Events(), verbose)
 }
 
 // chatLoop reads user input line by line, dispatches it to the session, and
 // streams the agent's reasoning chain until a final answer is produced.
 // It handles /help and /quit commands, and exits cleanly on Ctrl+C or EOF.
-func chatLoop(ctx context.Context, sess *engine.Session, verbose bool) error {
-	scanner := bufio.NewScanner(os.Stdin)
+func chatLoop(ctx context.Context, sess *engine.Session, events *engine.EventBus, verbose bool) error {
+	reader := bufio.NewReader(os.Stdin)
 
 	for {
 		fmt.Printf("%syou>%s ", ansiGreen+ansiBold, ansiReset)
 
-		if !scanner.Scan() {
+		line, err := reader.ReadString('\n')
+		if err != nil {
 			fmt.Println()
-			return scanner.Err()
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
 		}
 
-		input := strings.TrimSpace(scanner.Text())
+		input := strings.TrimSpace(line)
 		if input == "" {
 			continue
 		}
@@ -121,7 +128,7 @@ func chatLoop(ctx context.Context, sess *engine.Session, verbose bool) error {
 			continue
 		}
 
-		if err := sendAndStream(ctx, sess, input, verbose); err != nil {
+		if err := sendAndStream(ctx, sess, events, input, verbose, reader); err != nil {
 			if ctx.Err() != nil {
 				fmt.Printf("\n%sInterrupted%s\n", ansiDim, ansiReset)
 				return nil
@@ -134,25 +141,82 @@ func chatLoop(ctx context.Context, sess *engine.Session, verbose bool) error {
 }
 
 // sendAndStream sends a user message and streams the reasoning chain while
-// the agent processes the request.
-func sendAndStream(ctx context.Context, sess *engine.Session, input string, verbose bool) error {
+// the agent processes the request. It also subscribes to the event bus to
+// handle ask_user prompts from permission-gated tools.
+func sendAndStream(ctx context.Context, sess *engine.Session, events *engine.EventBus, input string, verbose bool, reader *bufio.Reader) error {
 	cursor := sess.Chat().Len()
 
 	watchCtx, watchCancel := context.WithCancel(ctx)
 	defer watchCancel()
 
-	done := make(chan struct{})
-
+	chatDone := make(chan struct{})
 	go func() {
-		defer close(done)
+		defer close(chatDone)
 		streamChat(watchCtx, sess.Chat(), cursor, verbose)
+	}()
+
+	sub := events.Subscribe(64)
+	askDone := make(chan struct{})
+	go func() {
+		defer close(askDone)
+		handleAskEvents(watchCtx, sess, sub, reader)
 	}()
 
 	_, err := sess.Send(ctx, input)
 	watchCancel()
-	<-done
+	<-chatDone
+	events.Unsubscribe(sub)
+	<-askDone
 
 	return err
+}
+
+// handleAskEvents watches for EventAskUser events and prompts the user for a
+// response on the terminal. It runs until ctx is cancelled or the subscription
+// channel is closed.
+func handleAskEvents(ctx context.Context, sess *engine.Session, sub *engine.Subscription, reader *bufio.Reader) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, ok := <-sub.C:
+			if !ok {
+				return
+			}
+			if ev.Kind != engine.EventAskUser {
+				continue
+			}
+
+			q, ok := ev.Data.(ask.Question)
+			if !ok {
+				continue
+			}
+
+			fmt.Printf("\n%s[question]%s %s\n", ansiYellow+ansiBold, ansiReset, q.Text)
+			for i, opt := range q.Options {
+				fmt.Printf("  %s%d)%s %s\n", ansiBold, i+1, ansiReset, opt)
+			}
+			fmt.Printf("%sanswer>%s ", ansiYellow+ansiBold, ansiReset)
+
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return
+			}
+
+			response := strings.TrimSpace(line)
+
+			// Map numeric input to the corresponding option.
+			if len(q.Options) > 0 {
+				if idx, parseErr := strconv.Atoi(response); parseErr == nil && idx >= 1 && idx <= len(q.Options) {
+					response = q.Options[idx-1]
+				}
+			}
+
+			if err := sess.Respond(q.ID, response); err != nil {
+				fmt.Fprintf(os.Stderr, "%serror responding: %v%s\n", ansiRed, err, ansiReset)
+			}
+		}
+	}
 }
 
 // streamChat watches the chat for new messages and prints reasoning chain

@@ -17,6 +17,11 @@ import (
 
 const completionsPath = "/v1/chat/completions"
 
+var (
+	_ modeladapter.Completer = (*Adapter)(nil)
+	_ modeladapter.ToolAware = (*Adapter)(nil)
+)
+
 // Adapter implements modeladapter.Completer for the OpenAI Chat Completions API.
 type Adapter struct {
 	modeladapter.ModelAdapter

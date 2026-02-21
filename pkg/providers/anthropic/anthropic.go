@@ -17,6 +17,11 @@ import (
 
 const messagesPath = "/v1/messages"
 
+var (
+	_ modeladapter.Completer = (*Adapter)(nil)
+	_ modeladapter.ToolAware = (*Adapter)(nil)
+)
+
 // Adapter implements modeladapter.Completer for the Anthropic Messages API.
 type Adapter struct {
 	modeladapter.ModelAdapter
