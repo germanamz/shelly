@@ -284,6 +284,72 @@ func TestWrite_EmptyPath(t *testing.T) {
 	assert.Contains(t, tr.Content, "path is required")
 }
 
+func TestEdit_Delete(t *testing.T) {
+	fs, dir := newTestFS(t, autoApprove)
+	tb := fs.Tools()
+
+	filePath := filepath.Join(dir, "edit.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte("line1\nline2\nline3\n"), 0o600))
+
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:        "tc1",
+		Name:      "fs_edit",
+		Arguments: mustJSON(t, editInput{Path: filePath, OldText: "line2\n", NewText: ""}),
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+
+	data, err := os.ReadFile(filePath) //nolint:gosec // test reads from temp dir
+	require.NoError(t, err)
+	assert.Equal(t, "line1\nline3\n", string(data))
+}
+
+func TestEdit_DeleteOmitNewText(t *testing.T) {
+	fs, dir := newTestFS(t, autoApprove)
+	tb := fs.Tools()
+
+	filePath := filepath.Join(dir, "edit.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte("aaa bbb ccc"), 0o600))
+
+	// Omit new_text entirely — should default to "" and delete old_text.
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:        "tc1",
+		Name:      "fs_edit",
+		Arguments: `{"path":"` + filePath + `","old_text":" bbb"}`,
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+
+	data, err := os.ReadFile(filePath) //nolint:gosec // test reads from temp dir
+	require.NoError(t, err)
+	assert.Equal(t, "aaa ccc", string(data))
+}
+
+func TestEdit_Insert(t *testing.T) {
+	fs, dir := newTestFS(t, autoApprove)
+	tb := fs.Tools()
+
+	filePath := filepath.Join(dir, "edit.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte("func main() {\n\tfmt.Println(\"hello\")\n}\n"), 0o600))
+
+	// Insert a new line after the opening brace by including context.
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:   "tc1",
+		Name: "fs_edit",
+		Arguments: mustJSON(t, editInput{
+			Path:    filePath,
+			OldText: "func main() {\n",
+			NewText: "func main() {\n\tx := 42\n",
+		}),
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+
+	data, err := os.ReadFile(filePath) //nolint:gosec // test reads from temp dir
+	require.NoError(t, err)
+	assert.Equal(t, "func main() {\n\tx := 42\n\tfmt.Println(\"hello\")\n}\n", string(data))
+}
+
 func TestEdit_EmptyOldText(t *testing.T) {
 	fs, dir := newTestFS(t, autoApprove)
 	tb := fs.Tools()

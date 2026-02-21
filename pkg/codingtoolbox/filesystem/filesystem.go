@@ -176,8 +176,8 @@ func (f *FS) handleWrite(ctx context.Context, input json.RawMessage) (string, er
 func (f *FS) editTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "fs_edit",
-		Description: "Find and replace text in a file. The old_text must appear exactly once.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path to the file to edit"},"old_text":{"type":"string","description":"Text to find (must appear exactly once)"},"new_text":{"type":"string","description":"Replacement text"}},"required":["path","old_text","new_text"]}`),
+		Description: "Edit a file by finding and replacing text. The old_text must appear exactly once. Supports three operations: modify (replace old_text with new_text), delete (omit new_text to remove old_text), and insert (include surrounding context in old_text and add new content in new_text).",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path to the file to edit"},"old_text":{"type":"string","description":"Text to find (must appear exactly once)"},"new_text":{"type":"string","description":"Replacement text. Omit or set to empty string to delete the matched text."}},"required":["path","old_text"]}`),
 		Handler:     f.handleEdit,
 	}
 }

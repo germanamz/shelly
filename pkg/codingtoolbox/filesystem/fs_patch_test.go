@@ -78,6 +78,78 @@ func TestPatch_HunkAmbiguous(t *testing.T) {
 	assert.Contains(t, tr.Content, "2 times")
 }
 
+func TestPatch_DeleteHunk(t *testing.T) {
+	fs, dir := newTestFS(t, autoApprove)
+	tb := fs.Tools()
+
+	filePath := filepath.Join(dir, "patch.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte("line1\nline2\nline3\n"), 0o600))
+
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:   "tc1",
+		Name: "fs_patch",
+		Arguments: mustJSON(t, patchInput{
+			Path:  filePath,
+			Hunks: []hunk{{OldText: "line2\n", NewText: ""}},
+		}),
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+
+	data, err := os.ReadFile(filePath) //nolint:gosec // test reads from temp dir
+	require.NoError(t, err)
+	assert.Equal(t, "line1\nline3\n", string(data))
+}
+
+func TestPatch_DeleteOmitNewText(t *testing.T) {
+	fs, dir := newTestFS(t, autoApprove)
+	tb := fs.Tools()
+
+	filePath := filepath.Join(dir, "patch.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte("keep remove keep"), 0o600))
+
+	// Omit new_text entirely — should default to "" and delete old_text.
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:        "tc1",
+		Name:      "fs_patch",
+		Arguments: `{"path":"` + filePath + `","hunks":[{"old_text":" remove"}]}`,
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+
+	data, err := os.ReadFile(filePath) //nolint:gosec // test reads from temp dir
+	require.NoError(t, err)
+	assert.Equal(t, "keep keep", string(data))
+}
+
+func TestPatch_InsertAndModify(t *testing.T) {
+	fs, dir := newTestFS(t, autoApprove)
+	tb := fs.Tools()
+
+	filePath := filepath.Join(dir, "patch.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte("import (\n\t\"fmt\"\n)\n\nfunc old() {}\n"), 0o600))
+
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:   "tc1",
+		Name: "fs_patch",
+		Arguments: mustJSON(t, patchInput{
+			Path: filePath,
+			Hunks: []hunk{
+				// Insert a new import.
+				{OldText: "\t\"fmt\"\n", NewText: "\t\"fmt\"\n\t\"os\"\n"},
+				// Rename function.
+				{OldText: "func old()", NewText: "func new()"},
+			},
+		}),
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+
+	data, err := os.ReadFile(filePath) //nolint:gosec // test reads from temp dir
+	require.NoError(t, err)
+	assert.Equal(t, "import (\n\t\"fmt\"\n\t\"os\"\n)\n\nfunc new() {}\n", string(data))
+}
+
 func TestPatch_EmptyHunks(t *testing.T) {
 	fs, dir := newTestFS(t, autoApprove)
 	tb := fs.Tools()

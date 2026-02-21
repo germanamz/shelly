@@ -8,6 +8,7 @@ import (
 
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMkdir(t *testing.T) {
@@ -26,7 +27,7 @@ func TestMkdir(t *testing.T) {
 	assert.Equal(t, "ok", tr.Content)
 
 	info, err := os.Stat(dirPath)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.True(t, info.IsDir())
 }
 
@@ -46,7 +47,7 @@ func TestMkdir_Nested(t *testing.T) {
 	assert.Equal(t, "ok", tr.Content)
 
 	info, err := os.Stat(dirPath)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.True(t, info.IsDir())
 }
 

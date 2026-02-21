@@ -24,8 +24,8 @@ type patchInput struct {
 func (f *FS) patchTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "fs_patch",
-		Description: "Apply multiple find-and-replace hunks to a file. Each hunk's old_text must appear exactly once.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path to the file to patch"},"hunks":{"type":"array","items":{"type":"object","properties":{"old_text":{"type":"string","description":"Text to find (must appear exactly once)"},"new_text":{"type":"string","description":"Replacement text"}},"required":["old_text","new_text"]},"description":"Hunks to apply sequentially"}},"required":["path","hunks"]}`),
+		Description: "Apply multiple edits to a file in one atomic operation. Each hunk finds and replaces text, applied sequentially. Each hunk's old_text must appear exactly once. Supports modify, delete (omit new_text), and insert (include context in old_text, add new content in new_text).",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path to the file to patch"},"hunks":{"type":"array","items":{"type":"object","properties":{"old_text":{"type":"string","description":"Text to find (must appear exactly once)"},"new_text":{"type":"string","description":"Replacement text. Omit or set to empty string to delete the matched text."}},"required":["old_text"]},"description":"Hunks to apply sequentially"}},"required":["path","hunks"]}`),
 		Handler:     f.handlePatch,
 	}
 }
