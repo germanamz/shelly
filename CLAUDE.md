@@ -40,19 +40,21 @@ Shelly is a Go project (module: `github.com/germanamz/shelly`, Go 1.25). CLI ent
 - `cmd/shelly/` — main package (entry point + tests)
 - `pkg/chats/` — provider-agnostic LLM chat data model (role, content, message, chat)
 - `pkg/modeladapter/` — LLM adapter abstraction layer (`Completer` interface, `ModelAdapter` base struct, usage tracking)
+- `pkg/providers/` — LLM provider implementations (anthropic, openai)
 - `pkg/tools/` — tool execution and MCP integration (toolbox, mcpclient, mcpserver)
-- `pkg/agents/` — agent orchestration and ReAct loop (agent, react)
-- `pkg/reactor/` — reserved for future use (stub package only)
-- `pkg/agents/react/` — ReAct loop implementation (iterative completion and tool execution)
+- `pkg/skill/` — skill loading from markdown files (procedures agents follow)
+- `pkg/agent/` — unified agent with ReAct loop, registry-based delegation, middleware, and orchestration tools
+- `pkg/state/` — key-value state store for agents
 
 ## Architecture
 
 - `pkg/chats/` is the foundation layer with no dependencies on other `pkg/` packages
 - `pkg/modeladapter/` depends on `pkg/chats/` (chat, message types)
+- `pkg/providers/` depends on `pkg/modeladapter/` and `pkg/chats/`
 - `pkg/tools/toolbox/` depends on `pkg/chats/content` (ToolCall, ToolResult types)
 - `pkg/tools/mcpclient/` and `pkg/tools/mcpserver/` depend on `pkg/tools/toolbox/` (Tool type)
-- `pkg/agents/agent/` depends on `pkg/modeladapter/`, `pkg/tools/toolbox/`, and `pkg/chats/`
-- `pkg/agents/react/` depends on `pkg/agents/agent/`
+- `pkg/skill/` has no dependencies on other `pkg/` packages
+- `pkg/agent/` depends on `pkg/modeladapter/`, `pkg/tools/toolbox/`, `pkg/chats/`, and `pkg/skill/`
 - `cmd/shelly/` is the entry point (currently a placeholder)
 
 ## Conventions
