@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/germanamz/shelly/pkg/chats/content"
+	"github.com/germanamz/shelly/pkg/tools/permissions"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,9 +27,11 @@ func newTestFS(t *testing.T, askFn AskFunc) (*FS, string) {
 	t.Helper()
 
 	dir := t.TempDir()
-	permFile := filepath.Join(dir, ".shelly", "fs-permissions.json")
-	fs, err := New(permFile, askFn)
+	permFile := filepath.Join(dir, ".shelly", "permissions.json")
+	store, err := permissions.New(permFile)
 	require.NoError(t, err)
+
+	fs := New(store, askFn)
 
 	return fs, dir
 }
@@ -219,11 +222,12 @@ func TestSubdirectoryInheritance(t *testing.T) {
 
 func TestPersistence(t *testing.T) {
 	dir := t.TempDir()
-	permFile := filepath.Join(dir, ".shelly", "fs-permissions.json")
+	permFile := filepath.Join(dir, ".shelly", "permissions.json")
 
 	// First instance: approve a directory.
-	fs1, err := New(permFile, autoApprove)
+	store1, err := permissions.New(permFile)
 	require.NoError(t, err)
+	fs1 := New(store1, autoApprove)
 
 	filePath := filepath.Join(dir, "f.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("data"), 0o600))
@@ -237,8 +241,9 @@ func TestPersistence(t *testing.T) {
 	require.False(t, tr.IsError, tr.Content)
 
 	// Second instance: should already have the permission (deny would block if not).
-	fs2, err := New(permFile, autoDeny)
+	store2, err := permissions.New(permFile)
 	require.NoError(t, err)
+	fs2 := New(store2, autoDeny)
 
 	tb2 := fs2.Tools()
 	tr = tb2.Call(context.Background(), content.ToolCall{

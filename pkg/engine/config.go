@@ -15,12 +15,18 @@ type Config struct {
 	EntryAgent   string           `yaml:"entry_agent"`
 	StateEnabled bool             `yaml:"state_enabled"`
 	Filesystem   FilesystemConfig `yaml:"filesystem"`
+	Exec         ExecConfig       `yaml:"exec"`
 }
 
 // FilesystemConfig controls the filesystem tools.
 type FilesystemConfig struct {
 	Enabled         bool   `yaml:"enabled"`
 	PermissionsFile string `yaml:"permissions_file"`
+}
+
+// ExecConfig controls the exec tool.
+type ExecConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 // ProviderConfig describes an LLM provider instance.

@@ -12,8 +12,10 @@ import (
 	"github.com/germanamz/shelly/pkg/state"
 	"github.com/germanamz/shelly/pkg/tools/ask"
 	"github.com/germanamz/shelly/pkg/tools/defaults"
+	shellyexec "github.com/germanamz/shelly/pkg/tools/exec"
 	"github.com/germanamz/shelly/pkg/tools/filesystem"
 	"github.com/germanamz/shelly/pkg/tools/mcpclient"
+	"github.com/germanamz/shelly/pkg/tools/permissions"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
@@ -100,20 +102,28 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 	})
 	e.toolboxes["ask"] = e.responder.Tools()
 
-	// Create filesystem tools if enabled.
-	if cfg.Filesystem.Enabled {
+	// Create shared permissions store and permission-gated tools.
+	if cfg.Filesystem.Enabled || cfg.Exec.Enabled {
 		permFile := cfg.Filesystem.PermissionsFile
 		if permFile == "" {
-			permFile = ".shelly/fs-permissions.json"
+			permFile = ".shelly/permissions.json"
 		}
 
-		fsTools, err := filesystem.New(permFile, e.responder.Ask)
+		permStore, err := permissions.New(permFile)
 		if err != nil {
 			_ = e.Close()
-			return nil, fmt.Errorf("engine: filesystem: %w", err)
+			return nil, fmt.Errorf("engine: permissions: %w", err)
 		}
 
-		e.toolboxes["filesystem"] = fsTools.Tools()
+		if cfg.Filesystem.Enabled {
+			fsTools := filesystem.New(permStore, e.responder.Ask)
+			e.toolboxes["filesystem"] = fsTools.Tools()
+		}
+
+		if cfg.Exec.Enabled {
+			execTools := shellyexec.New(permStore, e.responder.Ask)
+			e.toolboxes["exec"] = execTools.Tools()
+		}
 	}
 
 	// Build the defaults toolbox from all enabled built-in toolboxes.
@@ -194,6 +204,7 @@ var builtinToolboxNames = map[string]struct{}{
 	"state":      {},
 	"ask":        {},
 	"filesystem": {},
+	"exec":       {},
 	"defaults":   {},
 }
 

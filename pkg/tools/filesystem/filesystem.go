@@ -2,7 +2,7 @@
 // local filesystem. Every directory access is gated by explicit user permission:
 // when an agent first touches a path, the user is asked to approve. Approving a
 // directory implicitly approves all its subdirectories. Granted permissions are
-// persisted to a JSON file so they survive restarts.
+// persisted to the shared permissions store so they survive restarts.
 package filesystem
 
 import (
@@ -12,8 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
+	"github.com/germanamz/shelly/pkg/tools/permissions"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
@@ -22,31 +22,16 @@ type AskFunc func(ctx context.Context, question string, options []string) (strin
 
 // FS provides filesystem tools with permission gating.
 type FS struct {
-	mu       sync.RWMutex
-	approved map[string]struct{}
-	permFile string
-	ask      AskFunc
+	store *permissions.Store
+	ask   AskFunc
 }
 
-// New creates an FS that persists permissions to permFile. If the file already
-// exists its contents are loaded. The parent directory is created if needed.
-func New(permFile string, askFn AskFunc) (*FS, error) {
-	abs, err := filepath.Abs(permFile)
-	if err != nil {
-		return nil, fmt.Errorf("filesystem: resolve permissions path: %w", err)
+// New creates an FS backed by the given shared permissions store.
+func New(store *permissions.Store, askFn AskFunc) *FS {
+	return &FS{
+		store: store,
+		ask:   askFn,
 	}
-
-	fs := &FS{
-		approved: make(map[string]struct{}),
-		permFile: abs,
-		ask:      askFn,
-	}
-
-	if err := fs.load(); err != nil {
-		return nil, err
-	}
-
-	return fs, nil
 }
 
 // Tools returns a ToolBox containing the filesystem tools.
@@ -58,67 +43,6 @@ func (f *FS) Tools() *toolbox.ToolBox {
 }
 
 // --- permission helpers ---
-
-func (f *FS) load() error {
-	data, err := os.ReadFile(f.permFile)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-
-		return fmt.Errorf("filesystem: read permissions: %w", err)
-	}
-
-	var dirs []string
-	if err := json.Unmarshal(data, &dirs); err != nil {
-		return fmt.Errorf("filesystem: parse permissions: %w", err)
-	}
-
-	for _, d := range dirs {
-		f.approved[d] = struct{}{}
-	}
-
-	return nil
-}
-
-func (f *FS) persist() error {
-	dirs := make([]string, 0, len(f.approved))
-	for d := range f.approved {
-		dirs = append(dirs, d)
-	}
-
-	data, err := json.MarshalIndent(dirs, "", "  ")
-	if err != nil {
-		return fmt.Errorf("filesystem: marshal permissions: %w", err)
-	}
-
-	if err := os.MkdirAll(filepath.Dir(f.permFile), 0o750); err != nil {
-		return fmt.Errorf("filesystem: create permissions dir: %w", err)
-	}
-
-	if err := os.WriteFile(f.permFile, data, 0o600); err != nil {
-		return fmt.Errorf("filesystem: write permissions: %w", err)
-	}
-
-	return nil
-}
-
-// isApproved checks whether dir (absolute) or any ancestor is already approved.
-func (f *FS) isApproved(dir string) bool {
-	cur := dir
-	for {
-		if _, ok := f.approved[cur]; ok {
-			return true
-		}
-
-		parent := filepath.Dir(cur)
-		if parent == cur {
-			return false
-		}
-
-		cur = parent
-	}
-}
 
 // checkPermission ensures the directory of target is approved. It asks the user
 // if not yet approved.
@@ -137,11 +61,7 @@ func (f *FS) checkPermission(ctx context.Context, target string) error {
 		dir = filepath.Dir(abs)
 	}
 
-	f.mu.RLock()
-	ok := f.isApproved(dir)
-	f.mu.RUnlock()
-
-	if ok {
+	if f.store.IsDirApproved(dir) {
 		return nil
 	}
 
@@ -154,16 +74,7 @@ func (f *FS) checkPermission(ctx context.Context, target string) error {
 		return fmt.Errorf("filesystem: access denied to %s", dir)
 	}
 
-	f.mu.Lock()
-	f.approved[dir] = struct{}{}
-	persistErr := f.persist()
-	f.mu.Unlock()
-
-	if persistErr != nil {
-		return persistErr
-	}
-
-	return nil
+	return f.store.ApproveDir(dir)
 }
 
 // --- tool definitions ---
