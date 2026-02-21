@@ -1,0 +1,16 @@
+providers:
+  - name: grok
+    kind: grok
+    api_key: <your-grok-api-key>
+    model: grok-3
+
+agents:
+  - name: assistant
+    description: A helpful assistant
+    instructions: You are a helpful assistant. Be concise and accurate.
+    provider: grok
+    options:
+      max_iterations: 10
+      max_delegation_depth: 2
+
+entry_agent: assistant

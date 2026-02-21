@@ -7,6 +7,7 @@ coverage.html
 
 # Binaries
 bin/
+.task/
 
 # Vendor
 vendor/
