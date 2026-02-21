@@ -37,7 +37,11 @@ func New(store *permissions.Store, askFn AskFunc) *FS {
 // Tools returns a ToolBox containing the filesystem tools.
 func (f *FS) Tools() *toolbox.ToolBox {
 	tb := toolbox.New()
-	tb.Register(f.readTool(), f.writeTool(), f.editTool(), f.listTool())
+	tb.Register(
+		f.readTool(), f.writeTool(), f.editTool(), f.listTool(),
+		f.deleteTool(), f.moveTool(), f.copyTool(), f.statTool(),
+		f.diffTool(), f.patchTool(),
+	)
 
 	return tb
 }

@@ -90,6 +90,30 @@ func TestLoad_EmptyFile(t *testing.T) {
 	assert.False(t, s.IsDirApproved("/anything"))
 }
 
+func TestTrustDomain(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(filepath.Join(dir, "perms.json"))
+	require.NoError(t, err)
+
+	require.NoError(t, s.TrustDomain("example.com"))
+	assert.True(t, s.IsDomainTrusted("example.com"))
+	assert.False(t, s.IsDomainTrusted("other.com"))
+}
+
+func TestPersistence_Domains(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "perms.json")
+
+	s1, err := New(path)
+	require.NoError(t, err)
+	require.NoError(t, s1.TrustDomain("api.example.com"))
+
+	s2, err := New(path)
+	require.NoError(t, err)
+	assert.True(t, s2.IsDomainTrusted("api.example.com"))
+	assert.False(t, s2.IsDomainTrusted("other.com"))
+}
+
 func TestPersist_CreatesParentDir(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sub", "deep", "perms.json")

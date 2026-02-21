@@ -90,6 +90,19 @@ agents:
 
 entry_agent: assistant
 state_enabled: true
+
+filesystem:
+  enabled: true
+  permissions_file: .shelly/permissions.json
+exec:
+  enabled: true
+search:
+  enabled: true
+git:
+  enabled: true
+  work_dir: /path/to/repo
+http:
+  enabled: true
 ```
 
 ### Provider Factory

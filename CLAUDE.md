@@ -45,7 +45,7 @@ Shelly is a Go project (module: `github.com/germanamz/shelly`, Go 1.25). CLI ent
 - `pkg/modeladapter/` — LLM adapter abstraction layer (`Completer` interface, `ModelAdapter` base struct, usage tracking)
 - `pkg/providers/` — LLM provider implementations (anthropic, openai, grok)
 - `pkg/tools/` — tool infrastructure: toolbox, MCP client, MCP server
-- `pkg/codingtoolbox/` — built-in coding tools (ask, filesystem, exec, permissions, defaults)
+- `pkg/codingtoolbox/` — built-in coding tools (ask, filesystem, exec, search, git, http, permissions, defaults)
 - `pkg/skill/` — skill loading from markdown files (procedures agents follow)
 - `pkg/agent/` — unified agent with ReAct loop, registry-based delegation, middleware, and orchestration tools
 - `pkg/state/` — key-value state store for agents
@@ -59,7 +59,7 @@ Shelly is a Go project (module: `github.com/germanamz/shelly`, Go 1.25). CLI ent
 - `pkg/tools/toolbox/` depends on `pkg/chats/content` (ToolCall, ToolResult types)
 - `pkg/tools/mcpclient/` and `pkg/tools/mcpserver/` depend on `pkg/tools/toolbox/` (Tool type)
 - `pkg/codingtoolbox/` depends on `pkg/tools/toolbox/` (Tool and ToolBox types)
-- `pkg/codingtoolbox/permissions/` is shared by `pkg/codingtoolbox/filesystem/` and `pkg/codingtoolbox/exec/`
+- `pkg/codingtoolbox/permissions/` is shared by `pkg/codingtoolbox/filesystem/`, `pkg/codingtoolbox/exec/`, `pkg/codingtoolbox/search/`, `pkg/codingtoolbox/git/`, and `pkg/codingtoolbox/http/`
 - `pkg/skill/` has no dependencies on other `pkg/` packages
 - `pkg/agent/` depends on `pkg/modeladapter/`, `pkg/tools/toolbox/`, `pkg/chats/`, and `pkg/skill/`
 - `pkg/engine/` depends on all other `pkg/` packages — it is the top-level composition root

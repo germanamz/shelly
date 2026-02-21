@@ -1,0 +1,167 @@
+// Package http provides a tool that gives agents the ability to make HTTP
+// requests. Each domain is gated by explicit user permission. Users can
+// "trust" a domain to allow all future requests without being prompted again.
+// Trusted domains are persisted to the shared permissions file.
+package http
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+
+	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
+	"github.com/germanamz/shelly/pkg/tools/toolbox"
+)
+
+// AskFunc asks the user a question and blocks until a response is received.
+type AskFunc func(ctx context.Context, question string, options []string) (string, error)
+
+// HTTP provides HTTP tools with permission gating.
+type HTTP struct {
+	store  *permissions.Store
+	ask    AskFunc
+	client *http.Client
+}
+
+// New creates an HTTP that checks the given permissions store for trusted
+// domains and prompts the user via askFn when a domain is not yet trusted.
+func New(store *permissions.Store, askFn AskFunc) *HTTP {
+	return &HTTP{
+		store:  store,
+		ask:    askFn,
+		client: &http.Client{},
+	}
+}
+
+// Tools returns a ToolBox containing the HTTP tools.
+func (h *HTTP) Tools() *toolbox.ToolBox {
+	tb := toolbox.New()
+	tb.Register(h.fetchTool())
+
+	return tb
+}
+
+// checkPermission checks if a domain is trusted, prompting the user if not.
+func (h *HTTP) checkPermission(ctx context.Context, rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("http: invalid URL: %w", err)
+	}
+
+	domain := parsed.Hostname()
+	if domain == "" {
+		return fmt.Errorf("http: could not extract domain from URL")
+	}
+
+	if h.store.IsDomainTrusted(domain) {
+		return nil
+	}
+
+	resp, err := h.ask(ctx, fmt.Sprintf("Allow HTTP request to %s?", domain), []string{"yes", "trust", "no"})
+	if err != nil {
+		return fmt.Errorf("http: ask permission: %w", err)
+	}
+
+	switch strings.ToLower(resp) {
+	case "trust":
+		return h.store.TrustDomain(domain)
+	case "yes":
+		return nil
+	default:
+		return fmt.Errorf("http: access denied to %s", domain)
+	}
+}
+
+// --- http_fetch ---
+
+type fetchInput struct {
+	URL     string            `json:"url"`
+	Method  string            `json:"method"`
+	Headers map[string]string `json:"headers"`
+	Body    string            `json:"body"`
+}
+
+type fetchOutput struct {
+	Status  int               `json:"status"`
+	Headers map[string]string `json:"headers"`
+	Body    string            `json:"body"`
+}
+
+// maxBodySize is the maximum response body size (1MB).
+const maxBodySize = 1 << 20
+
+func (h *HTTP) fetchTool() toolbox.Tool {
+	return toolbox.Tool{
+		Name:        "http_fetch",
+		Description: "Make an HTTP request. Returns status, headers, and body (capped at 1MB).",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"url":{"type":"string","description":"The URL to fetch"},"method":{"type":"string","description":"HTTP method (default GET)"},"headers":{"type":"object","additionalProperties":{"type":"string"},"description":"Request headers"},"body":{"type":"string","description":"Request body"}},"required":["url"]}`),
+		Handler:     h.handleFetch,
+	}
+}
+
+func (h *HTTP) handleFetch(ctx context.Context, input json.RawMessage) (string, error) {
+	var in fetchInput
+	if err := json.Unmarshal(input, &in); err != nil {
+		return "", fmt.Errorf("http_fetch: invalid input: %w", err)
+	}
+
+	if in.URL == "" {
+		return "", fmt.Errorf("http_fetch: url is required")
+	}
+
+	if err := h.checkPermission(ctx, in.URL); err != nil {
+		return "", err
+	}
+
+	method := in.Method
+	if method == "" {
+		method = http.MethodGet
+	}
+
+	var bodyReader io.Reader
+	if in.Body != "" {
+		bodyReader = strings.NewReader(in.Body)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, in.URL, bodyReader)
+	if err != nil {
+		return "", fmt.Errorf("http_fetch: create request: %w", err)
+	}
+
+	for k, v := range in.Headers {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := h.client.Do(req) //nolint:gosec // URL is approved by user
+	if err != nil {
+		return "", fmt.Errorf("http_fetch: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck // best-effort close on read
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
+	if err != nil {
+		return "", fmt.Errorf("http_fetch: read body: %w", err)
+	}
+
+	respHeaders := make(map[string]string, len(resp.Header))
+	for k := range resp.Header {
+		respHeaders[k] = resp.Header.Get(k)
+	}
+
+	out := fetchOutput{
+		Status:  resp.StatusCode,
+		Headers: respHeaders,
+		Body:    string(body),
+	}
+
+	data, err := json.Marshal(out)
+	if err != nil {
+		return "", fmt.Errorf("http_fetch: marshal: %w", err)
+	}
+
+	return string(data), nil
+}

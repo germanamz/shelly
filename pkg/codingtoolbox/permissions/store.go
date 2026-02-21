@@ -18,6 +18,7 @@ type Store struct {
 	mu       sync.RWMutex
 	dirs     map[string]struct{}
 	commands map[string]struct{}
+	domains  map[string]struct{}
 	filePath string
 }
 
@@ -25,6 +26,7 @@ type Store struct {
 type fileFormat struct {
 	FsDirectories   []string `json:"fs_directories"`
 	TrustedCommands []string `json:"trusted_commands"`
+	TrustedDomains  []string `json:"trusted_domains,omitempty"`
 }
 
 // New creates a Store backed by the given file. Existing data is loaded
@@ -39,6 +41,7 @@ func New(filePath string) (*Store, error) {
 	s := &Store{
 		dirs:     make(map[string]struct{}),
 		commands: make(map[string]struct{}),
+		domains:  make(map[string]struct{}),
 		filePath: abs,
 	}
 
@@ -99,6 +102,26 @@ func (s *Store) TrustCommand(cmd string) error {
 	return s.persist()
 }
 
+// IsDomainTrusted reports whether a domain has been trusted.
+func (s *Store) IsDomainTrusted(domain string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	_, ok := s.domains[domain]
+
+	return ok
+}
+
+// TrustDomain marks a domain as trusted and persists the change.
+func (s *Store) TrustDomain(domain string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.domains[domain] = struct{}{}
+
+	return s.persist()
+}
+
 // --- persistence ---
 
 func (s *Store) load() error {
@@ -144,6 +167,10 @@ func (s *Store) load() error {
 		s.commands[c] = struct{}{}
 	}
 
+	for _, d := range ff.TrustedDomains {
+		s.domains[d] = struct{}{}
+	}
+
 	return nil
 }
 
@@ -151,6 +178,7 @@ func (s *Store) persist() error {
 	ff := fileFormat{
 		FsDirectories:   make([]string, 0, len(s.dirs)),
 		TrustedCommands: make([]string, 0, len(s.commands)),
+		TrustedDomains:  make([]string, 0, len(s.domains)),
 	}
 
 	for d := range s.dirs {
@@ -159,6 +187,10 @@ func (s *Store) persist() error {
 
 	for c := range s.commands {
 		ff.TrustedCommands = append(ff.TrustedCommands, c)
+	}
+
+	for d := range s.domains {
+		ff.TrustedDomains = append(ff.TrustedDomains, d)
 	}
 
 	data, err := json.MarshalIndent(ff, "", "  ")

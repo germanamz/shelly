@@ -1,0 +1,125 @@
+package filesystem
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+
+	"github.com/germanamz/shelly/pkg/tools/toolbox"
+)
+
+type copyInput struct {
+	Source      string `json:"source"`
+	Destination string `json:"destination"`
+}
+
+func (f *FS) copyTool() toolbox.Tool {
+	return toolbox.Tool{
+		Name:        "fs_copy",
+		Description: "Copy a file or directory. Directories are copied recursively.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"source":{"type":"string","description":"Source path"},"destination":{"type":"string","description":"Destination path"}},"required":["source","destination"]}`),
+		Handler:     f.handleCopy,
+	}
+}
+
+func (f *FS) handleCopy(ctx context.Context, input json.RawMessage) (string, error) {
+	var in copyInput
+	if err := json.Unmarshal(input, &in); err != nil {
+		return "", fmt.Errorf("fs_copy: invalid input: %w", err)
+	}
+
+	if in.Source == "" {
+		return "", fmt.Errorf("fs_copy: source is required")
+	}
+
+	if in.Destination == "" {
+		return "", fmt.Errorf("fs_copy: destination is required")
+	}
+
+	if err := f.checkPermission(ctx, in.Source); err != nil {
+		return "", err
+	}
+
+	if err := f.checkPermission(ctx, in.Destination); err != nil {
+		return "", err
+	}
+
+	absSrc, err := filepath.Abs(in.Source)
+	if err != nil {
+		return "", fmt.Errorf("fs_copy: %w", err)
+	}
+
+	absDst, err := filepath.Abs(in.Destination)
+	if err != nil {
+		return "", fmt.Errorf("fs_copy: %w", err)
+	}
+
+	info, err := os.Stat(absSrc)
+	if err != nil {
+		return "", fmt.Errorf("fs_copy: %w", err)
+	}
+
+	if info.IsDir() {
+		if err := copyDir(absSrc, absDst); err != nil {
+			return "", fmt.Errorf("fs_copy: %w", err)
+		}
+	} else {
+		if err := copyFile(absSrc, absDst, info.Mode()); err != nil {
+			return "", fmt.Errorf("fs_copy: %w", err)
+		}
+	}
+
+	return "ok", nil
+}
+
+func copyFile(src, dst string, mode fs.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
+		return err
+	}
+
+	in, err := os.Open(src) //nolint:gosec // path is approved by user
+	if err != nil {
+		return err
+	}
+	defer in.Close() //nolint:errcheck // best-effort close on read
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode) //nolint:gosec // path is approved by user
+	if err != nil {
+		return err
+	}
+	defer out.Close() //nolint:errcheck // error checked via io.Copy
+
+	_, err = io.Copy(out, in)
+
+	return err
+}
+
+func copyDir(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+
+		target := filepath.Join(dst, rel)
+
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o750)
+		}
+
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+
+		return copyFile(path, target, info.Mode())
+	})
+}

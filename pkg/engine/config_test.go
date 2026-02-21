@@ -238,3 +238,27 @@ func TestConfig_Validate_DuplicateMCP(t *testing.T) {
 	}
 	assert.ErrorContains(t, cfg.Validate(), "duplicate mcp server name")
 }
+
+func TestConfig_Validate_SearchToolbox(t *testing.T) {
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
+		Agents:    []AgentConfig{{Name: "a1", ToolBoxNames: []string{"search"}}},
+	}
+	assert.NoError(t, cfg.Validate())
+}
+
+func TestConfig_Validate_GitToolbox(t *testing.T) {
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
+		Agents:    []AgentConfig{{Name: "a1", ToolBoxNames: []string{"git"}}},
+	}
+	assert.NoError(t, cfg.Validate())
+}
+
+func TestConfig_Validate_HTTPToolbox(t *testing.T) {
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
+		Agents:    []AgentConfig{{Name: "a1", ToolBoxNames: []string{"http"}}},
+	}
+	assert.NoError(t, cfg.Validate())
+}

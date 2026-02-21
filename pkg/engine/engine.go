@@ -11,7 +11,10 @@ import (
 	"github.com/germanamz/shelly/pkg/codingtoolbox/defaults"
 	shellyexec "github.com/germanamz/shelly/pkg/codingtoolbox/exec"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/filesystem"
+	shellygit "github.com/germanamz/shelly/pkg/codingtoolbox/git"
+	shellyhttp "github.com/germanamz/shelly/pkg/codingtoolbox/http"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
+	"github.com/germanamz/shelly/pkg/codingtoolbox/search"
 	"github.com/germanamz/shelly/pkg/modeladapter"
 	"github.com/germanamz/shelly/pkg/skill"
 	"github.com/germanamz/shelly/pkg/state"
@@ -103,7 +106,7 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 	e.toolboxes["ask"] = e.responder.Tools()
 
 	// Create shared permissions store and permission-gated tools.
-	if cfg.Filesystem.Enabled || cfg.Exec.Enabled {
+	if cfg.Filesystem.Enabled || cfg.Exec.Enabled || cfg.Search.Enabled || cfg.Git.Enabled || cfg.HTTP.Enabled {
 		permFile := cfg.Filesystem.PermissionsFile
 		if permFile == "" {
 			permFile = ".shelly/permissions.json"
@@ -123,6 +126,21 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		if cfg.Exec.Enabled {
 			execTools := shellyexec.New(permStore, e.responder.Ask)
 			e.toolboxes["exec"] = execTools.Tools()
+		}
+
+		if cfg.Search.Enabled {
+			searchTools := search.New(permStore, e.responder.Ask)
+			e.toolboxes["search"] = searchTools.Tools()
+		}
+
+		if cfg.Git.Enabled {
+			gitTools := shellygit.New(permStore, e.responder.Ask, cfg.Git.WorkDir)
+			e.toolboxes["git"] = gitTools.Tools()
+		}
+
+		if cfg.HTTP.Enabled {
+			httpTools := shellyhttp.New(permStore, e.responder.Ask)
+			e.toolboxes["http"] = httpTools.Tools()
 		}
 	}
 
@@ -205,6 +223,9 @@ var builtinToolboxNames = map[string]struct{}{
 	"ask":        {},
 	"filesystem": {},
 	"exec":       {},
+	"search":     {},
+	"git":        {},
+	"http":       {},
 	"defaults":   {},
 }
 

@@ -16,6 +16,9 @@ type Config struct {
 	StateEnabled bool             `yaml:"state_enabled"`
 	Filesystem   FilesystemConfig `yaml:"filesystem"`
 	Exec         ExecConfig       `yaml:"exec"`
+	Search       SearchConfig     `yaml:"search"`
+	Git          GitConfig        `yaml:"git"`
+	HTTP         HTTPConfig       `yaml:"http"`
 }
 
 // FilesystemConfig controls the filesystem tools.
@@ -26,6 +29,22 @@ type FilesystemConfig struct {
 
 // ExecConfig controls the exec tool.
 type ExecConfig struct {
+	Enabled bool `yaml:"enabled"`
+}
+
+// SearchConfig controls the search tools.
+type SearchConfig struct {
+	Enabled bool `yaml:"enabled"`
+}
+
+// GitConfig controls the git tools.
+type GitConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	WorkDir string `yaml:"work_dir"`
+}
+
+// HTTPConfig controls the http tool.
+type HTTPConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
