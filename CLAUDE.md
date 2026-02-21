@@ -11,6 +11,8 @@ task build          # Build binary to ./bin/shelly
 task run            # Run the application
 ```
 
+Copy `.env.example` to `.env` and fill in API keys (Anthropic, OpenAI, Grok). `.env` is gitignored.
+
 ## Code Quality
 
 ```bash
@@ -38,6 +40,7 @@ Shelly is a Go project (module: `github.com/germanamz/shelly`, Go 1.25). CLI ent
 ## Project Structure
 
 - `cmd/shelly/` — main package (entry point + tests)
+- `examples/` — YAML config files for running Shelly (e.g., `simple-assistant.yaml`)
 - `pkg/chats/` — provider-agnostic LLM chat data model (role, content, message, chat)
 - `pkg/modeladapter/` — LLM adapter abstraction layer (`Completer` interface, `ModelAdapter` base struct, usage tracking)
 - `pkg/providers/` — LLM provider implementations (anthropic, openai, grok)
