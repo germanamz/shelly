@@ -40,7 +40,7 @@ func (f *FS) Tools() *toolbox.ToolBox {
 	tb.Register(
 		f.readTool(), f.writeTool(), f.editTool(), f.listTool(),
 		f.deleteTool(), f.moveTool(), f.copyTool(), f.statTool(),
-		f.diffTool(), f.patchTool(),
+		f.diffTool(), f.patchTool(), f.mkdirTool(),
 	)
 
 	return tb
