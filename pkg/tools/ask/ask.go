@@ -85,14 +85,13 @@ func (r *Responder) askUserTool() toolbox.Tool {
 	}
 }
 
-func (r *Responder) handleAsk(ctx context.Context, input json.RawMessage) (string, error) {
-	var in askInput
-	if err := json.Unmarshal(input, &in); err != nil {
-		return "", fmt.Errorf("ask_user: invalid input: %w", err)
-	}
-
-	if in.Question == "" {
-		return "", fmt.Errorf("ask_user: question is required")
+// Ask programmatically poses a question to the user and blocks until a
+// response is received or the context is cancelled. Other packages (e.g.
+// filesystem) can use this to request user input without going through the
+// tool handler JSON layer.
+func (r *Responder) Ask(ctx context.Context, text string, options []string) (string, error) {
+	if text == "" {
+		return "", fmt.Errorf("ask: question is required")
 	}
 
 	id := fmt.Sprintf("q-%d", r.nextID.Add(1))
@@ -104,8 +103,8 @@ func (r *Responder) handleAsk(ctx context.Context, input json.RawMessage) (strin
 
 	q := Question{
 		ID:      id,
-		Text:    in.Question,
-		Options: in.Options,
+		Text:    text,
+		Options: options,
 	}
 
 	if r.onAsk != nil {
@@ -122,4 +121,18 @@ func (r *Responder) handleAsk(ctx context.Context, input json.RawMessage) (strin
 	case resp := <-ch:
 		return resp, nil
 	}
+}
+
+func (r *Responder) handleAsk(ctx context.Context, input json.RawMessage) (string, error) {
+	var in askInput
+	if err := json.Unmarshal(input, &in); err != nil {
+		return "", fmt.Errorf("ask_user: invalid input: %w", err)
+	}
+
+	resp, err := r.Ask(ctx, in.Question, in.Options)
+	if err != nil {
+		return "", fmt.Errorf("ask_user: %w", err)
+	}
+
+	return resp, nil
 }

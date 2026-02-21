@@ -219,6 +219,14 @@ func TestConfig_Validate_MCPCommandRequired(t *testing.T) {
 	assert.ErrorContains(t, cfg.Validate(), "command is required")
 }
 
+func TestConfig_Validate_FilesystemToolbox(t *testing.T) {
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
+		Agents:    []AgentConfig{{Name: "a1", ToolBoxNames: []string{"filesystem"}}},
+	}
+	assert.NoError(t, cfg.Validate())
+}
+
 func TestConfig_Validate_DuplicateMCP(t *testing.T) {
 	cfg := Config{
 		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},

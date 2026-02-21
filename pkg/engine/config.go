@@ -14,6 +14,13 @@ type Config struct {
 	Agents       []AgentConfig    `yaml:"agents"`
 	EntryAgent   string           `yaml:"entry_agent"`
 	StateEnabled bool             `yaml:"state_enabled"`
+	Filesystem   FilesystemConfig `yaml:"filesystem"`
+}
+
+// FilesystemConfig controls the filesystem tools.
+type FilesystemConfig struct {
+	Enabled         bool   `yaml:"enabled"`
+	PermissionsFile string `yaml:"permissions_file"`
 }
 
 // ProviderConfig describes an LLM provider instance.
@@ -123,7 +130,7 @@ func (c Config) Validate() error {
 		}
 
 		for _, tb := range a.ToolBoxNames {
-			if tb == "state" || tb == "ask" {
+			if tb == "state" || tb == "ask" || tb == "filesystem" {
 				continue
 			}
 			if _, ok := mcpNames[tb]; !ok {

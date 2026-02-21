@@ -113,6 +113,37 @@ func TestResponder_InvalidInput(t *testing.T) {
 	assert.Contains(t, tr.Content, "invalid input")
 }
 
+func TestResponder_Ask(t *testing.T) {
+	var r *Responder
+	r = NewResponder(func(_ context.Context, q Question) {
+		go func() {
+			_ = r.Respond(q.ID, "yes")
+		}()
+	})
+
+	resp, err := r.Ask(context.Background(), "Allow access?", []string{"yes", "no"})
+	require.NoError(t, err)
+	assert.Equal(t, "yes", resp)
+}
+
+func TestResponder_Ask_EmptyQuestion(t *testing.T) {
+	r := NewResponder(nil)
+
+	_, err := r.Ask(context.Background(), "", nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "question is required")
+}
+
+func TestResponder_Ask_ContextCancelled(t *testing.T) {
+	r := NewResponder(nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := r.Ask(ctx, "hello?", nil)
+	assert.Error(t, err)
+}
+
 func TestResponder_UniqueIDs(t *testing.T) {
 	var ids []string
 

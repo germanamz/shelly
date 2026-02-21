@@ -11,6 +11,7 @@ import (
 	"github.com/germanamz/shelly/pkg/skill"
 	"github.com/germanamz/shelly/pkg/state"
 	"github.com/germanamz/shelly/pkg/tools/ask"
+	"github.com/germanamz/shelly/pkg/tools/filesystem"
 	"github.com/germanamz/shelly/pkg/tools/mcpclient"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
@@ -97,6 +98,22 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		})
 	})
 	e.toolboxes["ask"] = e.responder.Tools()
+
+	// Create filesystem tools if enabled.
+	if cfg.Filesystem.Enabled {
+		permFile := cfg.Filesystem.PermissionsFile
+		if permFile == "" {
+			permFile = ".shelly/fs-permissions.json"
+		}
+
+		fsTools, err := filesystem.New(permFile, e.responder.Ask)
+		if err != nil {
+			_ = e.Close()
+			return nil, fmt.Errorf("engine: filesystem: %w", err)
+		}
+
+		e.toolboxes["filesystem"] = fsTools.Tools()
+	}
 
 	// Register agent factories.
 	for _, ac := range cfg.Agents {
