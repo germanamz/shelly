@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/germanamz/shelly/pkg/chats/content"
-	"github.com/germanamz/shelly/pkg/tools/permissions"
+	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

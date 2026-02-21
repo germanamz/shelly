@@ -7,15 +7,15 @@ import (
 	"time"
 
 	"github.com/germanamz/shelly/pkg/agent"
+	"github.com/germanamz/shelly/pkg/codingtoolbox/ask"
+	"github.com/germanamz/shelly/pkg/codingtoolbox/defaults"
+	shellyexec "github.com/germanamz/shelly/pkg/codingtoolbox/exec"
+	"github.com/germanamz/shelly/pkg/codingtoolbox/filesystem"
+	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
 	"github.com/germanamz/shelly/pkg/modeladapter"
 	"github.com/germanamz/shelly/pkg/skill"
 	"github.com/germanamz/shelly/pkg/state"
-	"github.com/germanamz/shelly/pkg/tools/ask"
-	"github.com/germanamz/shelly/pkg/tools/defaults"
-	shellyexec "github.com/germanamz/shelly/pkg/tools/exec"
-	"github.com/germanamz/shelly/pkg/tools/filesystem"
 	"github.com/germanamz/shelly/pkg/tools/mcpclient"
-	"github.com/germanamz/shelly/pkg/tools/permissions"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 

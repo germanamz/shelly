@@ -9,7 +9,7 @@ Instead of requiring every agent to list built-in toolboxes (ask, filesystem, st
 ## Usage
 
 ```go
-import "github.com/germanamz/shelly/pkg/tools/defaults"
+import "github.com/germanamz/shelly/pkg/codingtoolbox/defaults"
 
 // Merge any number of toolboxes into one.
 tb := defaults.New(askToolbox, filesystemToolbox, stateToolbox)

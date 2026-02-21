@@ -11,7 +11,7 @@ import (
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/chats/role"
-	"github.com/germanamz/shelly/pkg/tools/ask"
+	"github.com/germanamz/shelly/pkg/codingtoolbox/ask"
 )
 
 // Session represents one interactive conversation. It owns a chat and an agent
