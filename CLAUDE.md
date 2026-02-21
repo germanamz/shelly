@@ -40,7 +40,7 @@ Shelly is a Go project (module: `github.com/germanamz/shelly`, Go 1.25). CLI ent
 - `cmd/shelly/` — main package (entry point + tests)
 - `pkg/chats/` — provider-agnostic LLM chat data model (role, content, message, chat)
 - `pkg/modeladapter/` — LLM adapter abstraction layer (`Completer` interface, `ModelAdapter` base struct, usage tracking)
-- `pkg/providers/` — LLM provider implementations (anthropic, openai)
+- `pkg/providers/` — LLM provider implementations (anthropic, openai, grok)
 - `pkg/tools/` — tool execution and MCP integration (toolbox, mcpclient, mcpserver)
 - `pkg/skill/` — skill loading from markdown files (procedures agents follow)
 - `pkg/agent/` — unified agent with ReAct loop, registry-based delegation, middleware, and orchestration tools

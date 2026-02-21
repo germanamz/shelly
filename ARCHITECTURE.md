@@ -57,11 +57,11 @@ shelly/
 │   └── chat/                              Thread-safe conversation container
 │
 ├── pkg/modeladapter/                    Layer 2: LLM abstraction
-│   ├── usage/                             Token usage tracking
-│   └── grok/                              Grok/xAI adapter (OpenAI-compatible)
+│   └── usage/                             Token usage tracking
 │
 ├── pkg/providers/                       Layer 3: Concrete LLM providers
 │   ├── anthropic/                         Anthropic Claude (Messages API)
+│   ├── grok/                              Grok/xAI (OpenAI-compatible)
 │   └── openai/                            OpenAI GPT (Chat Completions API)
 │
 ├── pkg/tools/                           Layer 4: Tool execution
@@ -105,8 +105,8 @@ Arrows point from dependent to dependency. The graph enforces a strict layered a
      │        │               │            │
 ┌────▼────┐ ┌─▼──────────┐ ┌─▼──────┐ ┌───▼───────┐
 │ toolbox/ │ │modeladapter/│ │ skill/ │ │  chats/    │
-│          │ │  ├── usage/ │ │        │ │ ├── role/  │
-│          │ │  └── grok/  │ │        │ │ ├── content│
+│          │ │  └── usage/ │ │        │ │ ├── role/  │
+│          │ │             │ │        │ │ ├── content│
 │          │ └─────┬───────┘ └────────┘ │ ├── message│
 │          │       │                    │ └── chat/   │
 └────┬─────┘       │                    └────────┬────┘
@@ -128,16 +128,16 @@ Arrows point from dependent to dependency. The graph enforces a strict layered a
            │   toolbox/   │
            └──────────────┘
 
-    ┌────────────────┐   ┌────────────────┐
-    │ providers/      │   │ providers/      │
-    │ anthropic/      │   │ openai/         │
-    └───────┬────────┘   └───────┬────────┘
-            │                    │
-            └────────┬───────────┘
-                     │ embeds
-              ┌──────▼───────┐
-              │ modeladapter/ │
-              └──────────────┘
+    ┌────────────────┐   ┌────────────────┐   ┌────────────────┐
+    │ providers/      │   │ providers/      │   │ providers/      │
+    │ anthropic/      │   │ openai/         │   │ grok/           │
+    └───────┬────────┘   └───────┬────────┘   └───────┬────────┘
+            │                    │                    │
+            └────────────────────┼────────────────────┘
+                                 │ embeds
+                          ┌──────▼───────┐
+                          │ modeladapter/ │
+                          └──────────────┘
 ```
 
 **Rule:** A package may only import from the same layer or a lower layer. Never upward.
@@ -340,7 +340,7 @@ Methods: `Add(tc)`, `Last()`, `Total()`, `Count()`, `Reset()`
 
 ## 7. Layer 3 - LLM Providers
 
-**Packages:** `pkg/providers/anthropic/`, `pkg/providers/openai/`, `pkg/modeladapter/grok/`
+**Packages:** `pkg/providers/anthropic/`, `pkg/providers/openai/`, `pkg/providers/grok/`
 **Dependencies:** `modeladapter/`, `chats/`, `tools/toolbox`
 
 Each provider embeds `ModelAdapter` and implements `Completer`. Providers handle the translation between Shelly's generic data model and provider-specific API formats.
