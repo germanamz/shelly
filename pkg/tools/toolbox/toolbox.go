@@ -35,6 +35,14 @@ func (tb *ToolBox) Get(name string) (Tool, bool) {
 	return t, ok
 }
 
+// Merge registers all tools from another ToolBox into this one. If a tool
+// with the same name already exists, it is replaced.
+func (tb *ToolBox) Merge(other *ToolBox) {
+	for _, t := range other.tools {
+		tb.tools[t.Name] = t
+	}
+}
+
 // Tools returns all registered tools as a slice.
 func (tb *ToolBox) Tools() []Tool {
 	result := make([]Tool, 0, len(tb.tools))

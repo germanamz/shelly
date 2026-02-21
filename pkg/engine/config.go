@@ -130,7 +130,7 @@ func (c Config) Validate() error {
 		}
 
 		for _, tb := range a.ToolBoxNames {
-			if tb == "state" || tb == "ask" || tb == "filesystem" {
+			if _, builtin := builtinToolboxNames[tb]; builtin {
 				continue
 			}
 			if _, ok := mcpNames[tb]; !ok {

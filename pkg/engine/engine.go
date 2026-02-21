@@ -11,6 +11,7 @@ import (
 	"github.com/germanamz/shelly/pkg/skill"
 	"github.com/germanamz/shelly/pkg/state"
 	"github.com/germanamz/shelly/pkg/tools/ask"
+	"github.com/germanamz/shelly/pkg/tools/defaults"
 	"github.com/germanamz/shelly/pkg/tools/filesystem"
 	"github.com/germanamz/shelly/pkg/tools/mcpclient"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
@@ -115,6 +116,9 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		e.toolboxes["filesystem"] = fsTools.Tools()
 	}
 
+	// Build the defaults toolbox from all enabled built-in toolboxes.
+	e.buildDefaults()
+
 	// Register agent factories.
 	for _, ac := range cfg.Agents {
 		if err := e.registerAgent(ac); err != nil {
@@ -185,6 +189,27 @@ func (e *Engine) Close() error {
 	return firstErr
 }
 
+// builtinToolboxNames are toolbox names managed by the engine itself (not MCP).
+var builtinToolboxNames = map[string]struct{}{
+	"state":      {},
+	"ask":        {},
+	"filesystem": {},
+	"defaults":   {},
+}
+
+// buildDefaults assembles the defaults toolbox from all enabled built-in
+// toolboxes. Every agent receives the defaults toolbox automatically.
+func (e *Engine) buildDefaults() {
+	var sources []*toolbox.ToolBox
+	for name, tb := range e.toolboxes {
+		if _, ok := builtinToolboxNames[name]; ok {
+			sources = append(sources, tb)
+		}
+	}
+
+	e.toolboxes["defaults"] = defaults.New(sources...)
+}
+
 // registerAgent creates a factory for the given agent config and registers it.
 func (e *Engine) registerAgent(ac AgentConfig) error {
 	// Resolve provider — default to first provider.
@@ -198,9 +223,18 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 		return fmt.Errorf("engine: agent %q: provider %q not found", ac.Name, providerName)
 	}
 
-	// Collect toolboxes.
+	// Start with the defaults toolbox — every agent gets it.
 	var tbs []*toolbox.ToolBox
+	if dtb, ok := e.toolboxes["defaults"]; ok {
+		tbs = append(tbs, dtb)
+	}
+
+	// Collect additional toolboxes.
 	for _, name := range ac.ToolBoxNames {
+		if _, ok := builtinToolboxNames[name]; ok {
+			continue // already included via defaults
+		}
+
 		tb, ok := e.toolboxes[name]
 		if !ok {
 			return fmt.Errorf("engine: agent %q: toolbox %q not found", ac.Name, name)

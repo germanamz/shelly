@@ -114,6 +114,35 @@ func TestCallSuccess(t *testing.T) {
 	assert.False(t, result.IsError)
 }
 
+func TestMerge(t *testing.T) {
+	tb1 := New()
+	tb1.Register(newEchoTool("a"), newEchoTool("b"))
+
+	tb2 := New()
+	tb2.Register(newEchoTool("c"))
+
+	tb1.Merge(tb2)
+
+	assert.Len(t, tb1.Tools(), 3)
+	_, ok := tb1.Get("c")
+	assert.True(t, ok)
+}
+
+func TestMergeOverwrite(t *testing.T) {
+	tb1 := New()
+	tb1.Register(Tool{Name: "x", Description: "original", Handler: echoHandler})
+
+	tb2 := New()
+	tb2.Register(Tool{Name: "x", Description: "replaced", Handler: echoHandler})
+
+	tb1.Merge(tb2)
+
+	got, ok := tb1.Get("x")
+	require.True(t, ok)
+	assert.Equal(t, "replaced", got.Description)
+	assert.Len(t, tb1.Tools(), 1)
+}
+
 func TestCallNotFound(t *testing.T) {
 	tb := New()
 

@@ -2,6 +2,7 @@
 //
 // It is organized into sub-packages:
 //   - [github.com/germanamz/shelly/pkg/tools/toolbox] — Tool type and ToolBox orchestrator for registering, listing, and calling tools
+//   - [github.com/germanamz/shelly/pkg/tools/defaults] — Plug-and-play default toolbox builder that merges built-in toolboxes into a single one
 //   - [github.com/germanamz/shelly/pkg/tools/mcpclient] — MCP client using the official MCP Go SDK for communicating with external MCP server processes
 //   - [github.com/germanamz/shelly/pkg/tools/mcpserver] — MCP server using the official MCP Go SDK for exposing tools over the MCP protocol
 //
