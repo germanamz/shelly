@@ -36,6 +36,9 @@ func startBridge(ctx context.Context, p *tea.Program, c *chat.Chat, events *engi
 					}
 					p.Send(askUserMsg{question: q, agent: ev.Agent})
 
+				case engine.EventAgentStart:
+					p.Send(agentStartMsg{agent: ev.Agent})
+
 				case engine.EventAgentEnd:
 					p.Send(agentEndMsg{agent: ev.Agent})
 				}

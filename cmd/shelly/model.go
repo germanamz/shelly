@@ -28,7 +28,8 @@ type appModel struct {
 	inputBox     inputModel
 	statusBar    statusBarModel
 	askQueue     []askUserMsg
-	askActive    *askPromptModel
+	askActive    *askBatchModel
+	askBatching  bool
 	state        appState
 	cancelBridge context.CancelFunc
 	width        int
@@ -73,11 +74,20 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cancelBridge = startBridge(m.ctx, msg.program, m.sess.Chat(), m.events)
 		return m, nil
 
+	case filePickerEntriesMsg:
+		m.inputBox.filePicker.setEntries(msg.entries)
+		return m, nil
+
 	case inputSubmitMsg:
 		return m.handleSubmit(msg)
 
 	case chatMessageMsg:
 		m.chatView.addMessage(msg.msg)
+		m.recalcLayout()
+		return m, nil
+
+	case agentStartMsg:
+		m.chatView.getOrCreateChain(msg.agent)
 		m.recalcLayout()
 		return m, nil
 
@@ -94,6 +104,7 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil && m.ctx.Err() == nil {
 			m.chatView.blocks = append(m.chatView.blocks, chatBlock{
 				content: lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render("error: " + msg.err.Error()),
+				kind:    "error",
 			})
 			m.chatView.updateViewport()
 		}
@@ -101,30 +112,13 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, focusCmd
 
 	case askUserMsg:
-		m.askQueue = append(m.askQueue, msg)
-		if m.askActive == nil {
-			return m.popAskQueue()
-		}
-		return m, nil
+		return m.handleAskUser(msg)
 
-	case askAnsweredMsg:
-		if err := m.sess.Respond(msg.questionID, msg.response); err != nil {
-			m.chatView.blocks = append(m.chatView.blocks, chatBlock{
-				content: lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render("error responding: " + err.Error()),
-			})
-			m.chatView.updateViewport()
-		}
-		m.askActive = nil
-		if len(m.askQueue) > 0 {
-			return m.popAskQueue()
-		}
-		// Return to previous state.
-		if m.state == stateAskUser {
-			m.state = stateProcessing
-			m.inputBox.disable()
-		}
-		m.recalcLayout()
-		return m, nil
+	case askBatchReadyMsg:
+		return m.drainAskBatch()
+
+	case askBatchAnsweredMsg:
+		return m.handleBatchAnswered(msg)
 
 	case tickMsg:
 		if m.state == stateProcessing || m.chatView.hasActiveChains() {
@@ -232,6 +226,7 @@ func (m *appModel) handleSubmit(msg inputSubmitMsg) (tea.Model, tea.Cmd) {
 	// Add user message to the chat view.
 	m.chatView.blocks = append(m.chatView.blocks, chatBlock{
 		content: userStyle.Render("you> ") + text,
+		kind:    "user",
 	})
 	m.chatView.updateViewport()
 
@@ -251,15 +246,62 @@ func (m *appModel) handleSubmit(msg inputSubmitMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(sendCmd, tickCmd())
 }
 
-func (m *appModel) popAskQueue() (tea.Model, tea.Cmd) {
+func (m *appModel) handleAskUser(msg askUserMsg) (tea.Model, tea.Cmd) {
+	m.askQueue = append(m.askQueue, msg)
+
+	// If a batch is already displayed, don't start another.
+	if m.askActive != nil {
+		return m, nil
+	}
+
+	// Start batching window if not already batching.
+	if !m.askBatching {
+		m.askBatching = true
+		return m, tea.Tick(200*time.Millisecond, func(time.Time) tea.Msg {
+			return askBatchReadyMsg{}
+		})
+	}
+
+	return m, nil
+}
+
+func (m *appModel) drainAskBatch() (tea.Model, tea.Cmd) {
+	m.askBatching = false
 	if len(m.askQueue) == 0 {
 		return m, nil
 	}
-	next := m.askQueue[0]
-	m.askQueue = m.askQueue[1:]
-	prompt := newAskPrompt(next.question, next.agent, m.width)
-	m.askActive = &prompt
+
+	batch := newAskBatch(m.askQueue, m.width)
+	m.askActive = &batch
+	m.askQueue = nil
 	m.state = stateAskUser
+	m.recalcLayout()
+	return m, nil
+}
+
+func (m *appModel) handleBatchAnswered(msg askBatchAnsweredMsg) (tea.Model, tea.Cmd) {
+	for _, ans := range msg.answers {
+		if err := m.sess.Respond(ans.questionID, ans.response); err != nil {
+			m.chatView.blocks = append(m.chatView.blocks, chatBlock{
+				content: lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render("error responding: " + err.Error()),
+				kind:    "error",
+			})
+			m.chatView.updateViewport()
+		}
+	}
+
+	m.askActive = nil
+
+	// Check if more questions arrived during answering.
+	if len(m.askQueue) > 0 {
+		return m.drainAskBatch()
+	}
+
+	// Return to previous state.
+	if m.state == stateAskUser {
+		m.state = stateProcessing
+		m.inputBox.disable()
+	}
 	m.recalcLayout()
 	return m, nil
 }
@@ -268,11 +310,13 @@ func (m *appModel) recalcLayout() {
 	if m.width == 0 || m.height == 0 {
 		return
 	}
-	// Status bar = 1 line, input box ~ border(2) + content lines.
+	// Status bar = 1 line, input box ~ border(2) + content lines + optional picker.
 	statusHeight := 1
-	inputHeight := lipgloss.Height(m.inputBox.View())
+	var inputHeight int
 	if m.askActive != nil {
 		inputHeight = lipgloss.Height(m.askActive.View())
+	} else {
+		inputHeight = m.inputBox.totalHeight()
 	}
 	chatHeight := max(m.height-inputHeight-statusHeight, 1)
 	m.chatView.setSize(m.width, chatHeight)
@@ -292,6 +336,7 @@ func helpText() string {
 			"Shortcuts:\n" +
 			"  Enter          Submit message\n" +
 			"  Alt+Enter      New line\n" +
-			"  Ctrl+C         Exit",
+			"  Ctrl+C         Exit\n" +
+			"  @              File picker",
 	)
 }

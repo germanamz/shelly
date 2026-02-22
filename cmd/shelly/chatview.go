@@ -15,11 +15,24 @@ import (
 var (
 	userStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("2"))
 	assistantStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
+	userBlockStyle = lipgloss.NewStyle().
+			PaddingLeft(2).
+			BorderLeft(true).
+			BorderStyle(lipgloss.ThickBorder()).
+			BorderForeground(lipgloss.Color("2"))
+	assistantBlockStyle = lipgloss.NewStyle().
+				PaddingLeft(1)
+	errorBlockStyle = lipgloss.NewStyle().
+			PaddingLeft(1).
+			BorderLeft(true).
+			BorderStyle(lipgloss.ThickBorder()).
+			BorderForeground(lipgloss.Color("1"))
 )
 
 // chatBlock is a committed, fully rendered block of text in the chat history.
 type chatBlock struct {
 	content string
+	kind    string // "user", "assistant", "error", ""
 }
 
 // chatViewModel manages the scrollable chat viewport and active reasoning chains.
@@ -96,6 +109,7 @@ func (m *chatViewModel) processAssistantMessage(msg message.Message) {
 		rendered := renderMarkdown(text)
 		m.blocks = append(m.blocks, chatBlock{
 			content: assistantStyle.Render(fmt.Sprintf("%s> ", agent)) + rendered,
+			kind:    "assistant",
 		})
 	}
 }
@@ -182,7 +196,16 @@ func (m *chatViewModel) updateViewport() {
 	var sb strings.Builder
 
 	for _, block := range m.blocks {
-		sb.WriteString(block.content)
+		rendered := block.content
+		switch block.kind {
+		case "user":
+			rendered = userBlockStyle.Render(rendered)
+		case "assistant":
+			rendered = assistantBlockStyle.Render(rendered)
+		case "error":
+			rendered = errorBlockStyle.Render(rendered)
+		}
+		sb.WriteString(rendered)
 		sb.WriteString("\n\n")
 	}
 

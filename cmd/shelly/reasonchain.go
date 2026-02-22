@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -20,9 +21,10 @@ type reasonStep struct {
 
 // reasonChain accumulates reasoning steps for one agent while it's processing.
 type reasonChain struct {
-	agent    string
-	steps    []reasonStep
-	frameIdx int
+	agent     string
+	steps     []reasonStep
+	frameIdx  int
+	startTime time.Time
 }
 
 var (
@@ -34,7 +36,7 @@ var (
 
 // newReasonChain creates a new chain for the given agent.
 func newReasonChain(agent string) *reasonChain {
-	return &reasonChain{agent: agent}
+	return &reasonChain{agent: agent, startTime: time.Now()}
 }
 
 // addCall adds a tool call step with a random thinking message.
@@ -125,6 +127,10 @@ func (rc *reasonChain) renderLive(verbose bool) string {
 		}
 	}
 
+	// Elapsed time line.
+	elapsed := time.Since(rc.startTime)
+	fmt.Fprintf(&sb, "  %s\n", dimStyle.Render(fmt.Sprintf("[%s] %s", rc.agent, fmtDuration(elapsed))))
+
 	return sb.String()
 }
 
@@ -156,5 +162,6 @@ func (rc *reasonChain) collapsedSummary() string {
 		}
 	}
 
-	return dimStyle.Render(fmt.Sprintf("  [%s: %d steps: %s]", rc.agent, totalSteps, strings.Join(parts, ", ")))
+	elapsed := time.Since(rc.startTime)
+	return dimStyle.Render(fmt.Sprintf("  [%s: %d steps: %s · %s]", rc.agent, totalSteps, strings.Join(parts, ", "), fmtDuration(elapsed)))
 }

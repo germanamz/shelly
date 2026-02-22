@@ -13,6 +13,11 @@ type chatMessageMsg struct {
 	msg message.Message
 }
 
+// agentStartMsg signals that the named agent started its ReAct loop.
+type agentStartMsg struct {
+	agent string
+}
+
 // agentEndMsg signals that the named agent finished its ReAct loop.
 type agentEndMsg struct {
 	agent string
@@ -24,10 +29,18 @@ type askUserMsg struct {
 	agent    string
 }
 
-// askAnsweredMsg is sent after the user answers an ask prompt.
-type askAnsweredMsg struct {
+// askAnswer holds the response for a single question in a batch.
+type askAnswer struct {
 	questionID string
 	response   string
+}
+
+// askBatchReadyMsg signals that the batching window has closed.
+type askBatchReadyMsg struct{}
+
+// askBatchAnsweredMsg is sent after the user answers all batched questions.
+type askBatchAnsweredMsg struct {
+	answers []askAnswer
 }
 
 // inputSubmitMsg carries the text the user submitted from the input box.
