@@ -21,6 +21,13 @@ type Completer interface {
 	Complete(ctx context.Context, c *chat.Chat) (message.Message, error)
 }
 
+// UsageReporter provides token usage information from a completer.
+// Completers that embed ModelAdapter implement this interface automatically.
+type UsageReporter interface {
+	UsageTracker() *usage.Tracker
+	ModelMaxTokens() int
+}
+
 // Auth holds authentication settings for an LLM provider API.
 type Auth struct {
 	Key    string // API key value.
@@ -52,6 +59,12 @@ func New(baseURL string, auth Auth, client *http.Client) ModelAdapter {
 		Client:  client,
 	}
 }
+
+// UsageTracker returns the adapter's token usage tracker.
+func (a *ModelAdapter) UsageTracker() *usage.Tracker { return &a.Usage }
+
+// ModelMaxTokens returns the maximum tokens the model will generate per response.
+func (a *ModelAdapter) ModelMaxTokens() int { return a.MaxTokens }
 
 // Complete is a stub that returns an error. Concrete providers that embed
 // ModelAdapter should define their own Complete method to shadow this one.

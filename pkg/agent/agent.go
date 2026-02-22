@@ -65,6 +65,9 @@ func (a *Agent) Description() string { return a.description }
 // Chat returns the agent's chat.
 func (a *Agent) Chat() *chat.Chat { return a.chat }
 
+// Completer returns the agent's completer.
+func (a *Agent) Completer() modeladapter.Completer { return a.completer }
+
 // SetRegistry enables dynamic delegation by setting the agent's registry.
 func (a *Agent) SetRegistry(r *Registry) {
 	a.registry = r

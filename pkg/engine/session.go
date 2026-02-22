@@ -12,6 +12,7 @@ import (
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/chats/role"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/ask"
+	"github.com/germanamz/shelly/pkg/modeladapter"
 )
 
 // Session represents one interactive conversation. It owns a chat and an agent
@@ -41,6 +42,9 @@ func (s *Session) ID() string { return s.id }
 
 // Chat returns the underlying chat for direct observation (e.g., Wait/Since).
 func (s *Session) Chat() *chat.Chat { return s.agent.Chat() }
+
+// Completer returns the session's underlying completer for usage reporting.
+func (s *Session) Completer() modeladapter.Completer { return s.agent.Completer() }
 
 // Send appends a text message from the user and runs the agent's ReAct loop.
 // It returns the agent's reply. Only one Send may be active per session.
