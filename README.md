@@ -22,8 +22,12 @@ pkg/
 │   ├── mcpclient/      MCP client (connects to external MCP servers)
 │   └── mcpserver/      MCP server (exposes tools over MCP protocol)
 ├── skill/            Folder-based skill loading (SKILL.md entry point + supplementary files)
+├── shellydir/        .shelly/ directory path resolution, bootstrapping, and migration
+├── projectctx/       Curated context loading and structural project index generation
 ├── agent/            Unified agent with ReAct loop, registry, delegation, and middleware
+├── agentctx/         Shared context key helpers for propagating agent identity
 ├── state/            Key-value state store for inter-agent data sharing
+├── tasks/            Shared task board for multi-agent coordination
 └── engine/           Composition root — wires everything from config, exposes Engine/Session/EventBus
 ```
 
@@ -59,7 +63,7 @@ See [`pkg/providers/README.md`](pkg/providers/README.md) for detailed examples.
 
 The `engine` package is the top-level wiring layer that assembles all framework components from a YAML configuration and exposes them through a frontend-agnostic API.
 
-- **Engine** creates provider adapters, connects MCP servers, loads skills, registers agent factories, and manages sessions.
+- **Engine** initializes the `.shelly/` directory, creates provider adapters, connects MCP servers, loads skills from `.shelly/skills/`, loads project context, registers agent factories, and manages sessions.
 - **Session** represents one interactive conversation — call `Send()` to run the agent loop and get a reply.
 - **EventBus** provides a channel-based push model for observing engine activity (agent start/end, tool calls, errors).
 

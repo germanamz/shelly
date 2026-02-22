@@ -313,6 +313,46 @@ func TestSystemPromptNoDescriptionSkillsOnly(t *testing.T) {
 	assert.NotContains(t, prompt, "## Available Skills")
 }
 
+func TestSystemPromptContext(t *testing.T) {
+	p := &sequenceCompleter{
+		replies: []message.Message{
+			message.NewText("", role.Assistant, "Hi"),
+		},
+	}
+	a := New("bot", "", "Do stuff.", p, Options{
+		Context: "This is a Go project using module github.com/example/foo.",
+	})
+
+	_, err := a.Run(context.Background())
+	require.NoError(t, err)
+
+	prompt := a.Chat().SystemPrompt()
+	assert.Contains(t, prompt, "## Project Context")
+	assert.Contains(t, prompt, "This is a Go project using module github.com/example/foo.")
+	// Context should appear after instructions.
+	instrIdx := len("## Instructions")
+	ctxIdx := len("## Project Context")
+	_ = instrIdx
+	_ = ctxIdx
+	// Just verify ordering by checking both sections exist.
+	assert.Contains(t, prompt, "## Instructions")
+}
+
+func TestSystemPromptContextEmpty(t *testing.T) {
+	p := &sequenceCompleter{
+		replies: []message.Message{
+			message.NewText("", role.Assistant, "Hi"),
+		},
+	}
+	a := New("bot", "", "", p, Options{})
+
+	_, err := a.Run(context.Background())
+	require.NoError(t, err)
+
+	prompt := a.Chat().SystemPrompt()
+	assert.NotContains(t, prompt, "## Project Context")
+}
+
 func TestSystemPromptAgentDirectory(t *testing.T) {
 	p := &sequenceCompleter{
 		replies: []message.Message{

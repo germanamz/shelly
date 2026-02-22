@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode"
@@ -140,4 +141,21 @@ func loadDotEnv(path string) error {
 // randomThinkingMessage returns a random thinking message.
 func randomThinkingMessage() string {
 	return thinkingMessages[rand.IntN(len(thinkingMessages))] //nolint:gosec // cosmetic randomness
+}
+
+// resolveConfigPath returns the config file to use. Priority:
+// 1. Explicit --config flag (non-empty)
+// 2. .shelly/config.yaml (if it exists)
+// 3. shelly.yaml (legacy fallback)
+func resolveConfigPath(explicit, shellyDirPath string) string {
+	if explicit != "" {
+		return explicit
+	}
+
+	shellyConfig := filepath.Join(shellyDirPath, "config.yaml")
+	if _, err := os.Stat(shellyConfig); err == nil {
+		return shellyConfig
+	}
+
+	return "shelly.yaml"
 }

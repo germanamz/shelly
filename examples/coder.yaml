@@ -28,7 +28,6 @@ tasks_enabled: true
 
 filesystem:
   enabled: true
-  permissions_file: .shelly/permissions.json
 exec:
   enabled: true
 search:

@@ -34,7 +34,7 @@ filesystem tool. Files without `trusted_domains` are handled gracefully
 ## Usage
 
 ```go
-store, err := permissions.New(".shelly/permissions.json")
+store, err := permissions.New(".shelly/local/permissions.json")
 
 // Filesystem permission checks.
 store.IsDirApproved("/home/user/projects/foo") // true (ancestor match)

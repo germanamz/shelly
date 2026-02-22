@@ -17,6 +17,8 @@ import (
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/search"
 	"github.com/germanamz/shelly/pkg/modeladapter"
+	"github.com/germanamz/shelly/pkg/projectctx"
+	"github.com/germanamz/shelly/pkg/shellydir"
 	"github.com/germanamz/shelly/pkg/skill"
 	"github.com/germanamz/shelly/pkg/state"
 	"github.com/germanamz/shelly/pkg/tasks"
@@ -36,6 +38,9 @@ type Engine struct {
 	completers map[string]modeladapter.Completer
 	toolboxes  map[string]*toolbox.ToolBox
 	mcpClients []*mcpclient.MCPClient
+	dir        shellydir.Dir
+	projectCtx projectctx.Context
+	skills     []skill.Skill
 
 	mu       sync.Mutex
 	sessions map[string]*Session
@@ -50,6 +55,14 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		return nil, err
 	}
 
+	// Resolve .shelly/ directory.
+	shellyDirPath := cfg.ShellyDir
+	if shellyDirPath == "" {
+		shellyDirPath = ".shelly"
+	}
+
+	dir := shellydir.New(shellyDirPath)
+
 	e := &Engine{
 		cfg:        cfg,
 		events:     NewEventBus(),
@@ -57,7 +70,27 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		completers: make(map[string]modeladapter.Completer, len(cfg.Providers)),
 		toolboxes:  make(map[string]*toolbox.ToolBox),
 		sessions:   make(map[string]*Session),
+		dir:        dir,
 	}
+
+	// Bootstrap .shelly/ directory structure.
+	if dir.Exists() {
+		if err := shellydir.EnsureStructure(dir); err != nil {
+			return nil, fmt.Errorf("engine: shelly dir: %w", err)
+		}
+
+		if err := shellydir.MigratePermissions(dir); err != nil {
+			return nil, fmt.Errorf("engine: migrate permissions: %w", err)
+		}
+	}
+
+	// Load skills once at engine level from .shelly/skills/.
+	if skills, err := skill.LoadDir(dir.SkillsDir()); err == nil {
+		e.skills = skills
+	}
+
+	// Load project context (best-effort).
+	e.projectCtx = projectctx.Load(dir)
 
 	// Build provider completers.
 	for _, pc := range cfg.Providers {
@@ -114,13 +147,14 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 	})
 	e.toolboxes["ask"] = e.responder.Tools()
 
+	// Resolve permissions file path: prefer shellydir, fall back to config.
+	permFile := dir.PermissionsPath()
+	if !dir.Exists() && cfg.Filesystem.PermissionsFile != "" {
+		permFile = cfg.Filesystem.PermissionsFile
+	}
+
 	// Create shared permissions store and permission-gated tools.
 	if cfg.Filesystem.Enabled || cfg.Exec.Enabled || cfg.Search.Enabled || cfg.Git.Enabled || cfg.HTTP.Enabled {
-		permFile := cfg.Filesystem.PermissionsFile
-		if permFile == "" {
-			permFile = ".shelly/permissions.json"
-		}
-
 		permStore, err := permissions.New(permFile)
 		if err != nil {
 			_ = e.Close()
@@ -298,15 +332,8 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 		tbs = append(tbs, tb)
 	}
 
-	// Load skills.
-	var skills []skill.Skill
-	if ac.SkillsDir != "" {
-		var err error
-		skills, err = skill.LoadDir(ac.SkillsDir)
-		if err != nil {
-			return fmt.Errorf("engine: agent %q: %w", ac.Name, err)
-		}
-	}
+	// Use engine-level skills loaded from .shelly/skills/.
+	skills := e.skills
 
 	// If any loaded skills have descriptions, create a Store and add its
 	// load_skill toolbox so the agent can retrieve full content on demand.
@@ -329,6 +356,9 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 		ta.SetTools(allTools)
 	}
 
+	// Compose project context string.
+	ctxStr := e.projectCtx.String()
+
 	// Capture values for factory closure.
 	name := ac.Name
 	desc := ac.Description
@@ -337,6 +367,7 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 		MaxIterations:      ac.Options.MaxIterations,
 		MaxDelegationDepth: ac.Options.MaxDelegationDepth,
 		Skills:             skills,
+		Context:            ctxStr,
 	}
 
 	e.registry.Register(name, desc, func() *agent.Agent {

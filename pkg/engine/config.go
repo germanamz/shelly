@@ -9,6 +9,7 @@ import (
 
 // Config is the top-level engine configuration.
 type Config struct {
+	ShellyDir    string           `yaml:"-"` // Set by CLI, not from YAML.
 	Providers    []ProviderConfig `yaml:"providers"`
 	MCPServers   []MCPConfig      `yaml:"mcp_servers"`
 	Agents       []AgentConfig    `yaml:"agents"`
@@ -71,7 +72,6 @@ type AgentConfig struct {
 	Description  string       `yaml:"description"`
 	Instructions string       `yaml:"instructions"`
 	Provider     string       `yaml:"provider"`
-	SkillsDir    string       `yaml:"skills_dir"`
 	ToolBoxNames []string     `yaml:"toolbox_names"`
 	Options      AgentOptions `yaml:"options"`
 }

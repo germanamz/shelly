@@ -19,7 +19,7 @@ engine/
 
 ### Engine
 
-The composition root. Creates provider adapters, connects MCP clients, loads skills, registers agent factories, and manages sessions.
+The composition root. Initializes the `.shelly/` directory (via `shellydir`), migrates legacy permissions, creates provider adapters, connects MCP clients, loads skills from `.shelly/skills/`, loads project context (via `projectctx`), registers agent factories, and manages sessions.
 
 ```go
 eng, err := engine.New(ctx, cfg)
@@ -83,6 +83,7 @@ mcp_servers:
 agents:
   - name: assistant
     description: A helpful assistant
+    instructions: Be helpful and concise.
     provider: default
     toolbox_names: [search, state]
     options:
@@ -94,7 +95,6 @@ tasks_enabled: true
 
 filesystem:
   enabled: true
-  permissions_file: .shelly/permissions.json
 exec:
   enabled: true
 search:

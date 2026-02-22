@@ -46,7 +46,7 @@ trust file managed by the `permissions` package.
 ## Usage
 
 ```go
-store, _ := permissions.New(".shelly/permissions.json")
+store, _ := permissions.New(".shelly/local/permissions.json")
 e := exec.New(store, responder.Ask)
 tb := e.Tools() // register in your agent's toolbox
 ```

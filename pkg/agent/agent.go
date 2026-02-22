@@ -29,6 +29,7 @@ type Options struct {
 	MaxDelegationDepth int           // Prevents infinite delegation loops (0 = unlimited).
 	Skills             []skill.Skill // Procedures the agent knows.
 	Middleware         []Middleware  // Applied around Run().
+	Context            string        // Project context injected into the system prompt.
 }
 
 // Agent is the unified agent type. It runs a ReAct loop, can delegate to other
@@ -155,6 +156,13 @@ func (a *Agent) buildSystemPrompt() string {
 	if a.instructions != "" {
 		b.WriteString("\n## Instructions\n\n")
 		b.WriteString(a.instructions)
+		b.WriteString("\n")
+	}
+
+	// Project context.
+	if a.options.Context != "" {
+		b.WriteString("\n## Project Context\n\n")
+		b.WriteString(a.options.Context)
 		b.WriteString("\n")
 	}
 

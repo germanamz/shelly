@@ -72,11 +72,26 @@ shelly/
 ├── pkg/skill/                           Layer 5: Skill loading
 │                                          Markdown-based procedures for agents
 │
+├── pkg/shellydir/                       .shelly/ directory path resolution
+│                                          Bootstrapping, permissions migration
+│
+├── pkg/projectctx/                      Project context loading
+│                                          Curated *.md files + structural index
+│
 ├── pkg/agent/                           Layer 6: Unified agent
 │                                          ReAct loop, registry, delegation, middleware
 │
-└── pkg/state/                           Layer 7: Shared state
-                                           Thread-safe KV store (blackboard pattern)
+├── pkg/agentctx/                        Agent identity propagation
+│                                          Zero-dependency context key helpers
+│
+├── pkg/tasks/                           Shared task board
+│                                          Multi-agent coordination (create, claim, watch)
+│
+├── pkg/state/                           Layer 7: Shared state
+│                                          Thread-safe KV store (blackboard pattern)
+│
+└── pkg/engine/                          Composition root
+                                           Wires config, .shelly/ dir, sessions, events
 ```
 
 ---
@@ -86,32 +101,37 @@ shelly/
 Arrows point from dependent to dependency. The graph enforces a strict layered architecture with no circular dependencies.
 
 ```
-                            ┌─────────────────────────────────┐
-                            │          cmd/shelly/             │
-                            └──────────────┬──────────────────┘
-                                           │ imports everything
-              ┌────────────────────────────┼────────────────────────────┐
-              │                            │                            │
-    ┌─────────▼─────────┐                  │                 ┌──────────▼─────────┐
-    │      agent/        │                 │                 │      state/         │
-    │  (unified agent,   │                 │                 │  (shared KV store)  │
-    │   registry,        │                 │                 └──────────┬─────────┘
-    │   middleware,       │                 │                            │
-    │   orchestration)   │                 │                            │ exposes as
-    └─────────┬──────────┘                 │                     ┌──────▼──────┐
-              │                            │                     │   toolbox/   │
-     ┌────────┼───────────────┐            │                     │   (Tool)     │
-     │        │               │            │                     └─────────────┘
-     │        │               │            │
-┌────▼────┐ ┌─▼──────────┐ ┌─▼──────┐ ┌───▼───────┐
-│ toolbox/ │ │modeladapter/│ │ skill/ │ │  chats/    │
-│          │ │  └── usage/ │ │        │ │ ├── role/  │
-│          │ │             │ │        │ │ ├── content│
-│          │ └─────┬───────┘ └────────┘ │ ├── message│
-│          │       │                    │ └── chat/   │
-└────┬─────┘       │                    └────────┬────┘
-     │             │                             │
-     └─────────────┴─────────────────────────────┘
+                         ┌──────────────────────────────────────┐
+                         │            cmd/shelly/                │
+                         └────────────────┬─────────────────────┘
+                                          │ imports engine
+                         ┌────────────────▼─────────────────────┐
+                         │             engine/                    │
+                         │  (composition root, wires everything) │
+                         └──┬─────┬─────┬─────┬─────┬─────┬────┘
+                            │     │     │     │     │     │
+              ┌─────────────┘     │     │     │     │     └──────────────┐
+              │                   │     │     │     │                    │
+    ┌─────────▼─────────┐        │     │     │   ┌─▼────────────┐ ┌────▼──────────┐
+    │      agent/        │        │     │     │   │ shellydir/   │ │ projectctx/   │
+    │  (unified agent,   │        │     │     │   │ (.shelly/    │ │ (curated +    │
+    │   registry,        │        │     │     │   │  paths,      │ │  generated    │
+    │   middleware,       │        │     │     │   │  bootstrap)  │ │  context)     │
+    │   orchestration)   │        │     │     │   └──────────────┘ └──────┬────────┘
+    └─────────┬──────────┘        │     │     │                          │ uses
+              │                   │     │     │                   ┌──────▼────────┐
+     ┌────────┼───────────────┐   │     │     │                   │  shellydir/   │
+     │        │               │   │     │     │                   └───────────────┘
+     │        │               │   │     │     │
+┌────▼────┐ ┌─▼──────────┐ ┌─▼──────┐ │   ┌──▼────────┐   ┌──────────┐
+│ toolbox/ │ │modeladapter/│ │ skill/ │ │   │  chats/    │   │  state/  │
+│          │ │  └── usage/ │ │        │ │   │ ├── role/  │   │  tasks/  │
+│          │ │             │ │        │ │   │ ├── content│   └──────────┘
+│          │ └─────┬───────┘ └────────┘ │   │ ├── message│
+│          │       │                    │   │ └── chat/   │
+└────┬─────┘       │                    │   └────────┬────┘
+     │             │                    │            │
+     └─────────────┴────────────────────┴────────────┘
                    │
            ┌───────▼────────┐
            │  chats/content  │  (ToolCall, ToolResult shared types)
@@ -148,14 +168,17 @@ Arrows point from dependent to dependency. The graph enforces a strict layered a
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  Layer 7: Cross-cutting     state/                                      │
-│  Shared state (blackboard pattern), tool-exposed KV store               │
+│  Engine                     engine/                                      │
+│  Composition root: wires config, .shelly/ dir, sessions, events          │
+├─────────────────────────────────────────────────────────────────────────┤
+│  Layer 7: Cross-cutting     state/  tasks/  agentctx/                    │
+│  Shared state, task board, agent identity propagation                    │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  Layer 6: Agent             agent/                                       │
 │  Unified agent: ReAct loop, registry, delegation, skills, middleware     │
 ├─────────────────────────────────────────────────────────────────────────┤
-│  Layer 5: Skills            skill/                                       │
-│  Markdown-based procedures loaded from files                             │
+│  Layer 5: Skills + Context  skill/  shellydir/  projectctx/              │
+│  Skill loading, .shelly/ path resolution, project context generation     │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  Layer 4: Tools             toolbox/  mcpclient/  mcpserver/             │
 │  Tool definition, execution, MCP protocol integration                    │
@@ -552,6 +575,7 @@ type Options struct {
     MaxDelegationDepth int           // Prevents infinite A->B->A loops (0 = unlimited)
     Skills             []skill.Skill // Procedures the agent knows
     Middleware         []Middleware   // Applied around Run()
+    Context            string        // Project context injected into the system prompt
 }
 ```
 
@@ -573,6 +597,7 @@ Run(ctx):
      a. If chat is empty, build and prepend system prompt:
         - Identity: "You are {name}. {description}"
         - Instructions block (## Instructions)
+        - Project context block (## Project Context)
         - Skills block (## Skills, each as ### subsection)
         - Agent directory from registry (## Available Agents, names + descriptions)
      b. Collect all toolboxes:
@@ -758,6 +783,10 @@ You are {name}. {description}
 
 {instructions}
 
+## Project Context
+
+{context}
+
 ## Skills
 
 ### {skill-1-name}
@@ -774,7 +803,7 @@ You are {name}. {description}
 - **{agent-name}**: {agent-description}
 ```
 
-Only non-empty sections are included. The "Available Agents" section is only present when a Registry is set and contains entries other than self.
+Only non-empty sections are included. The "Project Context" section is populated from curated `.shelly/*.md` files and the auto-generated structural index. The "Available Agents" section is only present when a Registry is set and contains entries other than self.
 
 ---
 
@@ -1084,9 +1113,14 @@ result, err := orch.Run(ctx)
 
 ### 14.3 Agent with Skills
 
+Skills are loaded globally from `.shelly/skills/` by the engine and injected into
+all agents automatically. When using the engine, you don't need to load skills manually.
+
+For standalone agent usage without the engine:
+
 ```go
 // Load skills from a directory
-skills, _ := skill.LoadDir("skills/") // loads from subdirectories containing SKILL.md
+skills, _ := skill.LoadDir(".shelly/skills/") // loads from subdirectories containing SKILL.md
 
 // Create an agent that knows procedures
 a := agent.New("project-lead", "Manages software projects",
