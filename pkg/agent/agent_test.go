@@ -241,6 +241,78 @@ func TestSystemPromptSkills(t *testing.T) {
 	assert.Contains(t, prompt, "1. Check tests")
 }
 
+func TestSystemPromptSkillsWithDescription(t *testing.T) {
+	p := &sequenceCompleter{
+		replies: []message.Message{
+			message.NewText("", role.Assistant, "Hi"),
+		},
+	}
+	a := New("bot", "", "", p, Options{
+		Skills: []skill.Skill{
+			{Name: "code-review", Description: "Teaches code review best practices", Content: "1. Check tests\n2. Check coverage"},
+		},
+	})
+
+	_, err := a.Run(context.Background())
+	require.NoError(t, err)
+
+	prompt := a.Chat().SystemPrompt()
+	assert.Contains(t, prompt, "## Available Skills")
+	assert.Contains(t, prompt, "load_skill")
+	assert.Contains(t, prompt, "**code-review**: Teaches code review best practices")
+	// Full content should NOT be in the prompt.
+	assert.NotContains(t, prompt, "1. Check tests")
+}
+
+func TestSystemPromptMixedSkills(t *testing.T) {
+	p := &sequenceCompleter{
+		replies: []message.Message{
+			message.NewText("", role.Assistant, "Hi"),
+		},
+	}
+	a := New("bot", "", "", p, Options{
+		Skills: []skill.Skill{
+			{Name: "review", Content: "1. Check tests\n2. Check coverage"},
+			{Name: "deploy", Description: "Deployment procedures", Content: "1. Build\n2. Deploy"},
+		},
+	})
+
+	_, err := a.Run(context.Background())
+	require.NoError(t, err)
+
+	prompt := a.Chat().SystemPrompt()
+	// Inline skill section.
+	assert.Contains(t, prompt, "## Skills")
+	assert.Contains(t, prompt, "### review")
+	assert.Contains(t, prompt, "1. Check tests")
+	// On-demand skill section.
+	assert.Contains(t, prompt, "## Available Skills")
+	assert.Contains(t, prompt, "**deploy**: Deployment procedures")
+	// On-demand skill content should NOT be in prompt.
+	assert.NotContains(t, prompt, "1. Build")
+}
+
+func TestSystemPromptNoDescriptionSkillsOnly(t *testing.T) {
+	p := &sequenceCompleter{
+		replies: []message.Message{
+			message.NewText("", role.Assistant, "Hi"),
+		},
+	}
+	a := New("bot", "", "", p, Options{
+		Skills: []skill.Skill{
+			{Name: "review", Content: "1. Check tests"},
+		},
+	})
+
+	_, err := a.Run(context.Background())
+	require.NoError(t, err)
+
+	prompt := a.Chat().SystemPrompt()
+	assert.Contains(t, prompt, "## Skills")
+	assert.Contains(t, prompt, "### review")
+	assert.NotContains(t, prompt, "## Available Skills")
+}
+
 func TestSystemPromptAgentDirectory(t *testing.T) {
 	p := &sequenceCompleter{
 		replies: []message.Message{

@@ -308,6 +308,16 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 		}
 	}
 
+	// If any loaded skills have descriptions, create a Store and add its
+	// load_skill toolbox so the agent can retrieve full content on demand.
+	for _, s := range skills {
+		if s.HasDescription() {
+			store := skill.NewStore(skills)
+			tbs = append(tbs, store.Tools())
+			break
+		}
+	}
+
 	// Collect all tool declarations for ToolAware completers.
 	var allTools []toolbox.Tool
 	for _, tb := range tbs {

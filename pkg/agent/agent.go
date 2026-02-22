@@ -158,11 +158,27 @@ func (a *Agent) buildSystemPrompt() string {
 		b.WriteString("\n")
 	}
 
-	// Skills.
-	if len(a.options.Skills) > 0 {
+	// Skills — split into inline (no description) and on-demand (has description).
+	var inline, onDemand []skill.Skill
+	for _, s := range a.options.Skills {
+		if s.HasDescription() {
+			onDemand = append(onDemand, s)
+		} else {
+			inline = append(inline, s)
+		}
+	}
+
+	if len(inline) > 0 {
 		b.WriteString("\n## Skills\n")
-		for _, s := range a.options.Skills {
+		for _, s := range inline {
 			fmt.Fprintf(&b, "\n### %s\n\n%s\n", s.Name, s.Content)
+		}
+	}
+
+	if len(onDemand) > 0 {
+		b.WriteString("\n## Available Skills\n\nUse the load_skill tool to retrieve the full content of a skill when needed.\n")
+		for _, s := range onDemand {
+			fmt.Fprintf(&b, "- **%s**: %s\n", s.Name, s.Description)
 		}
 	}
 
