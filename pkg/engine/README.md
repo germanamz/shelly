@@ -90,6 +90,7 @@ agents:
 
 entry_agent: assistant
 state_enabled: true
+tasks_enabled: true
 
 filesystem:
   enabled: true

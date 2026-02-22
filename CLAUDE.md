@@ -48,7 +48,9 @@ Shelly is a Go project (module: `github.com/germanamz/shelly`, Go 1.25). CLI ent
 - `pkg/codingtoolbox/` — built-in coding tools (ask, filesystem, exec, search, git, http, permissions, defaults)
 - `pkg/skill/` — skill loading from markdown files (procedures agents follow)
 - `pkg/agent/` — unified agent with ReAct loop, registry-based delegation, middleware, and orchestration tools
+- `pkg/agentctx/` — shared context key helpers for propagating agent identity across packages
 - `pkg/state/` — key-value state store for agents
+- `pkg/tasks/` — shared task board for multi-agent coordination (create, claim, watch tasks)
 - `pkg/engine/` — composition root that wires all components from YAML config, exposes frontend-agnostic Engine/Session/EventBus API
 
 ## Architecture
@@ -61,7 +63,9 @@ Shelly is a Go project (module: `github.com/germanamz/shelly`, Go 1.25). CLI ent
 - `pkg/codingtoolbox/` depends on `pkg/tools/toolbox/` (Tool and ToolBox types)
 - `pkg/codingtoolbox/permissions/` is shared by `pkg/codingtoolbox/filesystem/`, `pkg/codingtoolbox/exec/`, `pkg/codingtoolbox/search/`, `pkg/codingtoolbox/git/`, and `pkg/codingtoolbox/http/`
 - `pkg/skill/` has no dependencies on other `pkg/` packages
-- `pkg/agent/` depends on `pkg/modeladapter/`, `pkg/tools/toolbox/`, `pkg/chats/`, and `pkg/skill/`
+- `pkg/agentctx/` has no dependencies on other `pkg/` packages (zero-dependency by design)
+- `pkg/agent/` depends on `pkg/agentctx/`, `pkg/modeladapter/`, `pkg/tools/toolbox/`, `pkg/chats/`, and `pkg/skill/`
+- `pkg/tasks/` depends on `pkg/agentctx/` and `pkg/tools/toolbox/`
 - `pkg/engine/` depends on all other `pkg/` packages — it is the top-level composition root
 - `cmd/shelly/` is the entry point (currently a placeholder)
 

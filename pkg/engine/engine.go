@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/germanamz/shelly/pkg/agent"
+	"github.com/germanamz/shelly/pkg/agentctx"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/ask"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/defaults"
 	shellyexec "github.com/germanamz/shelly/pkg/codingtoolbox/exec"
@@ -18,6 +19,7 @@ import (
 	"github.com/germanamz/shelly/pkg/modeladapter"
 	"github.com/germanamz/shelly/pkg/skill"
 	"github.com/germanamz/shelly/pkg/state"
+	"github.com/germanamz/shelly/pkg/tasks"
 	"github.com/germanamz/shelly/pkg/tools/mcpclient"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
@@ -28,6 +30,7 @@ type Engine struct {
 	cfg        Config
 	events     *EventBus
 	store      *state.Store
+	taskStore  *tasks.Store
 	responder  *ask.Responder
 	registry   *agent.Registry
 	completers map[string]modeladapter.Completer
@@ -91,10 +94,16 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		e.toolboxes["state"] = e.store.Tools("shared")
 	}
 
+	// Create task store if enabled.
+	if cfg.TasksEnabled {
+		e.taskStore = &tasks.Store{}
+		e.toolboxes["tasks"] = e.taskStore.Tools("shared")
+	}
+
 	// Create ask responder.
 	e.responder = ask.NewResponder(func(ctx context.Context, q ask.Question) {
 		sid, _ := sessionIDFromContext(ctx)
-		aname, _ := agentNameFromContext(ctx)
+		aname := agentctx.AgentNameFromContext(ctx)
 		e.events.Publish(Event{
 			Kind:      EventAskUser,
 			SessionID: sid,
@@ -121,7 +130,7 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		if cfg.Filesystem.Enabled {
 			notifyFn := func(ctx context.Context, message string) {
 				sid, _ := sessionIDFromContext(ctx)
-				aname, _ := agentNameFromContext(ctx)
+				aname := agentctx.AgentNameFromContext(ctx)
 				e.events.Publish(Event{
 					Kind:      EventFileChange,
 					SessionID: sid,
@@ -174,6 +183,9 @@ func (e *Engine) Events() *EventBus { return e.events }
 
 // State returns the shared state store, or nil if state is not enabled.
 func (e *Engine) State() *state.Store { return e.store }
+
+// Tasks returns the shared task store, or nil if tasks are not enabled.
+func (e *Engine) Tasks() *tasks.Store { return e.taskStore }
 
 // NewSession creates a new interactive session. If agentName is empty the
 // config's EntryAgent is used. If EntryAgent is also empty, the first agent
@@ -231,6 +243,7 @@ func (e *Engine) Close() error {
 // builtinToolboxNames are toolbox names managed by the engine itself (not MCP).
 var builtinToolboxNames = map[string]struct{}{
 	"state":      {},
+	"tasks":      {},
 	"ask":        {},
 	"filesystem": {},
 	"exec":       {},

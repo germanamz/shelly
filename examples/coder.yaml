@@ -16,6 +16,7 @@ agents:
 entry_agent: coder
 
 state_enabled: true
+tasks_enabled: true
 
 filesystem:
   enabled: true

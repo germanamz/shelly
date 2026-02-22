@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/germanamz/shelly/pkg/agentctx"
 	"github.com/germanamz/shelly/pkg/chats/chat"
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/chats/message"
@@ -92,6 +93,8 @@ func (a *Agent) Run(ctx context.Context) (message.Message, error) {
 
 // run is the internal ReAct loop.
 func (a *Agent) run(ctx context.Context) (message.Message, error) {
+	ctx = agentctx.WithAgentName(ctx, a.name)
+
 	// Build system prompt if the chat is empty.
 	if a.chat.Len() == 0 {
 		a.chat.Append(message.NewText(a.name, role.System, a.buildSystemPrompt()))

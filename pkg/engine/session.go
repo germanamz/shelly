@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/germanamz/shelly/pkg/agent"
+	"github.com/germanamz/shelly/pkg/agentctx"
 	"github.com/germanamz/shelly/pkg/chats/chat"
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/chats/message"
@@ -71,7 +72,7 @@ func (s *Session) SendParts(ctx context.Context, parts ...content.Part) (message
 	})
 
 	ctx = withSessionID(ctx, s.id)
-	ctx = withAgentName(ctx, s.agent.Name())
+	ctx = agentctx.WithAgentName(ctx, s.agent.Name())
 	ctx = filesystem.WithSessionTrust(ctx, s.sessionTrust)
 
 	s.agent.Chat().Append(message.New("user", role.User, parts...))
@@ -129,10 +130,7 @@ func (s *Session) Respond(questionID, response string) error {
 
 // --- context helpers ---
 
-type (
-	sessionIDCtxKey struct{}
-	agentNameCtxKey struct{}
-)
+type sessionIDCtxKey struct{}
 
 func withSessionID(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, sessionIDCtxKey{}, id)
@@ -140,14 +138,5 @@ func withSessionID(ctx context.Context, id string) context.Context {
 
 func sessionIDFromContext(ctx context.Context) (string, bool) {
 	v, ok := ctx.Value(sessionIDCtxKey{}).(string)
-	return v, ok
-}
-
-func withAgentName(ctx context.Context, name string) context.Context {
-	return context.WithValue(ctx, agentNameCtxKey{}, name)
-}
-
-func agentNameFromContext(ctx context.Context) (string, bool) {
-	v, ok := ctx.Value(agentNameCtxKey{}).(string)
 	return v, ok
 }

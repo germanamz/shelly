@@ -143,6 +143,41 @@ func TestEngine_StateEnabled(t *testing.T) {
 	assert.NotNil(t, eng.State())
 }
 
+func TestEngine_TasksEnabled(t *testing.T) {
+	RegisterProvider("mock", func(_ ProviderConfig) (modeladapter.Completer, error) {
+		return &mockCompleter{reply: "ok"}, nil
+	})
+
+	cfg := Config{
+		Providers:    []ProviderConfig{{Name: "p1", Kind: "mock"}},
+		Agents:       []AgentConfig{{Name: "a1", Provider: "p1", ToolBoxNames: []string{"tasks"}}},
+		TasksEnabled: true,
+	}
+
+	eng, err := New(context.Background(), cfg)
+	require.NoError(t, err)
+	defer func() { _ = eng.Close() }()
+
+	assert.NotNil(t, eng.Tasks())
+}
+
+func TestEngine_TasksDisabled(t *testing.T) {
+	RegisterProvider("mock", func(_ ProviderConfig) (modeladapter.Completer, error) {
+		return &mockCompleter{reply: "ok"}, nil
+	})
+
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "mock"}},
+		Agents:    []AgentConfig{{Name: "a1", Provider: "p1"}},
+	}
+
+	eng, err := New(context.Background(), cfg)
+	require.NoError(t, err)
+	defer func() { _ = eng.Close() }()
+
+	assert.Nil(t, eng.Tasks())
+}
+
 func TestEngine_InvalidConfig(t *testing.T) {
 	_, err := New(context.Background(), Config{})
 	assert.Error(t, err)

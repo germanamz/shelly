@@ -62,6 +62,7 @@ middleware.go   — Runner interface, Middleware type, built-in middleware
 
 ## Dependencies
 
+- `pkg/agentctx/` — shared context key helpers (agent name propagation)
 - `pkg/chats/` — chat, message, content, role types
 - `pkg/modeladapter/` — Completer interface
 - `pkg/tools/toolbox/` — ToolBox, Tool types

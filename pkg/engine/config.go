@@ -14,6 +14,7 @@ type Config struct {
 	Agents       []AgentConfig    `yaml:"agents"`
 	EntryAgent   string           `yaml:"entry_agent"`
 	StateEnabled bool             `yaml:"state_enabled"`
+	TasksEnabled bool             `yaml:"tasks_enabled"`
 	Filesystem   FilesystemConfig `yaml:"filesystem"`
 	Exec         ExecConfig       `yaml:"exec"`
 	Search       SearchConfig     `yaml:"search"`
