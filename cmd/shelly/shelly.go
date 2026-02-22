@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unicode"
@@ -66,6 +67,81 @@ var thinkingMessages = []string{
 
 // spinnerFrames are braille characters for smooth animation.
 var spinnerFrames = []string{"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"}
+
+// termProtocol identifies which keyboard protocol the terminal supports for
+// detecting modified keys like Shift+Enter.
+type termProtocol int32
+
+const (
+	// protocolNone means no extended keyboard protocol is available.
+	// Only Alt+Enter works for inserting newlines.
+	protocolNone termProtocol = iota
+	// protocolKitty is the kitty keyboard protocol (CSI u encoding).
+	// Shift+Enter is reported as ESC[13;2u.
+	protocolKitty
+	// protocolModifyOtherKeys is xterm's modifyOtherKeys mode.
+	// Shift+Enter is reported as ESC[27;2;13~.
+	protocolModifyOtherKeys
+)
+
+// cachedProtocol stores the detected terminal protocol. Resolved once on first
+// call to getTermProtocol and reused for the rest of the process.
+var cachedProtocol atomic.Int32
+
+func init() {
+	// Sentinel value -1 means "not yet detected".
+	cachedProtocol.Store(-1)
+}
+
+// getTermProtocol returns the cached terminal protocol, detecting it on first call.
+func getTermProtocol() termProtocol {
+	if v := cachedProtocol.Load(); v >= 0 {
+		return termProtocol(v)
+	}
+	p := detectTermProtocol()
+	cachedProtocol.Store(int32(p))
+	return p
+}
+
+// detectTermProtocol identifies which keyboard protocol the terminal supports
+// by inspecting environment variables set by known terminal emulators.
+func detectTermProtocol() termProtocol {
+	// Terminal-specific env vars that indicate kitty protocol support.
+	if os.Getenv("KITTY_WINDOW_ID") != "" {
+		return protocolKitty
+	}
+	if os.Getenv("WEZTERM_PANE") != "" {
+		return protocolKitty
+	}
+	if os.Getenv("GHOSTTY_RESOURCES_DIR") != "" {
+		return protocolKitty
+	}
+
+	// TERM_PROGRAM is set by most modern terminals.
+	switch strings.ToLower(os.Getenv("TERM_PROGRAM")) {
+	case "kitty", "wezterm", "ghostty", "foot", "rio":
+		return protocolKitty
+	case "iterm.app", "iterm2.app":
+		return protocolModifyOtherKeys
+	case "vscode":
+		return protocolModifyOtherKeys
+	case "apple_terminal":
+		return protocolNone
+	}
+
+	// tmux supports modifyOtherKeys passthrough.
+	if os.Getenv("TMUX") != "" {
+		return protocolModifyOtherKeys
+	}
+
+	// xterm-compatible terminals generally support modifyOtherKeys.
+	t := os.Getenv("TERM")
+	if strings.HasPrefix(t, "xterm") {
+		return protocolModifyOtherKeys
+	}
+
+	return protocolNone
+}
 
 // mdRenderer renders markdown to terminal-formatted output.
 var mdRenderer *glamour.TermRenderer
@@ -474,8 +550,18 @@ func printUsage(sess *engine.Session, duration time.Duration) {
 
 func printHelp() {
 	fmt.Println("Commands:")
-	fmt.Println("  /help   Show this help message")
-	fmt.Println("  /quit   Exit the chat")
+	fmt.Println("  /help          Show this help message")
+	fmt.Println("  /quit          Exit the chat")
+	fmt.Println()
+	fmt.Println("Shortcuts:")
+	fmt.Println("  Enter          Submit message")
+	switch getTermProtocol() {
+	case protocolKitty, protocolModifyOtherKeys:
+		fmt.Println("  Shift+Enter    New line")
+	default:
+		fmt.Println("  Shift+Enter    New line (not available — terminal lacks keyboard protocol)")
+	}
+	fmt.Println("  Alt+Enter      New line (works in all terminals)")
 }
 
 // renderMarkdown converts markdown text to terminal-formatted output using
@@ -525,8 +611,44 @@ func truncate(s string, n int) string {
 	return string(r[:n]) + "..."
 }
 
-// readLine reads a line of input with support for cursor movement, word jump, and word delete.
+// visibleWidth returns the number of visible columns in s, ignoring ANSI escape sequences.
+func visibleWidth(s string) int {
+	w := 0
+	inEsc := false
+	for _, r := range s {
+		if r == '\033' {
+			inEsc = true
+			continue
+		}
+		if inEsc {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEsc = false
+			}
+			continue
+		}
+		w++
+	}
+	return w
+}
+
+// insertNewline splits the current line at the cursor and inserts a new line.
+func insertNewline(lines [][]rune, row, col int) ([][]rune, int, int) {
+	rest := make([]rune, len(lines[row][col:]))
+	copy(rest, lines[row][col:])
+	lines[row] = lines[row][:col]
+	newLines := make([][]rune, len(lines)+1)
+	copy(newLines, lines[:row+1])
+	newLines[row+1] = rest
+	copy(newLines[row+2:], lines[row+1:])
+	return newLines, row + 1, 0
+}
+
+// readLine reads user input with support for multi-line editing (Shift+Enter),
+// cursor movement, word jump, and word delete.
 // It uses raw terminal mode to handle individual key presses.
+// Shift+Enter inserts a newline; Enter submits the input.
+// Supports both kitty keyboard protocol and xterm modifyOtherKeys for Shift+Enter.
+// Alt+Enter works as a universal fallback in all terminals.
 //
 //nolint:gocyclo
 func readLine(prompt string) (string, error) {
@@ -538,9 +660,25 @@ func readLine(prompt string) (string, error) {
 		_ = term.Restore(int(os.Stdin.Fd()), oldState) //nolint:gosec
 	}()
 
+	// Enable keyboard protocol for Shift+Enter based on detected terminal capabilities.
+	proto := getTermProtocol()
+	switch proto {
+	case protocolKitty:
+		fmt.Print("\033[>1u")
+		defer fmt.Print("\033[<u")
+	case protocolModifyOtherKeys:
+		fmt.Print("\033[>4;2m")
+		defer fmt.Print("\033[>4;0m")
+	}
+
+	promptWidth := visibleWidth(prompt)
+	cont := strings.Repeat(" ", promptWidth)
+
 	fmt.Print(prompt)
-	var line []rune
-	cursor := 0
+	lines := [][]rune{{}}
+	row := 0
+	col := 0
+	displayLines := 1
 	for {
 		var buf [1]byte
 		n, err := os.Stdin.Read(buf[:])
@@ -554,23 +692,45 @@ func readLine(prompt string) (string, error) {
 		if b == 3 { // Ctrl+C
 			return "", io.EOF
 		}
-		if b == 13 || b == 10 { // Enter (CR or LF)
+		if b == 13 || b == 10 { // Enter (CR or LF) — submit
+			// Move cursor to end of last line for clean output
+			if row < len(lines)-1 {
+				fmt.Printf("\033[%dB", len(lines)-1-row)
+			}
 			fmt.Println()
-			return string(line), nil
+			parts := make([]string, len(lines))
+			for i, l := range lines {
+				parts[i] = string(l)
+			}
+			return strings.Join(parts, "\n"), nil
 		}
 		if b == 127 || b == 8 { // Backspace
-			if cursor > 0 {
-				line = append(line[:cursor-1], line[cursor:]...)
-				cursor--
-				redrawLine(prompt, line, cursor)
+			if col > 0 {
+				lines[row] = append(lines[row][:col-1], lines[row][col:]...)
+				col--
+			} else if row > 0 {
+				// Join current line with previous line
+				prevLen := len(lines[row-1])
+				lines[row-1] = append(lines[row-1], lines[row]...)
+				lines = append(lines[:row], lines[row+1:]...)
+				row--
+				col = prevLen
 			}
+			displayLines = redrawLines(prompt, cont, lines, row, col, displayLines)
 			continue
 		}
 		if b == 23 { // Ctrl+W (delete word backward)
-			if cursor > 0 {
-				line, cursor = deleteWordBackward(line, cursor)
-				redrawLine(prompt, line, cursor)
+			if col > 0 {
+				lines[row], col = deleteWordBackward(lines[row], col)
+			} else if row > 0 {
+				// Join with previous line
+				prevLen := len(lines[row-1])
+				lines[row-1] = append(lines[row-1], lines[row]...)
+				lines = append(lines[:row], lines[row+1:]...)
+				row--
+				col = prevLen
 			}
+			displayLines = redrawLines(prompt, cont, lines, row, col, displayLines)
 			continue
 		}
 		if b == 27 { // Escape sequence
@@ -582,7 +742,8 @@ func readLine(prompt string) (string, error) {
 				continue
 			}
 			b2 := buf[0]
-			if b2 == 91 { // [
+			switch b2 {
+			case 91: // [
 				var seq []byte
 				for {
 					n3, err3 := os.Stdin.Read(buf[:])
@@ -593,7 +754,7 @@ func readLine(prompt string) (string, error) {
 						continue
 					}
 					b3 := buf[0]
-					if b3 >= 64 && b3 <= 126 { // Final character (A-Z, etc.)
+					if b3 >= 64 && b3 <= 126 { // Final character
 						seq = append(seq, b3)
 						break
 					} else {
@@ -603,67 +764,130 @@ func readLine(prompt string) (string, error) {
 				final := seq[len(seq)-1]
 				seq = seq[:len(seq)-1]
 				paramStr := string(seq)
+
+				// Shift+Enter — insert newline
+				// Kitty keyboard protocol: ESC[13;2u
+				// xterm modifyOtherKeys: ESC[27;2;13~
+				if (final == 'u' && paramStr == "13;2") || (final == '~' && paramStr == "27;2;13") {
+					lines, row, col = insertNewline(lines, row, col)
+					displayLines = redrawLines(prompt, cont, lines, row, col, displayLines)
+					continue
+				}
+
 				switch paramStr {
 				case "1;5":
 					switch final {
 					case 'D': // Ctrl+Left
-						cursor = moveCursorWordLeft(line, cursor)
-						redrawLine(prompt, line, cursor)
+						col = moveCursorWordLeft(lines[row], col)
 					case 'C': // Ctrl+Right
-						cursor = moveCursorWordRight(line, cursor)
-						redrawLine(prompt, line, cursor)
+						col = moveCursorWordRight(lines[row], col)
 					}
 				case "1;3":
 					switch final {
 					case 'D': // Alt+Left
-						cursor = moveCursorWordLeft(line, cursor)
-						redrawLine(prompt, line, cursor)
+						col = moveCursorWordLeft(lines[row], col)
 					case 'C': // Alt+Right
-						cursor = moveCursorWordRight(line, cursor)
-						redrawLine(prompt, line, cursor)
+						col = moveCursorWordRight(lines[row], col)
 					}
 				case "":
 					switch final {
 					case 'D': // Left arrow
-						if cursor > 0 {
-							cursor--
-							redrawLine(prompt, line, cursor)
+						if col > 0 {
+							col--
+						} else if row > 0 {
+							row--
+							col = len(lines[row])
 						}
 					case 'C': // Right arrow
-						if cursor < len(line) {
-							cursor++
-							redrawLine(prompt, line, cursor)
+						if col < len(lines[row]) {
+							col++
+						} else if row < len(lines)-1 {
+							row++
+							col = 0
+						}
+					case 'A': // Up arrow
+						if row > 0 {
+							row--
+							if col > len(lines[row]) {
+								col = len(lines[row])
+							}
+						}
+					case 'B': // Down arrow
+						if row < len(lines)-1 {
+							row++
+							if col > len(lines[row]) {
+								col = len(lines[row])
+							}
 						}
 					}
 				}
-			} else if b2 == 'b' { // Alt+Left (ESC b — word left, macOS Terminal)
-				cursor = moveCursorWordLeft(line, cursor)
-				redrawLine(prompt, line, cursor)
-			} else if b2 == 'f' { // Alt+Right (ESC f — word right, macOS Terminal)
-				cursor = moveCursorWordRight(line, cursor)
-				redrawLine(prompt, line, cursor)
-			} else if b2 == 127 { // Alt+Backspace (delete word backward)
-				if cursor > 0 {
-					line, cursor = deleteWordBackward(line, cursor)
-					redrawLine(prompt, line, cursor)
+				displayLines = redrawLines(prompt, cont, lines, row, col, displayLines)
+			case 13, 10: // Alt+Enter — insert newline (works in all terminals)
+				lines, row, col = insertNewline(lines, row, col)
+				displayLines = redrawLines(prompt, cont, lines, row, col, displayLines)
+			case 'b': // Alt+Left (ESC b — word left, macOS Terminal)
+				col = moveCursorWordLeft(lines[row], col)
+				displayLines = redrawLines(prompt, cont, lines, row, col, displayLines)
+			case 'f': // Alt+Right (ESC f — word right, macOS Terminal)
+				col = moveCursorWordRight(lines[row], col)
+				displayLines = redrawLines(prompt, cont, lines, row, col, displayLines)
+			case 127: // Alt+Backspace (delete word backward)
+				if col > 0 {
+					lines[row], col = deleteWordBackward(lines[row], col)
+				} else if row > 0 {
+					prevLen := len(lines[row-1])
+					lines[row-1] = append(lines[row-1], lines[row]...)
+					lines = append(lines[:row], lines[row+1:]...)
+					row--
+					col = prevLen
 				}
+				displayLines = redrawLines(prompt, cont, lines, row, col, displayLines)
 			}
 			continue
 		}
 		if b >= 32 && b <= 126 { // Printable ASCII
-			line = append(line[:cursor], append([]rune{rune(b)}, line[cursor:]...)...)
-			cursor++
-			redrawLine(prompt, line, cursor)
+			lines[row] = append(lines[row][:col], append([]rune{rune(b)}, lines[row][col:]...)...)
+			col++
+			displayLines = redrawLines(prompt, cont, lines, row, col, displayLines)
 		}
 	}
 }
 
-// redrawLine clears the current line and reprints the prompt and line with cursor positioned.
-func redrawLine(prompt string, line []rune, cursor int) {
-	fmt.Printf("\r\033[K%s%s", prompt, string(line))
-	if cursor < len(line) {
-		fmt.Printf("\033[%dD", len(line)-cursor)
+// redrawLines clears the displayed input area and redraws all lines with the cursor positioned.
+// Returns the number of display lines rendered (for the next redraw).
+func redrawLines(prompt, cont string, lines [][]rune, row, col, prevDisplayLines int) int {
+	// Move cursor up to the first display line
+	if prevDisplayLines > 1 {
+		fmt.Printf("\033[%dA", prevDisplayLines-1)
 	}
+	// Clear from start of first line to end of screen
+	fmt.Print("\r\033[J")
+
+	// Render all lines
+	for i, line := range lines {
+		if i == 0 {
+			fmt.Printf("%s%s", prompt, string(line))
+		} else {
+			fmt.Printf("\n%s%s", cont, string(line))
+		}
+	}
+
+	// Position cursor at (row, col)
+	lastRow := len(lines) - 1
+	if row < lastRow {
+		fmt.Printf("\033[%dA", lastRow-row)
+	}
+	var targetCol int
+	if row == 0 {
+		targetCol = visibleWidth(prompt) + col
+	} else {
+		targetCol = len(cont) + col
+	}
+	fmt.Print("\r")
+	if targetCol > 0 {
+		fmt.Printf("\033[%dC", targetCol)
+	}
+	return len(lines)
 }
 
 // --- ask model for interactive selection ---
