@@ -1,16 +1,26 @@
 providers:
-  - name: default
-    kind: anthropic        # anthropic | openai | grok
-    api_key: ${ANTHROPIC_API_KEY}
-    model: claude-sonnet-4-20250514
-
+    - name: grok
+      kind: grok
+      api_key: ${GROK_API_KEY}
+      model: grok-code-fast-1
 agents:
-  - name: assistant
-    description: A helpful assistant
-    instructions: You are a helpful assistant. Be concise and accurate.
-    provider: default
-    options:
-      max_iterations: 10
-      max_delegation_depth: 2
-
-entry_agent: assistant
+    - name: coder
+      description: A code expert
+      instructions: You are a coding enginering expert that helps with designing, planning and coding software solutions.
+      provider: grok
+      options:
+        max_iterations: 1000
+        max_delegation_depth: 4
+entry_agent: coder
+filesystem:
+    enabled: true
+exec:
+    enabled: true
+search:
+    enabled: true
+git:
+    enabled: true
+http:
+    enabled: true
+state_enabled: true
+tasks_enabled: true

@@ -30,6 +30,14 @@ entry_agent: assistant
 // Existing files are never overwritten, making it safe to run on an already
 // initialised directory.
 func Bootstrap(d Dir) error {
+	return BootstrapWithConfig(d, []byte(skeletonConfig))
+}
+
+// BootstrapWithConfig creates the .shelly/ directory from scratch using the
+// provided config content instead of the skeleton default. The directory
+// structure (root, skills/, local/, .gitignore) is identical to Bootstrap.
+// Existing files are never overwritten.
+func BootstrapWithConfig(d Dir, config []byte) error {
 	if err := os.MkdirAll(d.Root(), 0o750); err != nil {
 		return fmt.Errorf("shellydir: create root: %w", err)
 	}
@@ -42,7 +50,7 @@ func Bootstrap(d Dir) error {
 		return err
 	}
 
-	if err := ensureFile(d.ConfigPath(), []byte(skeletonConfig)); err != nil {
+	if err := ensureFile(d.ConfigPath(), config); err != nil {
 		return fmt.Errorf("shellydir: config: %w", err)
 	}
 

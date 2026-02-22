@@ -62,7 +62,12 @@ func main() {
 func runInit(dirPath string) error {
 	d := shellydir.New(dirPath)
 
-	if err := shellydir.Bootstrap(d); err != nil {
+	configYAML, err := runWizard()
+	if err != nil {
+		return err
+	}
+
+	if err := shellydir.BootstrapWithConfig(d, configYAML); err != nil {
 		return err
 	}
 
