@@ -38,11 +38,13 @@ func newInput() inputModel {
 	ta.FocusedStyle.Prompt = lipgloss.NewStyle()
 	ta.BlurredStyle.Prompt = lipgloss.NewStyle()
 	ta.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("alt+enter"))
-	ta.Focus()
+	// Don't focus yet — the terminal may still be sending OSC responses
+	// (e.g. background-color query) that bubbletea misinterprets as key
+	// events.  We focus after a short drain delay in appModel.Init().
 
 	return inputModel{
 		textarea: ta,
-		enabled:  true,
+		enabled:  false,
 	}
 }
 
@@ -120,9 +122,9 @@ func (m inputModel) visualLineCount() int {
 	return total
 }
 
-func (m *inputModel) enable() {
+func (m *inputModel) enable() tea.Cmd {
 	m.enabled = true
-	m.textarea.Focus()
+	return m.textarea.Focus()
 }
 
 func (m *inputModel) disable() {

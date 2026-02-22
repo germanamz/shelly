@@ -55,7 +55,6 @@ func run(configPath, agentName string, verbose bool) error {
 	p := tea.NewProgram(
 		model,
 		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
 	)
 
 	// Send the program reference so the model can start bridge goroutines.

@@ -46,5 +46,9 @@ type programReadyMsg struct {
 	program *tea.Program
 }
 
+// initDrainMsg fires after a short delay so that stale terminal responses
+// (e.g. OSC 11 background-color replies) are discarded before focusing input.
+type initDrainMsg struct{}
+
 // tickMsg drives spinner animation in active reasoning chains.
 type tickMsg time.Time

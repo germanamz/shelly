@@ -50,14 +50,11 @@ func newAppModel(ctx context.Context, sess *engine.Session, events *engine.Event
 }
 
 func (m appModel) Init() tea.Cmd {
-	return func() tea.Msg {
-		// We need the *tea.Program reference to start the bridge.
-		// The program calls Init(), then starts processing messages.
-		// We use a programReadyMsg to pass the program reference back.
-		// But we can't get it here — we use a different approach:
-		// The bridge is started in main.go after tea.NewProgram.
-		return nil
-	}
+	// Delay focusing the input so that stale terminal escape-sequence
+	// responses (e.g. OSC 11 background-color) are drained first.
+	return tea.Tick(200*time.Millisecond, func(time.Time) tea.Msg {
+		return initDrainMsg{}
+	})
 }
 
 func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -67,6 +64,10 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+
+	case initDrainMsg:
+		cmd := m.inputBox.enable()
+		return m, cmd
 
 	case programReadyMsg:
 		m.cancelBridge = startBridge(m.ctx, msg.program, m.sess.Chat(), m.events)
@@ -88,7 +89,7 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sendCompleteMsg:
 		m.statusBar.duration = msg.duration
 		m.state = stateIdle
-		m.inputBox.enable()
+		focusCmd := m.inputBox.enable()
 		m.chatView.setProcessing(false)
 		if msg.err != nil && m.ctx.Err() == nil {
 			m.chatView.blocks = append(m.chatView.blocks, chatBlock{
@@ -97,7 +98,7 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.chatView.updateViewport()
 		}
 		m.recalcLayout()
-		return m, nil
+		return m, focusCmd
 
 	case askUserMsg:
 		m.askQueue = append(m.askQueue, msg)
