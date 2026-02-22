@@ -483,36 +483,45 @@ The MCP (Model Context Protocol) packages bridge Shelly's tool system with the s
 **Package:** `pkg/skill/`
 **Dependencies:** None (uses only standard library)
 
-Skills are markdown files that teach agents step-by-step procedures. They are NOT identity -- they are knowledge that agents apply.
+Skills are folder-based definitions that teach agents step-by-step procedures. Each skill lives in its own directory with a mandatory `SKILL.md` entry point and optional supplementary files. They are NOT identity -- they are knowledge that agents apply.
 
 ### 9.1 Skill Type
 
 ```go
 type Skill struct {
-    Name    string // Derived from filename without extension (e.g., "code-review")
-    Content string // Raw markdown content
+    Name        string // Derived from folder name (e.g., "code-review")
+    Description string // From YAML frontmatter; empty if no frontmatter
+    Content     string // SKILL.md body after frontmatter
+    Dir         string // Absolute path to the skill folder
 }
 ```
 
 ### 9.2 Loading
 
 ```go
-func Load(path string) (Skill, error)       // Load single .md file
-func LoadDir(dir string) ([]Skill, error)   // Load all .md files from directory (sorted)
+func Load(path string) (Skill, error)       // Load skill from a folder containing SKILL.md
+func LoadDir(dir string) ([]Skill, error)   // Load skills from subdirectories with SKILL.md
 ```
+
+`Load` reads `SKILL.md` from the given folder, derives the name from `filepath.Base(path)`, and resolves `Dir` to an absolute path. `LoadDir` iterates subdirectories, silently skipping any without a `SKILL.md` file.
 
 ### 9.3 How Skills Are Used
 
-Skills are injected into the agent's system prompt as `### {name}` subsections under a `## Skills` heading. The LLM sees them as part of its instructions and follows the procedures described.
+Skills are injected into the agent's system prompt as `### {name}` subsections under a `## Skills` heading. The LLM sees them as part of its instructions and follows the procedures described. The `load_skill` tool returns the skill content plus a footer with the skill directory path, allowing agents to access supplementary files via filesystem tools.
 
-Example skill file (`skills/orchestration.md`):
+Example skill folder (`skills/orchestration/SKILL.md`):
 ```markdown
+---
+description: Orchestration procedures for complex tasks
+---
 When you receive a complex task:
 1. Break it into subtasks
 2. Check available agents with list_agents
 3. Delegate subtasks to appropriate agents using delegate_to_agent
 4. Synthesize the results into a final answer
 ```
+
+Supplementary files (checklists, scripts, templates) can be placed alongside `SKILL.md` in the skill folder.
 
 ---
 
@@ -1077,7 +1086,7 @@ result, err := orch.Run(ctx)
 
 ```go
 // Load skills from a directory
-skills, _ := skill.LoadDir("skills/")
+skills, _ := skill.LoadDir("skills/") // loads from subdirectories containing SKILL.md
 
 // Create an agent that knows procedures
 a := agent.New("project-lead", "Manages software projects",

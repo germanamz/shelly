@@ -46,7 +46,7 @@ Shelly is a Go project (module: `github.com/germanamz/shelly`, Go 1.25). CLI ent
 - `pkg/providers/` — LLM provider implementations (anthropic, openai, grok)
 - `pkg/tools/` — tool infrastructure: toolbox, MCP client, MCP server
 - `pkg/codingtoolbox/` — built-in coding tools (ask, filesystem, exec, search, git, http, permissions, defaults)
-- `pkg/skill/` — skill loading from markdown files with optional YAML frontmatter (procedures agents follow, on-demand via `load_skill` tool)
+- `pkg/skill/` — folder-based skill loading with YAML frontmatter (procedures agents follow, on-demand via `load_skill` tool)
 - `pkg/agent/` — unified agent with ReAct loop, registry-based delegation, middleware, and orchestration tools
 - `pkg/agentctx/` — shared context key helpers for propagating agent identity across packages
 - `pkg/state/` — key-value state store for agents

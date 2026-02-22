@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
@@ -69,5 +70,14 @@ func (st *Store) handleLoadSkill(_ context.Context, input json.RawMessage) (stri
 		return "", fmt.Errorf("skill not found: %s", in.Name)
 	}
 
-	return s.Content, nil
+	var b strings.Builder
+	b.WriteString(s.Content)
+
+	if s.Dir != "" {
+		b.WriteString("\n\n---\nSkill directory: ")
+		b.WriteString(s.Dir)
+		b.WriteString("\nUse filesystem tools to access supplementary files in this directory.")
+	}
+
+	return b.String(), nil
 }

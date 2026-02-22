@@ -21,7 +21,7 @@ pkg/
 │   ├── toolbox/        Tool type, ToolBox collection, and handlers
 │   ├── mcpclient/      MCP client (connects to external MCP servers)
 │   └── mcpserver/      MCP server (exposes tools over MCP protocol)
-├── skill/            Skill loading from markdown files
+├── skill/            Folder-based skill loading (SKILL.md entry point + supplementary files)
 ├── agent/            Unified agent with ReAct loop, registry, delegation, and middleware
 ├── state/            Key-value state store for inter-agent data sharing
 └── engine/           Composition root — wires everything from config, exposes Engine/Session/EventBus

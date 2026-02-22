@@ -45,7 +45,7 @@ func TestStoreGetNotFound(t *testing.T) {
 
 func TestStoreToolLoadSkillValid(t *testing.T) {
 	st := NewStore([]Skill{
-		{Name: "deploy", Content: "1. Build\n2. Deploy"},
+		{Name: "deploy", Content: "1. Build\n2. Deploy", Dir: "/skills/deploy"},
 	})
 	tb := st.Tools()
 
@@ -57,7 +57,23 @@ func TestStoreToolLoadSkillValid(t *testing.T) {
 	result, err := tools[0].Handler(context.Background(), input)
 
 	require.NoError(t, err)
-	assert.Equal(t, "1. Build\n2. Deploy", result)
+	expected := "1. Build\n2. Deploy\n\n---\nSkill directory: /skills/deploy\nUse filesystem tools to access supplementary files in this directory."
+	assert.Equal(t, expected, result)
+}
+
+func TestStoreToolLoadSkillNoDirFooter(t *testing.T) {
+	st := NewStore([]Skill{
+		{Name: "simple", Content: "Simple content"},
+	})
+	tb := st.Tools()
+	tools := tb.Tools()
+
+	input, _ := json.Marshal(loadSkillInput{Name: "simple"})
+	result, err := tools[0].Handler(context.Background(), input)
+
+	require.NoError(t, err)
+	assert.Equal(t, "Simple content", result)
+	assert.NotContains(t, result, "Skill directory:")
 }
 
 func TestStoreToolLoadSkillNotFound(t *testing.T) {

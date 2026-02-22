@@ -8,7 +8,7 @@ This package replaces the previous `pkg/agents/` and `pkg/reactor/` hierarchies 
 
 - Runs a **ReAct loop**: iterates between LLM completion and tool execution until a final answer is produced.
 - Can **discover and delegate** to other agents at runtime via a `Registry`.
-- Learns **procedures from Skills** (markdown files with step-by-step processes).
+- Learns **procedures from Skills** (folder-based definitions with step-by-step processes).
 - Supports **middleware** for cross-cutting concerns (timeout, recovery, logging, guardrails).
 
 ## Types

@@ -1,6 +1,6 @@
-// Package skill provides loading of markdown-based skill files that teach
-// agents step-by-step procedures. A Skill is a named block of markdown
-// content derived from a .md file.
+// Package skill provides loading of folder-based skill definitions that teach
+// agents step-by-step procedures. Each skill lives in its own directory with a
+// mandatory SKILL.md entry point and optional supplementary files.
 package skill
 
 import (
@@ -12,27 +12,30 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Skill represents a procedure loaded from a markdown file.
+// Skill represents a procedure loaded from a skill folder.
 type Skill struct {
-	Name        string // Derived from filename without extension (e.g., "code-review").
+	Name        string // Derived from folder name (e.g., "code-review").
 	Description string // From YAML frontmatter; empty if no frontmatter.
 	Content     string // Body after frontmatter (or full content if none).
+	Dir         string // Absolute path to the skill folder.
 }
 
 // HasDescription reports whether the skill has a description from frontmatter.
 func (s Skill) HasDescription() bool { return s.Description != "" }
 
-// Load reads a single markdown file and returns a Skill. The skill name is
-// derived from the filename with the extension stripped. If the file contains
-// YAML frontmatter (delimited by ---), the frontmatter is parsed for name and
+// Load reads a skill from a folder. The folder must contain a SKILL.md file.
+// The skill name is derived from the folder name. If SKILL.md contains YAML
+// frontmatter (delimited by ---), the frontmatter is parsed for name and
 // description fields.
 func Load(path string) (Skill, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // path is caller-provided, not user input
+	entryPoint := filepath.Join(path, "SKILL.md")
+
+	data, err := os.ReadFile(entryPoint) //nolint:gosec // path is caller-provided, not user input
 	if err != nil {
 		return Skill{}, fmt.Errorf("skill: load %q: %w", path, err)
 	}
 
-	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	name := filepath.Base(path)
 
 	fm, body, err := parseFrontmatter(string(data))
 	if err != nil {
@@ -43,10 +46,16 @@ func Load(path string) (Skill, error) {
 		name = fm.Name
 	}
 
+	absDir, err := filepath.Abs(path)
+	if err != nil {
+		return Skill{}, fmt.Errorf("skill: load %q: %w", path, err)
+	}
+
 	return Skill{
 		Name:        name,
 		Description: fm.Description,
 		Content:     body,
+		Dir:         absDir,
 	}, nil
 }
 
@@ -90,9 +99,9 @@ func parseFrontmatter(raw string) (frontmatter, string, error) {
 	return fm, body, nil
 }
 
-// LoadDir reads all .md files from the given directory (non-recursive) and
-// returns them as skills sorted by filename. It returns an error if the
-// directory cannot be read.
+// LoadDir reads all subdirectories from the given directory and returns skills
+// for each that contains a SKILL.md file. Subdirectories without SKILL.md are
+// silently skipped. It returns an error if the directory cannot be read.
 func LoadDir(dir string) ([]Skill, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -102,11 +111,17 @@ func LoadDir(dir string) ([]Skill, error) {
 	var skills []Skill
 
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+		if !e.IsDir() {
 			continue
 		}
 
-		s, err := Load(filepath.Join(dir, e.Name()))
+		skillDir := filepath.Join(dir, e.Name())
+
+		if _, err := os.Stat(filepath.Join(skillDir, "SKILL.md")); err != nil {
+			continue
+		}
+
+		s, err := Load(skillDir)
 		if err != nil {
 			return nil, err
 		}
