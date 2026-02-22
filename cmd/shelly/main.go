@@ -32,13 +32,29 @@ func main() {
 			}
 
 			return
+		case "config":
+			configCmd := flag.NewFlagSet("config", flag.ExitOnError)
+			configCmd.Usage = func() {
+				fmt.Fprintf(os.Stderr, "Usage: shelly config [flags]\n\nEdit an existing config file interactively.\n\nFlags:\n")
+				configCmd.PrintDefaults()
+			}
+			cfgPath := configCmd.String("config", "", "path to configuration file")
+			dir := configCmd.String("shelly-dir", ".shelly", "path to .shelly directory")
+			_ = configCmd.Parse(os.Args[2:])
+
+			if err := runConfigEditor(*cfgPath, *dir); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+
+			return
 		}
 	}
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: shelly [flags]\n       shelly <command> [flags]\n\nFlags:\n")
 		flag.PrintDefaults()
-		fmt.Fprintf(os.Stderr, "\nCommands:\n  init    Initialize a .shelly directory with default structure and config\n")
+		fmt.Fprintf(os.Stderr, "\nCommands:\n  init    Initialize a .shelly directory with default structure and config\n  config  Edit an existing config file interactively\n")
 	}
 
 	configPath := flag.String("config", "", "path to configuration file (default: .shelly/config.yaml or shelly.yaml)")
