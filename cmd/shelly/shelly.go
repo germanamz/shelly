@@ -195,17 +195,21 @@ func sendAndStream(ctx context.Context, sess *engine.Session, events *engine.Eve
 
 	spin := newSpinner()
 
+	// termMu coordinates terminal I/O between streamChat and handleAskEvents
+	// so that tool output never interleaves with the answer prompt.
+	var termMu sync.Mutex
+
 	chatDone := make(chan struct{})
 	go func() {
 		defer close(chatDone)
-		streamChat(watchCtx, sess.Chat(), cursor, verbose, spin)
+		streamChat(watchCtx, sess.Chat(), cursor, verbose, spin, &termMu)
 	}()
 
 	sub := events.Subscribe(64)
 	askDone := make(chan struct{})
 	go func() {
 		defer close(askDone)
-		handleAskEvents(watchCtx, sess, sub, reader, spin)
+		handleAskEvents(watchCtx, sess, sub, reader, spin, &termMu)
 	}()
 
 	spin.Start()
@@ -222,8 +226,9 @@ func sendAndStream(ctx context.Context, sess *engine.Session, events *engine.Eve
 }
 
 // handleAskEvents watches for EventAskUser events and prompts the user for a
-// response on the terminal. It pauses the spinner during user interaction.
-func handleAskEvents(ctx context.Context, sess *engine.Session, sub *engine.Subscription, reader *bufio.Reader, spin *spinner) {
+// response on the terminal. It pauses the spinner during user interaction and
+// holds termMu to prevent streamChat from interleaving output with the prompt.
+func handleAskEvents(ctx context.Context, sess *engine.Session, sub *engine.Subscription, reader *bufio.Reader, spin *spinner, termMu *sync.Mutex) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -241,6 +246,9 @@ func handleAskEvents(ctx context.Context, sess *engine.Session, sub *engine.Subs
 				continue
 			}
 
+			// Hold termMu for the entire question-answer interaction so that
+			// streamChat cannot print tool output after the "answer>" prompt.
+			termMu.Lock()
 			spin.Pause()
 
 			fmt.Printf("\n%s[question]%s %s\n", ansiYellow+ansiBold, ansiReset, q.Text)
@@ -252,6 +260,7 @@ func handleAskEvents(ctx context.Context, sess *engine.Session, sub *engine.Subs
 			line, err := reader.ReadString('\n')
 			if err != nil {
 				spin.Resume()
+				termMu.Unlock()
 				return
 			}
 
@@ -269,13 +278,15 @@ func handleAskEvents(ctx context.Context, sess *engine.Session, sub *engine.Subs
 			}
 
 			spin.Resume()
+			termMu.Unlock()
 		}
 	}
 }
 
 // streamChat watches the chat for new messages and prints reasoning chain
-// details as they appear. It pauses the spinner while printing messages.
-func streamChat(ctx context.Context, c *chat.Chat, cursor int, verbose bool, spin *spinner) {
+// details as they appear. It pauses the spinner while printing messages and
+// holds termMu to avoid interleaving with the ask prompt.
+func streamChat(ctx context.Context, c *chat.Chat, cursor int, verbose bool, spin *spinner, termMu *sync.Mutex) {
 	for {
 		if _, err := c.Wait(ctx, cursor); err != nil {
 			return
@@ -283,12 +294,14 @@ func streamChat(ctx context.Context, c *chat.Chat, cursor int, verbose bool, spi
 
 		msgs := c.Since(cursor)
 		if len(msgs) > 0 {
+			termMu.Lock()
 			spin.Pause()
 			for _, msg := range msgs {
 				printMessage(msg, verbose)
 				cursor++
 			}
 			spin.Resume()
+			termMu.Unlock()
 		}
 	}
 }
