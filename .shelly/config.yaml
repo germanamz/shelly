@@ -1,0 +1,16 @@
+providers:
+  - name: default
+    kind: anthropic        # anthropic | openai | grok
+    api_key: ${ANTHROPIC_API_KEY}
+    model: claude-sonnet-4-20250514
+
+agents:
+  - name: assistant
+    description: A helpful assistant
+    instructions: You are a helpful assistant. Be concise and accurate.
+    provider: default
+    options:
+      max_iterations: 10
+      max_delegation_depth: 2
+
+entry_agent: assistant

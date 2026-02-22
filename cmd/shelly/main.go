@@ -10,9 +10,37 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/germanamz/shelly/pkg/engine"
+	"github.com/germanamz/shelly/pkg/shellydir"
 )
 
 func main() {
+	// Handle subcommands before flag parsing.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "init":
+			initCmd := flag.NewFlagSet("init", flag.ExitOnError)
+			initCmd.Usage = func() {
+				fmt.Fprintf(os.Stderr, "Usage: shelly init [flags]\n\nInitialize a .shelly directory with default structure and config.\n\nFlags:\n")
+				initCmd.PrintDefaults()
+			}
+			dir := initCmd.String("shelly-dir", ".shelly", "path to .shelly directory")
+			_ = initCmd.Parse(os.Args[2:])
+
+			if err := runInit(*dir); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+
+			return
+		}
+	}
+
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: shelly [flags]\n       shelly <command> [flags]\n\nFlags:\n")
+		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nCommands:\n  init    Initialize a .shelly directory with default structure and config\n")
+	}
+
 	configPath := flag.String("config", "", "path to configuration file (default: .shelly/config.yaml or shelly.yaml)")
 	shellyDir := flag.String("shelly-dir", ".shelly", "path to .shelly directory")
 	envFile := flag.String("env", ".env", "path to .env file (ignored if missing)")
@@ -29,6 +57,18 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func runInit(dirPath string) error {
+	d := shellydir.New(dirPath)
+
+	if err := shellydir.Bootstrap(d); err != nil {
+		return err
+	}
+
+	fmt.Printf("Initialized %s\n", d.Root())
+
+	return nil
 }
 
 func run(configPath, shellyDirPath, agentName string, verbose bool) error {

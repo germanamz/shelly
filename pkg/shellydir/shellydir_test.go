@@ -100,6 +100,55 @@ func TestEnsureStructure_Idempotent(t *testing.T) {
 	assert.Equal(t, custom, string(data))
 }
 
+func TestBootstrap(t *testing.T) {
+	tmp := t.TempDir()
+	root := filepath.Join(tmp, ".shelly")
+
+	d := New(root)
+	require.NoError(t, Bootstrap(d))
+
+	// Root should exist.
+	assert.True(t, d.Exists())
+
+	// skills/ should exist.
+	info, err := os.Stat(d.SkillsDir())
+	require.NoError(t, err)
+	assert.True(t, info.IsDir())
+
+	// local/ should exist.
+	info, err = os.Stat(d.LocalDir())
+	require.NoError(t, err)
+	assert.True(t, info.IsDir())
+
+	// .gitignore should exist.
+	_, err = os.Stat(d.GitignorePath())
+	require.NoError(t, err)
+
+	// config.yaml should exist with skeleton content.
+	data, err := os.ReadFile(d.ConfigPath())
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "entry_agent:")
+}
+
+func TestBootstrap_DoesNotOverwrite(t *testing.T) {
+	tmp := t.TempDir()
+	root := filepath.Join(tmp, ".shelly")
+
+	d := New(root)
+	require.NoError(t, Bootstrap(d))
+
+	// Write custom config.
+	custom := "custom: true\n"
+	require.NoError(t, os.WriteFile(d.ConfigPath(), []byte(custom), 0o600))
+
+	// Second bootstrap should not overwrite.
+	require.NoError(t, Bootstrap(d))
+
+	data, err := os.ReadFile(d.ConfigPath())
+	require.NoError(t, err)
+	assert.Equal(t, custom, string(data))
+}
+
 func TestMigratePermissions(t *testing.T) {
 	tmp := t.TempDir()
 	root := filepath.Join(tmp, ".shelly")
