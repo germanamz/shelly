@@ -15,12 +15,12 @@ import (
 	"math/rand/v2"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/joho/godotenv"
 
@@ -253,25 +253,46 @@ func handleAskEvents(ctx context.Context, sess *engine.Session, sub *engine.Subs
 			termMu.Lock()
 			spin.Pause()
 
-			fmt.Printf("\n%s[question]%s %s\n", ansiYellow+ansiBold, ansiReset, q.Text)
-			for i, opt := range q.Options {
-				fmt.Printf("  %s%d)%s %s\n", ansiBold, i+1, ansiReset, opt)
-			}
-			fmt.Printf("%sanswer>%s ", ansiYellow+ansiBold, ansiReset)
+			response := ""
+			if len(q.Options) == 0 {
+				// Free-form question
+				fmt.Printf("\n%s[question]%s %s\n", ansiYellow+ansiBold, ansiReset, q.Text)
+				fmt.Printf("%sanswer>%s ", ansiYellow+ansiBold, ansiReset)
 
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				spin.Resume()
-				termMu.Unlock()
-				return
-			}
+				line, err := reader.ReadString('\n')
+				if err != nil {
+					spin.Resume()
+					termMu.Unlock()
+					return
+				}
+				response = strings.TrimSpace(line)
+			} else {
+				// Multiple choice with selection
+				options := make([]string, len(q.Options)+1)
+				copy(options, q.Options)
+				options[len(q.Options)] = "Other (custom input)"
 
-			response := strings.TrimSpace(line)
+				p := tea.NewProgram(askModel{question: q.Text, options: options})
+				model, err := p.Run()
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "%serror: %v%s\n", ansiRed, err, ansiReset)
+					spin.Resume()
+					termMu.Unlock()
+					continue
+				}
 
-			// Map numeric input to the corresponding option.
-			if len(q.Options) > 0 {
-				if idx, parseErr := strconv.Atoi(response); parseErr == nil && idx >= 1 && idx <= len(q.Options) {
-					response = q.Options[idx-1]
+				am := model.(askModel)
+				if am.choice == "Other (custom input)" {
+					fmt.Printf("%s[custom input]%s ", ansiYellow+ansiBold, ansiReset)
+					line, err := reader.ReadString('\n')
+					if err != nil {
+						spin.Resume()
+						termMu.Unlock()
+						return
+					}
+					response = strings.TrimSpace(line)
+				} else {
+					response = am.choice
 				}
 			}
 
@@ -458,6 +479,52 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string(r[:n]) + "..."
+}
+
+// --- ask model for interactive selection ---
+
+type askModel struct {
+	question string
+	options  []string
+	cursor   int
+	selected bool
+	choice   string
+}
+
+func (m askModel) Init() tea.Cmd { return nil }
+
+func (m askModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "up":
+			if m.cursor > 0 {
+				m.cursor--
+			}
+		case "down":
+			if m.cursor < len(m.options)-1 {
+				m.cursor++
+			}
+		case "enter":
+			m.selected = true
+			m.choice = m.options[m.cursor]
+			return m, tea.Quit
+		}
+	}
+	return m, nil
+}
+
+func (m askModel) View() string {
+	s := m.question + "\n\n"
+	for i, opt := range m.options {
+		cursor := " "
+		if m.cursor == i {
+			cursor = ">"
+		}
+		s += fmt.Sprintf("%s %s\n", cursor, opt)
+	}
+	s += "\n"
+	return s
 }
 
 // --- spinner ---
