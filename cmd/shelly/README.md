@@ -12,7 +12,7 @@ shelly [-config path] [-agent name] [-verbose]
 |------|---------|-------------|
 | `-config` | `shelly.yaml` | Path to YAML configuration file |
 | `-agent` | *(entry_agent from config)* | Agent to start the session with |
-| `-verbose` | `false` | Show tool arguments, results, and thinking text |
+| `-verbose` | `false` | Show tool results and thinking text |
 
 ## Commands
 
@@ -27,17 +27,17 @@ Ctrl+C gracefully interrupts the current request and exits.
 
 While the agent processes a request, intermediate reasoning steps are streamed to the terminal in real time using the chat's `Wait`/`Since` API:
 
-**Default mode** shows tool invocations:
+**Default mode** shows tool invocations with arguments:
 
 ```
 you> What's the weather in Berlin?
-  [calling web_search]
-  [calling parse_result]
+  [calling web_search] {"query": "weather Berlin today"}
+  [calling parse_result] {"format": "summary"}
 
 assistant> The current weather in Berlin is 18°C and partly cloudy.
 ```
 
-**Verbose mode** (`-verbose`) additionally shows tool arguments, results, and thinking text:
+**Verbose mode** (`-verbose`) additionally shows tool results and thinking text:
 
 ```
 you> What's the weather in Berlin?
@@ -55,6 +55,19 @@ Errors from tool execution are highlighted in red:
 ```
   [error] connection timeout: api.weather.com
 ```
+
+## Usage Metrics
+
+After each agent response, usage metrics are displayed in dim text:
+
+```
+  [last: ↑1.2k ↓0.3k · total: ↑5.3k ↓2.1k · limit: 200k · 2.3s]
+```
+
+- `last`: Tokens used in the most recent LLM call (input ↑, output ↓)
+- `total`: Cumulative tokens across the entire session
+- `limit`: Maximum context window for the model
+- Time: Total duration of the agent's reasoning and response generation
 
 ## Architecture
 
@@ -79,7 +92,7 @@ cmd/shelly/
 |------|---------|---------|
 | `system` | Hidden | Hidden |
 | `user` | Hidden (already shown at prompt) | Hidden |
-| `assistant` with tool calls | Tool names | + arguments, thinking text |
+| `assistant` with tool calls | Tool names + arguments | + thinking text |
 | `assistant` text-only | Final answer | Final answer |
 | `tool` | Hidden | Result or error content |
 

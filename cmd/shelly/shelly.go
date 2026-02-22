@@ -84,7 +84,7 @@ func main() {
 	configPath := flag.String("config", "shelly.yaml", "path to configuration file")
 	envFile := flag.String("env", ".env", "path to .env file (ignored if missing)")
 	agentName := flag.String("agent", "", "agent to start with (overrides entry_agent in config)")
-	verbose := flag.Bool("verbose", false, "show tool arguments and results")
+	verbose := flag.Bool("verbose", false, "show tool results and thinking text")
 	flag.Parse()
 
 	initMarkdownRenderer()
@@ -212,15 +212,17 @@ func sendAndStream(ctx context.Context, sess *engine.Session, events *engine.Eve
 		handleAskEvents(watchCtx, sess, sub, reader, spin, &termMu)
 	}()
 
+	start := time.Now()
 	spin.Start()
 	_, err := sess.Send(ctx, input)
+	duration := time.Since(start)
 	watchCancel()
 	<-chatDone
 	spin.Stop()
 	events.Unsubscribe(sub)
 	<-askDone
 
-	printUsage(sess)
+	printUsage(sess, duration)
 
 	return err
 }
@@ -325,7 +327,7 @@ func printMessage(msg message.Message, verbose bool) {
 }
 
 // printAssistantMessage renders an assistant message. Messages with tool calls
-// are displayed as reasoning steps (tool names, optional arguments). Messages
+// are displayed as reasoning steps (tool names and arguments). Messages
 // without tool calls are treated as the agent's final answer and rendered with
 // markdown formatting.
 func printAssistantMessage(msg message.Message, verbose bool) {
@@ -339,7 +341,7 @@ func printAssistantMessage(msg message.Message, verbose bool) {
 
 		for _, tc := range calls {
 			fmt.Printf("  %s[calling %s]%s", ansiYellow, tc.Name, ansiReset)
-			if verbose && tc.Arguments != "" {
+			if tc.Arguments != "" {
 				fmt.Printf(" %s%s%s", ansiDim, truncate(tc.Arguments, 200), ansiReset)
 			}
 			fmt.Println()
@@ -370,29 +372,39 @@ func printToolMessage(msg message.Message) {
 	}
 }
 
-// printUsage displays token usage information after each agent interaction.
-func printUsage(sess *engine.Session) {
+// printUsage displays token usage and timing information after each agent interaction.
+func printUsage(sess *engine.Session, duration time.Duration) {
 	ur, ok := sess.Completer().(modeladapter.UsageReporter)
 	if !ok {
+		fmt.Printf("  %s[%s]%s\n", ansiDim, fmtDuration(duration), ansiReset)
 		return
 	}
 
 	last, hasLast := ur.UsageTracker().Last()
-	if !hasLast {
-		return
-	}
-
 	total := ur.UsageTracker().Total()
 	maxTok := ur.ModelMaxTokens()
 
-	fmt.Printf("  %s[context: %s · limit: %s · total: ↑%s ↓%s]%s\n",
-		ansiDim,
-		fmtTokens(last.InputTokens),
-		fmtTokens(maxTok),
-		fmtTokens(total.InputTokens),
-		fmtTokens(total.OutputTokens),
-		ansiReset,
-	)
+	if hasLast {
+		fmt.Printf("  %s[last: ↑%s ↓%s · total: ↑%s ↓%s · limit: %s · %s]%s\n",
+			ansiDim,
+			fmtTokens(last.InputTokens),
+			fmtTokens(last.OutputTokens),
+			fmtTokens(total.InputTokens),
+			fmtTokens(total.OutputTokens),
+			fmtTokens(maxTok),
+			fmtDuration(duration),
+			ansiReset,
+		)
+	} else {
+		fmt.Printf("  %s[total: ↑%s ↓%s · limit: %s · %s]%s\n",
+			ansiDim,
+			fmtTokens(total.InputTokens),
+			fmtTokens(total.OutputTokens),
+			fmtTokens(maxTok),
+			fmtDuration(duration),
+			ansiReset,
+		)
+	}
 }
 
 func printHelp() {
@@ -425,6 +437,16 @@ func fmtTokens(n int) string {
 	default:
 		return fmt.Sprintf("%d", n)
 	}
+}
+
+// fmtDuration formats a duration for display, showing seconds or minutes:seconds.
+func fmtDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	min := int(d.Minutes())
+	sec := int(d.Seconds()) % 60
+	return fmt.Sprintf("%dm %ds", min, sec)
 }
 
 // truncate returns s shortened to at most n runes, with "..." appended if
