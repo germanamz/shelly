@@ -88,19 +88,14 @@ func (rc *reasonChain) renderLive(verbose bool) string {
 	for _, step := range rc.steps {
 		switch step.kind {
 		case "call":
-			args := ""
-			if step.args != "" {
-				args = " " + dimStyle.Render(truncate(step.args, 120))
-			}
+			label := formatToolCall(step.toolName, step.args)
 			if step.completed {
-				fmt.Fprintf(&sb, "  %s%s\n",
-					stepStyle.Render(fmt.Sprintf("[%s] [calling %s]", rc.agent, step.toolName)),
-					args,
+				fmt.Fprintf(&sb, "  %s\n",
+					stepStyle.Render(fmt.Sprintf("[%s] %s", rc.agent, label)),
 				)
 			} else {
-				fmt.Fprintf(&sb, "  %s%s %s\n",
-					stepStyle.Render(fmt.Sprintf("[%s] [calling %s]", rc.agent, step.toolName)),
-					args,
+				fmt.Fprintf(&sb, "  %s %s\n",
+					stepStyle.Render(fmt.Sprintf("[%s] %s", rc.agent, label)),
 					spinnerStyle.Render(fmt.Sprintf("%s %s", frame, step.spinMsg)),
 				)
 			}

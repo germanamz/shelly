@@ -33,7 +33,6 @@ type appModel struct {
 	state        appState
 	cancelBridge context.CancelFunc
 	width        int
-	height       int
 	sendStart    time.Time
 }
 
@@ -82,34 +81,34 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleSubmit(msg)
 
 	case chatMessageMsg:
-		m.chatView.addMessage(msg.msg)
-		m.recalcLayout()
-		return m, nil
+		cmd := m.chatView.addMessage(msg.msg)
+		return m, cmd
 
 	case agentStartMsg:
 		m.chatView.getOrCreateChain(msg.agent)
-		m.recalcLayout()
 		return m, nil
 
 	case agentEndMsg:
-		m.chatView.endAgent(msg.agent)
-		m.recalcLayout()
-		return m, nil
+		cmd := m.chatView.endAgent(msg.agent)
+		return m, cmd
 
 	case sendCompleteMsg:
 		m.statusBar.duration = msg.duration
 		m.state = stateIdle
 		focusCmd := m.inputBox.enable()
 		m.chatView.setProcessing(false)
+
+		var cmds []tea.Cmd
+		cmds = append(cmds, focusCmd)
+
 		if msg.err != nil && m.ctx.Err() == nil {
-			m.chatView.blocks = append(m.chatView.blocks, chatBlock{
-				content: lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render("error: " + msg.err.Error()),
-				kind:    "error",
-			})
-			m.chatView.updateViewport()
+			errLine := errorBlockStyle.Render(
+				lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render("error: " + msg.err.Error()),
+			)
+			cmds = append(cmds, tea.Println(errLine))
 		}
-		m.recalcLayout()
-		return m, focusCmd
+
+		return m, tea.Batch(cmds...)
 
 	case askUserMsg:
 		return m.handleAskUser(msg)
@@ -144,39 +143,39 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m appModel) View() string {
-	if m.width == 0 || m.height == 0 {
+	if m.width == 0 {
 		return "Loading..."
 	}
 
-	chatSection := m.chatView.View()
+	var parts []string
 
-	var inputSection string
-	if m.askActive != nil {
-		inputSection = m.askActive.View()
-	} else {
-		inputSection = m.inputBox.View()
+	// Active reasoning chains (live content).
+	chainView := m.chatView.View()
+	if chainView != "" {
+		parts = append(parts, chainView)
 	}
 
-	statusSection := m.statusBar.View()
+	// Input area or ask prompt.
+	if m.askActive != nil {
+		parts = append(parts, m.askActive.View())
+	} else {
+		parts = append(parts, m.inputBox.View())
+	}
 
-	return lipgloss.JoinVertical(lipgloss.Left,
-		chatSection,
-		inputSection,
-		statusSection,
-	)
+	// Status bar.
+	statusSection := m.statusBar.View()
+	if statusSection != "" {
+		parts = append(parts, statusSection)
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
 func (m *appModel) handleResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.width = msg.Width
-	m.height = msg.Height
-
 	initMarkdownRenderer(m.width - 4)
 	m.inputBox.setWidth(m.width)
-	m.recalcLayout()
-
-	var cmd tea.Cmd
-	m.chatView, cmd = m.chatView.Update(msg)
-	return m, cmd
+	return m, nil
 }
 
 func (m *appModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -215,20 +214,12 @@ func (m *appModel) handleSubmit(msg inputSubmitMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if text == "/help" {
-		m.chatView.blocks = append(m.chatView.blocks, chatBlock{
-			content: helpText(),
-		})
-		m.chatView.updateViewport()
-		m.recalcLayout()
-		return m, nil
+		return m, tea.Println(helpText())
 	}
 
-	// Add user message to the chat view.
-	m.chatView.blocks = append(m.chatView.blocks, chatBlock{
-		content: userStyle.Render("you> ") + text,
-		kind:    "user",
-	})
-	m.chatView.updateViewport()
+	// Print user message to terminal scrollback.
+	userLine := userBlockStyle.Render(userStyle.Render("you> ") + text)
+	printCmd := tea.Println(userLine)
 
 	m.state = stateProcessing
 	m.inputBox.disable()
@@ -243,7 +234,7 @@ func (m *appModel) handleSubmit(msg inputSubmitMsg) (tea.Model, tea.Cmd) {
 		return sendCompleteMsg{err: err, duration: time.Since(m.sendStart)}
 	}
 
-	return m, tea.Batch(sendCmd, tickCmd())
+	return m, tea.Batch(printCmd, sendCmd, tickCmd())
 }
 
 func (m *appModel) handleAskUser(msg askUserMsg) (tea.Model, tea.Cmd) {
@@ -275,18 +266,17 @@ func (m *appModel) drainAskBatch() (tea.Model, tea.Cmd) {
 	m.askActive = &batch
 	m.askQueue = nil
 	m.state = stateAskUser
-	m.recalcLayout()
 	return m, nil
 }
 
 func (m *appModel) handleBatchAnswered(msg askBatchAnsweredMsg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
 	for _, ans := range msg.answers {
 		if err := m.sess.Respond(ans.questionID, ans.response); err != nil {
-			m.chatView.blocks = append(m.chatView.blocks, chatBlock{
-				content: lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render("error responding: " + err.Error()),
-				kind:    "error",
-			})
-			m.chatView.updateViewport()
+			errLine := errorBlockStyle.Render(
+				lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render("error responding: " + err.Error()),
+			)
+			cmds = append(cmds, tea.Println(errLine))
 		}
 	}
 
@@ -302,24 +292,11 @@ func (m *appModel) handleBatchAnswered(msg askBatchAnsweredMsg) (tea.Model, tea.
 		m.state = stateProcessing
 		m.inputBox.disable()
 	}
-	m.recalcLayout()
-	return m, nil
-}
 
-func (m *appModel) recalcLayout() {
-	if m.width == 0 || m.height == 0 {
-		return
+	if len(cmds) > 0 {
+		return m, tea.Batch(cmds...)
 	}
-	// Status bar = 1 line, input box ~ border(2) + content lines + optional picker.
-	statusHeight := 1
-	var inputHeight int
-	if m.askActive != nil {
-		inputHeight = lipgloss.Height(m.askActive.View())
-	} else {
-		inputHeight = m.inputBox.totalHeight()
-	}
-	chatHeight := max(m.height-inputHeight-statusHeight, 1)
-	m.chatView.setSize(m.width, chatHeight)
+	return m, nil
 }
 
 func tickCmd() tea.Cmd {

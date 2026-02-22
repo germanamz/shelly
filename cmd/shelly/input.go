@@ -164,12 +164,6 @@ func (m *inputModel) insertFileSelection(sel string) {
 	m.textarea.SetValue(string(newRunes))
 }
 
-// totalHeight returns the full visual height of the input area including picker.
-func (m inputModel) totalHeight() int {
-	base := lipgloss.Height(m.viewInput())
-	return base + m.filePicker.visibleHeight()
-}
-
 func (m inputModel) View() string {
 	input := m.viewInput()
 	if m.filePicker.active {

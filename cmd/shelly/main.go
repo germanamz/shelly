@@ -103,10 +103,7 @@ func run(configPath, shellyDirPath, agentName string, verbose bool) error {
 
 	model := newAppModel(ctx, sess, eng.Events(), verbose)
 
-	p := tea.NewProgram(
-		model,
-		tea.WithAltScreen(),
-	)
+	p := tea.NewProgram(model)
 
 	// Send the program reference so the model can start bridge goroutines.
 	go func() {

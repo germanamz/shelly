@@ -116,19 +116,6 @@ func (fp *filePickerModel) handleKey(msg tea.KeyMsg) (consumed bool, selected st
 	return false, ""
 }
 
-// visibleHeight returns how many rows the popup occupies (including border).
-func (fp *filePickerModel) visibleHeight() int {
-	if !fp.active {
-		return 0
-	}
-	n := len(fp.filtered)
-	if n == 0 {
-		return 3 // border + "no matches" + border
-	}
-	show := min(n, fp.maxShow)
-	return show + 3 // border + hint line + items + border
-}
-
 // View renders the picker popup.
 func (fp filePickerModel) View() string {
 	if !fp.active {

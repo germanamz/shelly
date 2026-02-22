@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/germanamz/shelly/pkg/chats/content"
@@ -29,61 +28,71 @@ var (
 			BorderForeground(lipgloss.Color("1"))
 )
 
-// chatBlock is a committed, fully rendered block of text in the chat history.
-type chatBlock struct {
-	content string
-	kind    string // "user", "assistant", "error", ""
-}
-
-// chatViewModel manages the scrollable chat viewport and active reasoning chains.
+// chatViewModel manages active reasoning chains and prints committed content
+// to the terminal scrollback via tea.Println.
 type chatViewModel struct {
-	viewport      viewport.Model
-	blocks        []chatBlock
 	activeChains  map[string]*reasonChain
 	chainOrder    []string // agent names in arrival order
 	verbose       bool
-	width         int
 	processing    bool   // true while the agent is working
 	spinnerIdx    int    // frame index for standalone processing spinner
 	processingMsg string // random message shown while waiting for first chain
 }
 
 func newChatView(verbose bool) chatViewModel {
-	vp := viewport.New(80, 20)
-	vp.SetContent("")
 	return chatViewModel{
-		viewport:     vp,
 		activeChains: make(map[string]*reasonChain),
 		verbose:      verbose,
 	}
 }
 
-func (m chatViewModel) Update(msg tea.Msg) (chatViewModel, tea.Cmd) {
-	var cmd tea.Cmd
-	m.viewport, cmd = m.viewport.Update(msg)
-	return m, cmd
-}
-
+// View renders only the live portion: active reasoning chains and the
+// standalone processing spinner. Committed content is printed to the
+// terminal scrollback via tea.Println and is not part of this view.
 func (m chatViewModel) View() string {
-	return m.viewport.View()
+	var sb strings.Builder
+
+	for _, agent := range m.chainOrder {
+		chain, ok := m.activeChains[agent]
+		if !ok {
+			continue
+		}
+		live := chain.renderLive(m.verbose)
+		if live != "" {
+			sb.WriteString(live)
+		}
+	}
+
+	// Show standalone spinner when processing but no active chains yet.
+	if m.processing && len(m.activeChains) == 0 {
+		frame := spinnerFrames[m.spinnerIdx%len(spinnerFrames)]
+		fmt.Fprintf(&sb, "  %s %s\n",
+			spinnerStyle.Render(frame),
+			spinnerStyle.Render(m.processingMsg),
+		)
+	}
+
+	return sb.String()
 }
 
-// addMessage processes a chat message and updates blocks/chains accordingly.
-func (m *chatViewModel) addMessage(msg message.Message) {
+// addMessage processes a chat message. Committed content (final assistant
+// answers) is returned as a tea.Println command for the terminal scrollback.
+func (m *chatViewModel) addMessage(msg message.Message) tea.Cmd {
 	switch msg.Role {
 	case role.System, role.User:
-		// System messages are hidden; user messages are already rendered
+		// System messages are hidden; user messages are already printed
 		// by handleSubmit, so skip them to avoid duplication.
-		return
+		return nil
 	case role.Assistant:
-		m.processAssistantMessage(msg)
+		return m.processAssistantMessage(msg)
 	case role.Tool:
 		m.processToolMessage(msg)
+		return nil
 	}
-	m.updateViewport()
+	return nil
 }
 
-func (m *chatViewModel) processAssistantMessage(msg message.Message) {
+func (m *chatViewModel) processAssistantMessage(msg message.Message) tea.Cmd {
 	calls := msg.ToolCalls()
 	text := msg.TextContent()
 	agent := msg.Sender
@@ -101,17 +110,18 @@ func (m *chatViewModel) processAssistantMessage(msg message.Message) {
 		for _, tc := range calls {
 			chain.addCall(tc.Name, tc.Arguments)
 		}
-		return
+		return nil
 	}
 
-	// Final answer — no tool calls.
+	// Final answer — no tool calls. Print to scrollback.
 	if text != "" {
 		rendered := renderMarkdown(text)
-		m.blocks = append(m.blocks, chatBlock{
-			content: assistantStyle.Render(fmt.Sprintf("%s> ", agent)) + rendered,
-			kind:    "assistant",
-		})
+		line := assistantBlockStyle.Render(
+			assistantStyle.Render(fmt.Sprintf("%s> ", agent)) + rendered,
+		)
+		return tea.Println(line)
 	}
+	return nil
 }
 
 func (m *chatViewModel) processToolMessage(msg message.Message) {
@@ -134,17 +144,15 @@ func (m *chatViewModel) processToolMessage(msg message.Message) {
 	}
 }
 
-// endAgent collapses the named agent's chain into a summary block.
-func (m *chatViewModel) endAgent(agent string) {
+// endAgent collapses the named agent's chain into a summary and prints it
+// to the terminal scrollback.
+func (m *chatViewModel) endAgent(agent string) tea.Cmd {
 	chain, ok := m.activeChains[agent]
 	if !ok {
-		return
+		return nil
 	}
 
 	summary := chain.collapsedSummary()
-	if summary != "" {
-		m.blocks = append(m.blocks, chatBlock{content: summary})
-	}
 
 	delete(m.activeChains, agent)
 	// Remove from chainOrder.
@@ -155,7 +163,10 @@ func (m *chatViewModel) endAgent(agent string) {
 		}
 	}
 
-	m.updateViewport()
+	if summary != "" {
+		return tea.Println(summary)
+	}
+	return nil
 }
 
 // setProcessing sets the processing state and picks a random spinner message.
@@ -164,7 +175,6 @@ func (m *chatViewModel) setProcessing(on bool) {
 	if on {
 		m.processingMsg = randomThinkingMessage()
 	}
-	m.updateViewport()
 }
 
 // advanceSpinners increments the spinner frame for all active chains
@@ -174,7 +184,6 @@ func (m *chatViewModel) advanceSpinners() {
 	for _, chain := range m.activeChains {
 		chain.frameIdx++
 	}
-	m.updateViewport()
 }
 
 // hasActiveChains returns true if any agent chain is still in progress.
@@ -190,52 +199,4 @@ func (m *chatViewModel) getOrCreateChain(agent string) *reasonChain {
 		m.chainOrder = append(m.chainOrder, agent)
 	}
 	return chain
-}
-
-func (m *chatViewModel) updateViewport() {
-	var sb strings.Builder
-
-	for _, block := range m.blocks {
-		rendered := block.content
-		switch block.kind {
-		case "user":
-			rendered = userBlockStyle.Render(rendered)
-		case "assistant":
-			rendered = assistantBlockStyle.Render(rendered)
-		case "error":
-			rendered = errorBlockStyle.Render(rendered)
-		}
-		sb.WriteString(rendered)
-		sb.WriteString("\n\n")
-	}
-
-	// Render active chains below committed blocks.
-	for _, agent := range m.chainOrder {
-		chain, ok := m.activeChains[agent]
-		if !ok {
-			continue
-		}
-		live := chain.renderLive(m.verbose)
-		if live != "" {
-			sb.WriteString(live)
-		}
-	}
-
-	// Show standalone spinner when processing but no active chains yet.
-	if m.processing && len(m.activeChains) == 0 {
-		frame := spinnerFrames[m.spinnerIdx%len(spinnerFrames)]
-		fmt.Fprintf(&sb, "  %s %s\n",
-			spinnerStyle.Render(frame),
-			spinnerStyle.Render(m.processingMsg),
-		)
-	}
-
-	m.viewport.SetContent(sb.String())
-	m.viewport.GotoBottom()
-}
-
-func (m *chatViewModel) setSize(width, height int) {
-	m.width = width
-	m.viewport.Width = width
-	m.viewport.Height = height
 }
