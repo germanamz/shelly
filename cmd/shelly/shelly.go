@@ -168,6 +168,12 @@ func chatLoop(ctx context.Context, sess *engine.Session, events *engine.EventBus
 			continue
 		}
 
+		// Display the total number of tokens used just below the user input
+		if ur, ok := sess.Completer().(modeladapter.UsageReporter); ok {
+			total := ur.UsageTracker().Total()
+			fmt.Printf("Total tokens used: %d\n", total.InputTokens+total.OutputTokens)
+		}
+
 		if err := sendAndStream(ctx, sess, events, input, verbose); err != nil {
 			if ctx.Err() != nil {
 				fmt.Printf("\n%sInterrupted%s\n", ansiDim, ansiReset)
