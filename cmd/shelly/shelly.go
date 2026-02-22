@@ -6,7 +6,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -23,6 +22,7 @@ import (
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/joho/godotenv"
+	"golang.org/x/term"
 
 	"github.com/germanamz/shelly/pkg/chats/chat"
 	"github.com/germanamz/shelly/pkg/chats/content"
@@ -142,12 +142,9 @@ func run(configPath, agentName string, verbose bool) error {
 // streams the agent's reasoning chain until a final answer is produced.
 // It handles /help and /quit commands, and exits cleanly on Ctrl+C or EOF.
 func chatLoop(ctx context.Context, sess *engine.Session, events *engine.EventBus, verbose bool) error {
-	reader := bufio.NewReader(os.Stdin)
-
 	for {
-		fmt.Printf("%syou>%s ", ansiGreen+ansiBold, ansiReset)
-
-		line, err := reader.ReadString('\n')
+		prompt := fmt.Sprintf("%syou>%s ", ansiGreen+ansiBold, ansiReset)
+		line, err := readLine(prompt)
 		if err != nil {
 			fmt.Println()
 			if errors.Is(err, io.EOF) {
@@ -171,7 +168,7 @@ func chatLoop(ctx context.Context, sess *engine.Session, events *engine.EventBus
 			continue
 		}
 
-		if err := sendAndStream(ctx, sess, events, input, verbose, reader); err != nil {
+		if err := sendAndStream(ctx, sess, events, input, verbose); err != nil {
 			if ctx.Err() != nil {
 				fmt.Printf("\n%sInterrupted%s\n", ansiDim, ansiReset)
 				return nil
@@ -187,7 +184,7 @@ func chatLoop(ctx context.Context, sess *engine.Session, events *engine.EventBus
 // the agent processes the request. It also subscribes to the event bus to
 // handle ask_user prompts from permission-gated tools. A spinner with random
 // phrases is displayed while the agent is working.
-func sendAndStream(ctx context.Context, sess *engine.Session, events *engine.EventBus, input string, verbose bool, reader *bufio.Reader) error {
+func sendAndStream(ctx context.Context, sess *engine.Session, events *engine.EventBus, input string, verbose bool) error {
 	cursor := sess.Chat().Len()
 
 	watchCtx, watchCancel := context.WithCancel(ctx)
@@ -209,7 +206,7 @@ func sendAndStream(ctx context.Context, sess *engine.Session, events *engine.Eve
 	askDone := make(chan struct{})
 	go func() {
 		defer close(askDone)
-		handleAskEvents(watchCtx, sess, sub, reader, spin, &termMu)
+		handleAskEvents(watchCtx, sess, sub, spin, &termMu)
 	}()
 
 	start := time.Now()
@@ -230,7 +227,7 @@ func sendAndStream(ctx context.Context, sess *engine.Session, events *engine.Eve
 // handleAskEvents watches for EventAskUser events and prompts the user for a
 // response on the terminal. It pauses the spinner during user interaction and
 // holds termMu to prevent streamChat from interleaving output with the prompt.
-func handleAskEvents(ctx context.Context, sess *engine.Session, sub *engine.Subscription, reader *bufio.Reader, spin *spinner, termMu *sync.Mutex) {
+func handleAskEvents(ctx context.Context, sess *engine.Session, sub *engine.Subscription, spin *spinner, termMu *sync.Mutex) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -257,9 +254,8 @@ func handleAskEvents(ctx context.Context, sess *engine.Session, sub *engine.Subs
 			if len(q.Options) == 0 {
 				// Free-form question
 				fmt.Printf("\n%s[question]%s %s\n", ansiYellow+ansiBold, ansiReset, q.Text)
-				fmt.Printf("%sanswer>%s ", ansiYellow+ansiBold, ansiReset)
-
-				line, err := reader.ReadString('\n')
+				prompt := fmt.Sprintf("%sanswer>%s ", ansiYellow+ansiBold, ansiReset)
+				line, err := readLine(prompt)
 				if err != nil {
 					spin.Resume()
 					termMu.Unlock()
@@ -283,8 +279,8 @@ func handleAskEvents(ctx context.Context, sess *engine.Session, sub *engine.Subs
 
 				am := model.(askModel)
 				if am.choice == "Other (custom input)" {
-					fmt.Printf("%s[custom input]%s ", ansiYellow+ansiBold, ansiReset)
-					line, err := reader.ReadString('\n')
+					prompt := fmt.Sprintf("%s[custom input]%s ", ansiYellow+ansiBold, ansiReset)
+					line, err := readLine(prompt)
 					if err != nil {
 						spin.Resume()
 						termMu.Unlock()
@@ -479,6 +475,75 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string(r[:n]) + "..."
+}
+
+// readLine reads a line of input with support for left/right arrow cursor movement.
+// It uses raw terminal mode to handle individual key presses.
+func readLine(prompt string) (string, error) {
+	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		_ = term.Restore(int(os.Stdin.Fd()), oldState)
+	}()
+
+	fmt.Print(prompt)
+	var line []rune
+	cursor := 0
+	for {
+		var buf [3]byte
+		n, err := os.Stdin.Read(buf[:])
+		if err != nil {
+			return "", err
+		}
+		if n == 0 {
+			continue
+		}
+		if buf[0] == 3 { // Ctrl+C
+			return "", io.EOF
+		}
+		if buf[0] == 13 || buf[0] == 10 { // Enter (CR or LF)
+			fmt.Println()
+			return string(line), nil
+		}
+		if buf[0] == 127 || buf[0] == 8 { // Backspace
+			if cursor > 0 {
+				line = append(line[:cursor-1], line[cursor:]...)
+				cursor--
+				redrawLine(prompt, line, cursor)
+			}
+			continue
+		}
+		if buf[0] == 27 && n >= 3 && buf[1] == 91 { // Escape sequence
+			switch buf[2] {
+			case 68: // Left arrow
+				if cursor > 0 {
+					cursor--
+					redrawLine(prompt, line, cursor)
+				}
+			case 67: // Right arrow
+				if cursor < len(line) {
+					cursor++
+					redrawLine(prompt, line, cursor)
+				}
+			}
+			continue
+		}
+		if buf[0] >= 32 && buf[0] <= 126 { // Printable ASCII
+			line = append(line[:cursor], append([]rune{rune(buf[0])}, line[cursor:]...)...)
+			cursor++
+			redrawLine(prompt, line, cursor)
+		}
+	}
+}
+
+// redrawLine clears the current line and reprints the prompt and line with cursor positioned.
+func redrawLine(prompt string, line []rune, cursor int) {
+	fmt.Printf("\r\033[K%s%s", prompt, string(line))
+	if cursor < len(line) {
+		fmt.Printf("\033[%dD", len(line)-cursor)
+	}
 }
 
 // --- ask model for interactive selection ---
