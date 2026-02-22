@@ -22,15 +22,17 @@ type AskFunc func(ctx context.Context, question string, options []string) (strin
 
 // FS provides filesystem tools with permission gating.
 type FS struct {
-	store *permissions.Store
-	ask   AskFunc
+	store  *permissions.Store
+	ask    AskFunc
+	notify NotifyFunc
 }
 
 // New creates an FS backed by the given shared permissions store.
-func New(store *permissions.Store, askFn AskFunc) *FS {
+func New(store *permissions.Store, askFn AskFunc, notifyFn NotifyFunc) *FS {
 	return &FS{
-		store: store,
-		ask:   askFn,
+		store:  store,
+		ask:    askFn,
+		notify: notifyFn,
 	}
 }
 
@@ -162,6 +164,19 @@ func (f *FS) handleWrite(ctx context.Context, input json.RawMessage) (string, er
 		return "", fmt.Errorf("fs_write: %w", err)
 	}
 
+	// Read existing content for diff (empty if file doesn't exist yet).
+	oldContent := ""
+	if data, readErr := os.ReadFile(abs); readErr == nil { //nolint:gosec // path is approved by user
+		oldContent = string(data)
+	}
+
+	diff := computeDiff(abs, oldContent, in.Content)
+	if diff != "" {
+		if err := f.confirmChange(ctx, abs, diff); err != nil {
+			return "", fmt.Errorf("fs_write: %w", err)
+		}
+	}
+
 	if err := os.MkdirAll(filepath.Dir(abs), 0o750); err != nil {
 		return "", fmt.Errorf("fs_write: create dirs: %w", err)
 	}
@@ -222,6 +237,14 @@ func (f *FS) handleEdit(ctx context.Context, input json.RawMessage) (string, err
 	}
 
 	newContent := strings.Replace(content, in.OldText, in.NewText, 1)
+
+	diff := computeDiff(abs, content, newContent)
+	if diff != "" {
+		if err := f.confirmChange(ctx, abs, diff); err != nil {
+			return "", fmt.Errorf("fs_edit: %w", err)
+		}
+	}
+
 	if err := os.WriteFile(abs, []byte(newContent), 0o600); err != nil {
 		return "", fmt.Errorf("fs_edit: %w", err)
 	}

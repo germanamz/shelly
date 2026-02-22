@@ -12,16 +12,18 @@ import (
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/chats/role"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/ask"
+	"github.com/germanamz/shelly/pkg/codingtoolbox/filesystem"
 	"github.com/germanamz/shelly/pkg/modeladapter"
 )
 
 // Session represents one interactive conversation. It owns a chat and an agent
 // instance. Only one Send call may be active at a time.
 type Session struct {
-	id        string
-	agent     *agent.Agent
-	events    *EventBus
-	responder *ask.Responder
+	id           string
+	agent        *agent.Agent
+	events       *EventBus
+	responder    *ask.Responder
+	sessionTrust *filesystem.SessionTrust
 
 	mu     sync.Mutex
 	active bool
@@ -30,10 +32,11 @@ type Session struct {
 // newSession creates a session with the given ID, agent, event bus, and responder.
 func newSession(id string, a *agent.Agent, events *EventBus, responder *ask.Responder) *Session {
 	return &Session{
-		id:        id,
-		agent:     a,
-		events:    events,
-		responder: responder,
+		id:           id,
+		agent:        a,
+		events:       events,
+		responder:    responder,
+		sessionTrust: &filesystem.SessionTrust{},
 	}
 }
 
@@ -69,6 +72,7 @@ func (s *Session) SendParts(ctx context.Context, parts ...content.Part) (message
 
 	ctx = withSessionID(ctx, s.id)
 	ctx = withAgentName(ctx, s.agent.Name())
+	ctx = filesystem.WithSessionTrust(ctx, s.sessionTrust)
 
 	s.agent.Chat().Append(message.New("user", role.User, parts...))
 

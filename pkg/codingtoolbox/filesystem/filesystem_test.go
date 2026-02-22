@@ -23,7 +23,16 @@ func autoDeny(_ context.Context, _ string, _ []string) (string, error) {
 	return "no", nil
 }
 
+// noopNotify discards notifications.
+func noopNotify(_ context.Context, _ string) {}
+
 func newTestFS(t *testing.T, askFn AskFunc) (*FS, string) {
+	t.Helper()
+
+	return newTestFSWithNotify(t, askFn, noopNotify)
+}
+
+func newTestFSWithNotify(t *testing.T, askFn AskFunc, notifyFn NotifyFunc) (*FS, string) {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -31,7 +40,7 @@ func newTestFS(t *testing.T, askFn AskFunc) (*FS, string) {
 	store, err := permissions.New(permFile)
 	require.NoError(t, err)
 
-	fs := New(store, askFn)
+	fs := New(store, askFn, notifyFn)
 
 	return fs, dir
 }
@@ -227,7 +236,7 @@ func TestPersistence(t *testing.T) {
 	// First instance: approve a directory.
 	store1, err := permissions.New(permFile)
 	require.NoError(t, err)
-	fs1 := New(store1, autoApprove)
+	fs1 := New(store1, autoApprove, noopNotify)
 
 	filePath := filepath.Join(dir, "f.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("data"), 0o600))
@@ -243,7 +252,7 @@ func TestPersistence(t *testing.T) {
 	// Second instance: should already have the permission (deny would block if not).
 	store2, err := permissions.New(permFile)
 	require.NoError(t, err)
-	fs2 := New(store2, autoDeny)
+	fs2 := New(store2, autoDeny, noopNotify)
 
 	tb2 := fs2.Tools()
 	tr = tb2.Call(context.Background(), content.ToolCall{
@@ -365,6 +374,89 @@ func TestEdit_EmptyOldText(t *testing.T) {
 
 	assert.True(t, tr.IsError)
 	assert.Contains(t, tr.Content, "old_text is required")
+}
+
+func TestWrite_ConfirmDenied(t *testing.T) {
+	// First call is dir permission (approve), second is file change confirmation (deny).
+	calls := 0
+	askFn := func(_ context.Context, _ string, _ []string) (string, error) {
+		calls++
+		if calls == 1 {
+			return "yes", nil // directory permission
+		}
+		return "no", nil // file change denied
+	}
+	fs, dir := newTestFS(t, askFn)
+	tb := fs.Tools()
+
+	filePath := filepath.Join(dir, "denied.txt")
+
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:        "tc1",
+		Name:      "fs_write",
+		Arguments: mustJSON(t, writeInput{Path: filePath, Content: "new content"}),
+	})
+
+	assert.True(t, tr.IsError)
+	assert.Contains(t, tr.Content, "denied")
+
+	// File should not have been created.
+	_, err := os.Stat(filePath)
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestWrite_TrustedSession(t *testing.T) {
+	var notified string
+	notifyFn := func(_ context.Context, msg string) {
+		notified = msg
+	}
+	fs, dir := newTestFSWithNotify(t, autoApprove, notifyFn)
+	tb := fs.Tools()
+
+	st := &SessionTrust{}
+	st.Trust()
+	ctx := WithSessionTrust(context.Background(), st)
+
+	filePath := filepath.Join(dir, "trusted.txt")
+
+	tr := tb.Call(ctx, content.ToolCall{
+		ID:        "tc1",
+		Name:      "fs_write",
+		Arguments: mustJSON(t, writeInput{Path: filePath, Content: "trusted content"}),
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+	assert.Contains(t, notified, "trusted.txt")
+}
+
+func TestEdit_ConfirmDenied(t *testing.T) {
+	calls := 0
+	askFn := func(_ context.Context, _ string, _ []string) (string, error) {
+		calls++
+		if calls == 1 {
+			return "yes", nil // directory permission
+		}
+		return "no", nil // file change denied
+	}
+	fs, dir := newTestFS(t, askFn)
+	tb := fs.Tools()
+
+	filePath := filepath.Join(dir, "edit.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte("original"), 0o600))
+
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:        "tc1",
+		Name:      "fs_edit",
+		Arguments: mustJSON(t, editInput{Path: filePath, OldText: "original", NewText: "changed"}),
+	})
+
+	assert.True(t, tr.IsError)
+	assert.Contains(t, tr.Content, "denied")
+
+	// File should remain unchanged.
+	data, err := os.ReadFile(filePath) //nolint:gosec // test reads from temp dir
+	require.NoError(t, err)
+	assert.Equal(t, "original", string(data))
 }
 
 func mustJSON(t *testing.T, v any) string {

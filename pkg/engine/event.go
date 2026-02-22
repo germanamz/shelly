@@ -15,6 +15,7 @@ const (
 	EventAgentStart    EventKind = "agent_start"
 	EventAgentEnd      EventKind = "agent_end"
 	EventAskUser       EventKind = "ask_user"
+	EventFileChange    EventKind = "file_change"
 	EventError         EventKind = "error"
 )
 

@@ -58,7 +58,8 @@ func (f *FS) handlePatch(ctx context.Context, input json.RawMessage) (string, er
 		return "", fmt.Errorf("fs_patch: %w", err)
 	}
 
-	content := string(data)
+	original := string(data)
+	content := original
 
 	for i, h := range in.Hunks {
 		if h.OldText == "" {
@@ -75,6 +76,13 @@ func (f *FS) handlePatch(ctx context.Context, input json.RawMessage) (string, er
 		}
 
 		content = strings.Replace(content, h.OldText, h.NewText, 1)
+	}
+
+	diff := computeDiff(abs, original, content)
+	if diff != "" {
+		if err := f.confirmChange(ctx, abs, diff); err != nil {
+			return "", fmt.Errorf("fs_patch: %w", err)
+		}
 	}
 
 	if err := os.WriteFile(abs, []byte(content), 0o600); err != nil {

@@ -203,3 +203,36 @@ func TestPatch_EmptyPath(t *testing.T) {
 	assert.True(t, tr.IsError)
 	assert.Contains(t, tr.Content, "path is required")
 }
+
+func TestPatch_ConfirmDenied(t *testing.T) {
+	calls := 0
+	askFn := func(_ context.Context, _ string, _ []string) (string, error) {
+		calls++
+		if calls == 1 {
+			return "yes", nil // directory permission
+		}
+		return "no", nil // file change denied
+	}
+	fs, dir := newTestFS(t, askFn)
+	tb := fs.Tools()
+
+	filePath := filepath.Join(dir, "patch.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte("alpha beta"), 0o600))
+
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:   "tc1",
+		Name: "fs_patch",
+		Arguments: mustJSON(t, patchInput{
+			Path:  filePath,
+			Hunks: []hunk{{OldText: "alpha", NewText: "ALPHA"}},
+		}),
+	})
+
+	assert.True(t, tr.IsError)
+	assert.Contains(t, tr.Content, "denied")
+
+	// File should remain unchanged.
+	data, err := os.ReadFile(filePath) //nolint:gosec // test reads from temp dir
+	require.NoError(t, err)
+	assert.Equal(t, "alpha beta", string(data))
+}

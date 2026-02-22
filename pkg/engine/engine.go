@@ -119,7 +119,18 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		}
 
 		if cfg.Filesystem.Enabled {
-			fsTools := filesystem.New(permStore, e.responder.Ask)
+			notifyFn := func(ctx context.Context, message string) {
+				sid, _ := sessionIDFromContext(ctx)
+				aname, _ := agentNameFromContext(ctx)
+				e.events.Publish(Event{
+					Kind:      EventFileChange,
+					SessionID: sid,
+					Agent:     aname,
+					Timestamp: time.Now(),
+					Data:      message,
+				})
+			}
+			fsTools := filesystem.New(permStore, e.responder.Ask, notifyFn)
 			e.toolboxes["filesystem"] = fsTools.Tools()
 		}
 
