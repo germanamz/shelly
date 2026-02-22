@@ -1,0 +1,66 @@
+package main
+
+import (
+	"context"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/germanamz/shelly/pkg/chats/chat"
+	"github.com/germanamz/shelly/pkg/codingtoolbox/ask"
+	"github.com/germanamz/shelly/pkg/engine"
+)
+
+// startBridge launches the event watcher and chat watcher goroutines.
+// Both goroutines only call p.Send() — they never touch model state directly.
+// Returns a cancel function that stops both goroutines.
+func startBridge(ctx context.Context, p *tea.Program, c *chat.Chat, events *engine.EventBus) context.CancelFunc {
+	bridgeCtx, cancel := context.WithCancel(ctx)
+
+	sub := events.Subscribe(64)
+
+	// Event watcher: converts engine events to bubbletea messages.
+	go func() {
+		defer events.Unsubscribe(sub)
+		for {
+			select {
+			case <-bridgeCtx.Done():
+				return
+			case ev, ok := <-sub.C:
+				if !ok {
+					return
+				}
+				switch ev.Kind {
+				case engine.EventAskUser:
+					q, ok := ev.Data.(ask.Question)
+					if !ok {
+						continue
+					}
+					p.Send(askUserMsg{question: q, agent: ev.Agent})
+
+				case engine.EventAgentEnd:
+					p.Send(agentEndMsg{agent: ev.Agent})
+				}
+			}
+		}
+	}()
+
+	// Chat watcher: detects new messages via Wait/Since and forwards them.
+	go func() {
+		cursor := c.Len()
+		for {
+			_, err := c.Wait(bridgeCtx, cursor)
+
+			// Always drain pending messages even when context is cancelled.
+			msgs := c.Since(cursor)
+			for _, msg := range msgs {
+				p.Send(chatMessageMsg{msg: msg})
+				cursor++
+			}
+
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	return cancel
+}
