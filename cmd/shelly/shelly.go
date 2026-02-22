@@ -18,6 +18,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
@@ -78,6 +79,41 @@ func initMarkdownRenderer() {
 		return
 	}
 	mdRenderer = r
+}
+
+// moveCursorWordLeft moves the cursor to the start of the previous word.
+func moveCursorWordLeft(line []rune, cursor int) int {
+	// Skip trailing spaces
+	for cursor > 0 && unicode.IsSpace(line[cursor-1]) {
+		cursor--
+	}
+	// Skip word
+	for cursor > 0 && !unicode.IsSpace(line[cursor-1]) {
+		cursor--
+	}
+	return cursor
+}
+
+// moveCursorWordRight moves the cursor to the start of the next word.
+func moveCursorWordRight(line []rune, cursor int) int {
+	lineLen := len(line)
+	if cursor < lineLen && !unicode.IsSpace(line[cursor]) {
+		// Skip to end of current word
+		for cursor < lineLen && !unicode.IsSpace(line[cursor]) {
+			cursor++
+		}
+	}
+	// Skip spaces
+	for cursor < lineLen && unicode.IsSpace(line[cursor]) {
+		cursor++
+	}
+	return cursor
+}
+
+// deleteWordBackward deletes the word backward from the cursor.
+func deleteWordBackward(line []rune, cursor int) ([]rune, int) {
+	newCursor := moveCursorWordLeft(line, cursor)
+	return append(line[:newCursor], line[cursor:]...), newCursor
 }
 
 func main() {
@@ -489,22 +525,24 @@ func truncate(s string, n int) string {
 	return string(r[:n]) + "..."
 }
 
-// readLine reads a line of input with support for left/right arrow cursor movement.
+// readLine reads a line of input with support for cursor movement, word jump, and word delete.
 // It uses raw terminal mode to handle individual key presses.
+//
+//nolint:gocyclo
 func readLine(prompt string) (string, error) {
-	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	oldState, err := term.MakeRaw(int(os.Stdin.Fd())) //nolint:gosec
 	if err != nil {
 		return "", err
 	}
 	defer func() {
-		_ = term.Restore(int(os.Stdin.Fd()), oldState)
+		_ = term.Restore(int(os.Stdin.Fd()), oldState) //nolint:gosec
 	}()
 
 	fmt.Print(prompt)
 	var line []rune
 	cursor := 0
 	for {
-		var buf [3]byte
+		var buf [1]byte
 		n, err := os.Stdin.Read(buf[:])
 		if err != nil {
 			return "", err
@@ -512,14 +550,15 @@ func readLine(prompt string) (string, error) {
 		if n == 0 {
 			continue
 		}
-		if buf[0] == 3 { // Ctrl+C
+		b := buf[0]
+		if b == 3 { // Ctrl+C
 			return "", io.EOF
 		}
-		if buf[0] == 13 || buf[0] == 10 { // Enter (CR or LF)
+		if b == 13 || b == 10 { // Enter (CR or LF)
 			fmt.Println()
 			return string(line), nil
 		}
-		if buf[0] == 127 || buf[0] == 8 { // Backspace
+		if b == 127 || b == 8 { // Backspace
 			if cursor > 0 {
 				line = append(line[:cursor-1], line[cursor:]...)
 				cursor--
@@ -527,23 +566,92 @@ func readLine(prompt string) (string, error) {
 			}
 			continue
 		}
-		if buf[0] == 27 && n >= 3 && buf[1] == 91 { // Escape sequence
-			switch buf[2] {
-			case 68: // Left arrow
-				if cursor > 0 {
-					cursor--
-					redrawLine(prompt, line, cursor)
+		if b == 23 { // Ctrl+W (delete word backward)
+			if cursor > 0 {
+				line, cursor = deleteWordBackward(line, cursor)
+				redrawLine(prompt, line, cursor)
+			}
+			continue
+		}
+		if b == 27 { // Escape sequence
+			n2, err2 := os.Stdin.Read(buf[:])
+			if err2 != nil {
+				return "", err2
+			}
+			if n2 == 0 {
+				continue
+			}
+			b2 := buf[0]
+			if b2 == 91 { // [
+				var seq []byte
+				for {
+					n3, err3 := os.Stdin.Read(buf[:])
+					if err3 != nil {
+						return "", err3
+					}
+					if n3 == 0 {
+						continue
+					}
+					b3 := buf[0]
+					if b3 >= 64 && b3 <= 126 { // Final character (A-Z, etc.)
+						seq = append(seq, b3)
+						break
+					} else {
+						seq = append(seq, b3)
+					}
 				}
-			case 67: // Right arrow
-				if cursor < len(line) {
-					cursor++
+				final := seq[len(seq)-1]
+				seq = seq[:len(seq)-1]
+				paramStr := string(seq)
+				switch paramStr {
+				case "1;5":
+					switch final {
+					case 'D': // Ctrl+Left
+						cursor = moveCursorWordLeft(line, cursor)
+						redrawLine(prompt, line, cursor)
+					case 'C': // Ctrl+Right
+						cursor = moveCursorWordRight(line, cursor)
+						redrawLine(prompt, line, cursor)
+					}
+				case "1;3":
+					switch final {
+					case 'D': // Alt+Left
+						cursor = moveCursorWordLeft(line, cursor)
+						redrawLine(prompt, line, cursor)
+					case 'C': // Alt+Right
+						cursor = moveCursorWordRight(line, cursor)
+						redrawLine(prompt, line, cursor)
+					}
+				case "":
+					switch final {
+					case 'D': // Left arrow
+						if cursor > 0 {
+							cursor--
+							redrawLine(prompt, line, cursor)
+						}
+					case 'C': // Right arrow
+						if cursor < len(line) {
+							cursor++
+							redrawLine(prompt, line, cursor)
+						}
+					}
+				}
+			} else if b2 == 'b' { // Alt+Left (ESC b — word left, macOS Terminal)
+				cursor = moveCursorWordLeft(line, cursor)
+				redrawLine(prompt, line, cursor)
+			} else if b2 == 'f' { // Alt+Right (ESC f — word right, macOS Terminal)
+				cursor = moveCursorWordRight(line, cursor)
+				redrawLine(prompt, line, cursor)
+			} else if b2 == 127 { // Alt+Backspace (delete word backward)
+				if cursor > 0 {
+					line, cursor = deleteWordBackward(line, cursor)
 					redrawLine(prompt, line, cursor)
 				}
 			}
 			continue
 		}
-		if buf[0] >= 32 && buf[0] <= 126 { // Printable ASCII
-			line = append(line[:cursor], append([]rune{rune(buf[0])}, line[cursor:]...)...)
+		if b >= 32 && b <= 126 { // Printable ASCII
+			line = append(line[:cursor], append([]rune{rune(b)}, line[cursor:]...)...)
 			cursor++
 			redrawLine(prompt, line, cursor)
 		}
@@ -571,9 +679,8 @@ type askModel struct {
 func (m askModel) Init() tea.Cmd { return nil }
 
 func (m askModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		switch keyMsg.String() {
 		case "up":
 			if m.cursor > 0 {
 				m.cursor--
@@ -592,16 +699,21 @@ func (m askModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m askModel) View() string {
-	s := m.question + "\n\n"
+	var sb strings.Builder
+	sb.WriteString(m.question)
+	sb.WriteString("\n\n")
 	for i, opt := range m.options {
 		cursor := " "
 		if m.cursor == i {
 			cursor = ">"
 		}
-		s += fmt.Sprintf("%s %s\n", cursor, opt)
+		sb.WriteString(cursor)
+		sb.WriteString(" ")
+		sb.WriteString(opt)
+		sb.WriteString("\n")
 	}
-	s += "\n"
-	return s
+	sb.WriteString("\n")
+	return sb.String()
 }
 
 // --- spinner ---
