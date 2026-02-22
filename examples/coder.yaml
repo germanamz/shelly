@@ -3,6 +3,14 @@ providers:
     kind: grok
     api_key: ${GROK_API_KEY}
     model: grok-code-fast-1
+  - name: anthropic
+    kind: anthropic
+    api_key: ${ANTHROPIC_API_KEY}
+    model: claude-sonnet-4-20250514
+  - name: openai
+    kind: openai
+    api_key: ${OPENAI_API_KEY}
+    model: gpt-4o-mini
 
 agents:
   - name: coder
