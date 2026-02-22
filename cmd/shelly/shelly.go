@@ -307,10 +307,12 @@ func handleAskEvents(ctx context.Context, sess *engine.Session, sub *engine.Subs
 // holds termMu to avoid interleaving with the ask prompt.
 func streamChat(ctx context.Context, c *chat.Chat, cursor int, verbose bool, spin *spinner, termMu *sync.Mutex) {
 	for {
-		if _, err := c.Wait(ctx, cursor); err != nil {
-			return
-		}
+		_, err := c.Wait(ctx, cursor)
 
+		// Always drain pending messages, even when the context is cancelled.
+		// This prevents a race where watchCancel() fires at the same time as
+		// a new message signal, causing Wait to pick ctx.Done and return
+		// before the final agent response is printed.
 		msgs := c.Since(cursor)
 		if len(msgs) > 0 {
 			termMu.Lock()
@@ -321,6 +323,10 @@ func streamChat(ctx context.Context, c *chat.Chat, cursor int, verbose bool, spi
 			}
 			spin.Resume()
 			termMu.Unlock()
+		}
+
+		if err != nil {
+			return
 		}
 	}
 }
