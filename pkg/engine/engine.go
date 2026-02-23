@@ -360,6 +360,37 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 	// Compose project context string.
 	ctxStr := e.projectCtx.String()
 
+	// Resolve context window from the provider config.
+	var contextWindow int
+	for _, pc := range e.cfg.Providers {
+		if pc.Name == providerName {
+			contextWindow = pc.ContextWindow
+			break
+		}
+	}
+
+	// Default threshold to 0.8 when context window is set but threshold is not.
+	contextThreshold := ac.Options.ContextThreshold
+	if contextWindow > 0 && contextThreshold == 0 {
+		contextThreshold = 0.8
+	}
+
+	// Build notify function for compaction events.
+	var notifyFn func(ctx context.Context, msg string)
+	if contextWindow > 0 {
+		notifyFn = func(ctx context.Context, msg string) {
+			sid, _ := sessionIDFromContext(ctx)
+			aname := agentctx.AgentNameFromContext(ctx)
+			e.events.Publish(Event{
+				Kind:      EventCompaction,
+				SessionID: sid,
+				Agent:     aname,
+				Timestamp: time.Now(),
+				Data:      msg,
+			})
+		}
+	}
+
 	// Capture values for factory closure.
 	name := ac.Name
 	desc := ac.Description
@@ -369,6 +400,10 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 		MaxDelegationDepth: ac.Options.MaxDelegationDepth,
 		Skills:             skills,
 		Context:            ctxStr,
+		ContextWindow:      contextWindow,
+		ContextThreshold:   contextThreshold,
+		AskFunc:            e.responder.Ask,
+		NotifyFunc:         notifyFn,
 	}
 
 	e.registry.Register(name, desc, func() *agent.Agent {

@@ -45,6 +45,18 @@ func (c *Chat) Append(msgs ...message.Message) {
 	c.signal = make(chan struct{})
 }
 
+// Replace atomically swaps all messages in the conversation and notifies any
+// goroutines blocked in Wait.
+func (c *Chat) Replace(msgs ...message.Message) {
+	c.init()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.messages = msgs
+	close(c.signal)
+	c.signal = make(chan struct{})
+}
+
 // Len returns the number of messages in the conversation.
 func (c *Chat) Len() int {
 	c.mu.RLock()

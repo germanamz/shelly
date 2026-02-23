@@ -10,6 +10,7 @@ This package replaces the previous `pkg/agents/` and `pkg/reactor/` hierarchies 
 - Can **discover and delegate** to other agents at runtime via a `Registry`.
 - Learns **procedures from Skills** (folder-based definitions with step-by-step processes).
 - Supports **middleware** for cross-cutting concerns (timeout, recovery, logging, guardrails).
+- **Compacts the context window** automatically when approaching the token limit, summarizing the conversation to continue working seamlessly.
 
 ## Types
 
@@ -51,6 +52,30 @@ When a `Registry` is set, three tools are automatically injected:
 
 Safety guards: self-delegation rejected, `MaxDelegationDepth` enforced, concurrent spawn uses cancel-on-first-error.
 
+## Context Window Compaction
+
+Long-running agents can approach the LLM's context window limit. When configured, the agent automatically detects this and compacts the conversation by summarizing it via the same LLM.
+
+### Configuration
+
+Set `ContextWindow` (provider's max token limit) and `ContextThreshold` (fraction at which to compact, default 0.8) in `Options`:
+
+```go
+opts := agent.Options{
+    ContextWindow:    200000,  // provider's max context tokens
+    ContextThreshold: 0.8,    // compact at 80% usage
+}
+```
+
+### How It Works
+
+1. After each ReAct iteration (starting from the second), `shouldCompact()` checks if the last LLM call's input tokens reached `ContextWindow * ContextThreshold`.
+2. The completer must implement `modeladapter.UsageReporter` for usage data to be available.
+3. If compaction triggers, the conversation is rendered to a compact transcript and summarized by the LLM (no tools).
+4. The chat is replaced with the original system prompt plus a user message containing the summary.
+5. If `NotifyFunc` is set, a compaction event is emitted.
+6. On failure, if `AskFunc` is set, the user is asked whether to retry or continue. Otherwise the agent continues silently.
+
 ### Toolbox Inheritance
 
 When an agent delegates to or spawns a child agent, the child receives a **union** of its own configured toolboxes and the parent's toolboxes. The sequence is:
@@ -67,6 +92,7 @@ Since `AddToolBoxes` appends parent toolboxes **after** the child's own, and `ca
 
 ```
 agent.go        — Agent struct, New(), Run() ReAct loop, system prompt building
+compact.go      — Context window compaction: shouldCompact(), renderConversation(), compact()
 registry.go     — Registry for dynamic agent discovery + Factory pattern
 tools.go        — Built-in orchestration tools
 middleware.go   — Runner interface, Middleware type, built-in middleware

@@ -38,12 +38,13 @@ type RateLimitConfig struct {
 
 // ProviderConfig describes an LLM provider instance.
 type ProviderConfig struct {
-	Name      string          `yaml:"name"`
-	Kind      string          `yaml:"kind"`
-	BaseURL   string          `yaml:"base_url"`
-	APIKey    string          `yaml:"api_key"` //nolint:gosec // configuration field, not a hardcoded secret
-	Model     string          `yaml:"model"`
-	RateLimit RateLimitConfig `yaml:"rate_limit"`
+	Name          string          `yaml:"name"`
+	Kind          string          `yaml:"kind"`
+	BaseURL       string          `yaml:"base_url"`
+	APIKey        string          `yaml:"api_key"` //nolint:gosec // configuration field, not a hardcoded secret
+	Model         string          `yaml:"model"`
+	ContextWindow int             `yaml:"context_window"` // Max context tokens (0 = no compaction).
+	RateLimit     RateLimitConfig `yaml:"rate_limit"`
 }
 
 // MCPConfig describes an MCP server to connect to.
@@ -65,8 +66,9 @@ type AgentConfig struct {
 
 // AgentOptions holds optional agent behaviour settings.
 type AgentOptions struct {
-	MaxIterations      int `yaml:"max_iterations"`
-	MaxDelegationDepth int `yaml:"max_delegation_depth"`
+	MaxIterations      int     `yaml:"max_iterations"`
+	MaxDelegationDepth int     `yaml:"max_delegation_depth"`
+	ContextThreshold   float64 `yaml:"context_threshold"` // Fraction triggering compaction (0 = disabled).
 }
 
 // LoadConfig reads a YAML file and returns a Config.
@@ -104,6 +106,9 @@ func (c Config) Validate() error {
 		if p.Kind == "" {
 			return fmt.Errorf("engine: config: provider %q: kind is required", p.Name)
 		}
+		if p.ContextWindow < 0 {
+			return fmt.Errorf("engine: config: provider %q: context_window must be >= 0", p.Name)
+		}
 		if _, dup := providerNames[p.Name]; dup {
 			return fmt.Errorf("engine: config: duplicate provider name %q", p.Name)
 		}
@@ -137,6 +142,12 @@ func (c Config) Validate() error {
 			return fmt.Errorf("engine: config: duplicate agent name %q", a.Name)
 		}
 		agentNames[a.Name] = struct{}{}
+
+		if a.Options.ContextThreshold < 0 || a.Options.ContextThreshold >= 1 {
+			if a.Options.ContextThreshold != 0 {
+				return fmt.Errorf("engine: config: agent %q: context_threshold must be in (0, 1) or 0 to disable", a.Name)
+			}
+		}
 
 		if _, ok := providerNames[a.Provider]; a.Provider != "" && !ok {
 			return fmt.Errorf("engine: config: agent %q: unknown provider %q", a.Name, a.Provider)

@@ -61,6 +61,9 @@ for e := range sub.C {
 | `tool_call_end` | A tool call completes |
 | `agent_start` | An agent starts processing |
 | `agent_end` | An agent finishes processing |
+| `ask_user` | An agent asks the user a question |
+| `file_change` | A file is modified |
+| `compaction` | Context window compaction occurred |
 | `error` | An error occurs |
 
 Non-blocking publish: slow subscribers drop events instead of stalling the agent loop.
@@ -75,6 +78,7 @@ providers:
     kind: anthropic
     api_key: sk-xxx
     model: claude-sonnet-4-20250514
+    context_window: 200000  # max context tokens (0 = no compaction)
 
 mcp_servers:
   - name: web-search
@@ -88,6 +92,7 @@ agents:
     toolboxes: [filesystem, exec, search, git, http, state, tasks]
     options:
       max_iterations: 100
+      context_threshold: 0.8  # compact at 80% of context window
   - name: planner
     description: A planning expert
     instructions: You are a planning expert.
@@ -110,6 +115,10 @@ filesystem:
 git:
   work_dir: /path/to/repo
 ```
+
+### Context Window Compaction
+
+Providers can declare `context_window` (max tokens). Agents can set `context_threshold` (fraction of the window that triggers compaction, default 0.8 when context_window > 0). When the agent's input tokens reach the threshold, the conversation is summarized and replaced, allowing the agent to continue without hitting API limits. See `pkg/agent` README for details.
 
 ### Toolbox Assignment and Inheritance
 

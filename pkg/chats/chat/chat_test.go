@@ -325,6 +325,61 @@ func TestChat_Wait_MultipleWaiters(t *testing.T) {
 	}
 }
 
+func TestChat_Replace(t *testing.T) {
+	c := New(
+		message.NewText("alice", role.User, "one"),
+		message.NewText("bot", role.Assistant, "two"),
+		message.NewText("alice", role.User, "three"),
+	)
+
+	assert.Equal(t, 3, c.Len())
+
+	c.Replace(
+		message.NewText("", role.System, "sys"),
+		message.NewText("alice", role.User, "replaced"),
+	)
+
+	assert.Equal(t, 2, c.Len())
+	assert.Equal(t, "sys", c.At(0).TextContent())
+	assert.Equal(t, "replaced", c.At(1).TextContent())
+}
+
+func TestChat_Replace_Empty(t *testing.T) {
+	c := New(
+		message.NewText("alice", role.User, "hello"),
+	)
+
+	c.Replace()
+
+	assert.Equal(t, 0, c.Len())
+}
+
+func TestChat_Replace_SignalsWaiters(t *testing.T) {
+	c := New()
+
+	done := make(chan struct{})
+	var got int
+	var gotErr error
+
+	go func() {
+		got, gotErr = c.Wait(context.Background(), 0)
+		close(done)
+	}()
+
+	// Give the goroutine time to block.
+	time.Sleep(20 * time.Millisecond)
+
+	c.Replace(message.NewText("alice", role.User, "hello"))
+
+	select {
+	case <-done:
+		require.NoError(t, gotErr)
+		assert.Equal(t, 1, got)
+	case <-time.After(time.Second):
+		t.Fatal("Wait did not return after Replace")
+	}
+}
+
 func TestChat_ConcurrentAccess(t *testing.T) {
 	c := New()
 	ctx, cancel := context.WithCancel(context.Background())

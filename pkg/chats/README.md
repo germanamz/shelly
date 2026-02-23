@@ -46,6 +46,7 @@ The `Sender` field identifies who produced the message (e.g., an agent name), ma
 
 - `New(...messages)` — constructor with initial messages
 - `Append(...messages)` — add messages
+- `Replace(...messages)` — atomically swap all messages
 - `Len()` — message count
 - `At(index)` / `Last()` — access messages
 - `Messages()` — defensive copy of all messages
@@ -53,7 +54,7 @@ The `Sender` field identifies who produced the message (e.g., an agent name), ma
 - `BySender(sender)` — filter messages by sender
 - `SystemPrompt()` — text of the first system message
 
-`Chat` is **not** safe for concurrent use; callers must synchronize externally.
+`Chat` is safe for concurrent use. Both `Append` and `Replace` signal waiters blocked in `Wait`.
 
 ## Examples
 

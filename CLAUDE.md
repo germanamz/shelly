@@ -49,7 +49,7 @@ Shelly is a Go project (module: `github.com/germanamz/shelly`, Go 1.25). CLI ent
 - `pkg/skill/` — folder-based skill loading with YAML frontmatter (procedures agents follow, on-demand via `load_skill` tool)
 - `pkg/shellydir/` — zero-dependency value object for `.shelly/` directory path resolution, structure bootstrapping, and permissions migration
 - `pkg/projectctx/` — loads curated context (`*.md` files) and generates/caches a structural project index for agent system prompts
-- `pkg/agent/` — unified agent with ReAct loop, registry-based delegation, middleware, and orchestration tools
+- `pkg/agent/` — unified agent with ReAct loop, registry-based delegation, middleware, orchestration tools, and context window compaction
 - `pkg/agentctx/` — shared context key helpers for propagating agent identity across packages
 - `pkg/state/` — key-value state store for agents
 - `pkg/tasks/` — shared task board for multi-agent coordination (create, claim, watch tasks)

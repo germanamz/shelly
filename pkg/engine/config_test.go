@@ -238,6 +238,54 @@ func TestConfig_Validate_DuplicateMCP(t *testing.T) {
 	assert.ErrorContains(t, cfg.Validate(), "duplicate mcp server name")
 }
 
+func TestConfig_Validate_NegativeContextWindow(t *testing.T) {
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic", ContextWindow: -1}},
+		Agents:    []AgentConfig{{Name: "a1"}},
+	}
+	assert.ErrorContains(t, cfg.Validate(), "context_window must be >= 0")
+}
+
+func TestConfig_Validate_ValidContextWindow(t *testing.T) {
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic", ContextWindow: 200000}},
+		Agents:    []AgentConfig{{Name: "a1"}},
+	}
+	assert.NoError(t, cfg.Validate())
+}
+
+func TestConfig_Validate_InvalidContextThreshold(t *testing.T) {
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
+		Agents:    []AgentConfig{{Name: "a1", Options: AgentOptions{ContextThreshold: 1.5}}},
+	}
+	assert.ErrorContains(t, cfg.Validate(), "context_threshold must be in (0, 1)")
+}
+
+func TestConfig_Validate_NegativeContextThreshold(t *testing.T) {
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
+		Agents:    []AgentConfig{{Name: "a1", Options: AgentOptions{ContextThreshold: -0.5}}},
+	}
+	assert.ErrorContains(t, cfg.Validate(), "context_threshold must be in (0, 1)")
+}
+
+func TestConfig_Validate_ValidContextThreshold(t *testing.T) {
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
+		Agents:    []AgentConfig{{Name: "a1", Options: AgentOptions{ContextThreshold: 0.8}}},
+	}
+	assert.NoError(t, cfg.Validate())
+}
+
+func TestConfig_Validate_ZeroContextThreshold(t *testing.T) {
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
+		Agents:    []AgentConfig{{Name: "a1", Options: AgentOptions{ContextThreshold: 0}}},
+	}
+	assert.NoError(t, cfg.Validate())
+}
+
 func TestConfig_Validate_SearchToolbox(t *testing.T) {
 	cfg := Config{
 		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
