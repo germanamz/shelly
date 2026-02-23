@@ -111,6 +111,17 @@ git:
   work_dir: /path/to/repo
 ```
 
+### Toolbox Assignment and Inheritance
+
+Each agent's `toolboxes` list in YAML is resolved at config load time. The engine maps toolbox names to `ToolBox` instances (built-in ones like `filesystem`, `exec`, `search`, `git`, `http`, `state`, `tasks`, plus any MCP server toolboxes) and captures them in the agent's factory closure. This means the toolboxes an agent is created with are fixed at startup.
+
+However, at delegation time the parent agent appends its own toolboxes to the child (see `pkg/agent` README for details). This means a child agent effectively gets a **union** of its configured toolboxes and the parent's toolboxes, with the child's own tools taking precedence on name collisions.
+
+When designing agent configs, keep in mind:
+- An agent's YAML `toolboxes` defines its **minimum** tool set.
+- Delegation from a more-privileged parent will grant the child additional tools at runtime.
+- To restrict a child's tools strictly to its config, avoid delegating from agents with broader toolbox sets, or adjust the delegation logic.
+
 ### Provider Factory
 
 Maps provider `kind` strings to factory functions. Built-in: `anthropic`, `openai`, `grok`. Extensible via `RegisterProvider`.

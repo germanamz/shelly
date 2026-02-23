@@ -51,6 +51,18 @@ When a `Registry` is set, three tools are automatically injected:
 
 Safety guards: self-delegation rejected, `MaxDelegationDepth` enforced, concurrent spawn uses cancel-on-first-error.
 
+### Toolbox Inheritance
+
+When an agent delegates to or spawns a child agent, the child receives a **union** of its own configured toolboxes and the parent's toolboxes. The sequence is:
+
+1. The child's factory is called, producing a fresh agent with only its config-defined toolboxes.
+2. The parent calls `child.AddToolBoxes(a.toolboxes...)`, appending all of the parent's toolboxes.
+3. The child's registry is set to the parent's registry, enabling further delegation.
+
+Since `AddToolBoxes` appends parent toolboxes **after** the child's own, and `callTool` uses first-match, the child's config-defined tools take precedence on name collisions.
+
+**Implication**: a child agent may end up with tools beyond what its YAML config specifies. For example, if `code_reviewer` is configured with `[filesystem, search, git]` but is delegated from an `assistant` with `[filesystem, exec, search, git, http, state, tasks]`, the child will also have access to `exec`, `http`, `state`, and `tasks` via inheritance.
+
 ## Architecture
 
 ```

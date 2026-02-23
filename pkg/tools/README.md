@@ -26,7 +26,7 @@ tools/
 
 `Handler` is defined as `func(ctx context.Context, input json.RawMessage) (string, error)`.
 
-`ToolBox` orchestrates a collection of tools:
+`ToolBox` orchestrates a flat collection of tools (no parent-child relationships). Toolbox inheritance during agent delegation is handled by the agent layer (see `pkg/agent` README).
 
 - `New()` — creates a new ToolBox
 - `Register(...Tool)` — adds tools (replaces by name)
