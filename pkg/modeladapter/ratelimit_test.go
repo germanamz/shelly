@@ -121,13 +121,10 @@ func TestRateLimitedCompleter_ContextCancellation(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
-func TestRateLimitedCompleter_TPMThrottling(t *testing.T) {
-	callCount := 0
+func TestRateLimitedCompleter_InputTPMThrottling(t *testing.T) {
 	fc := &fakeCompleter{}
 	fc.handler = func(_ context.Context, _ *chat.Chat) (message.Message, error) {
-		callCount++
-		// Simulate usage: each call uses 100 tokens.
-		fc.tracker.Add(usage.TokenCount{InputTokens: 50, OutputTokens: 50})
+		fc.tracker.Add(usage.TokenCount{InputTokens: 80, OutputTokens: 20})
 		return okMessage(), nil
 	}
 
@@ -136,24 +133,93 @@ func TestRateLimitedCompleter_TPMThrottling(t *testing.T) {
 	sleepCalled := false
 
 	rl := modeladapter.NewRateLimitedCompleter(fc, modeladapter.RateLimitOpts{
-		TPM:        100,
+		InputTPM:   80, // exactly matches per-call input usage
 		MaxRetries: 1,
 		BaseDelay:  time.Millisecond,
 	})
 	rl.SetNowFunc(func() time.Time { return currentTime })
 	rl.SetSleepFunc(func(_ context.Context, d time.Duration) error {
 		sleepCalled = true
-		// Advance time past the window.
 		currentTime = currentTime.Add(d)
 		return nil
 	})
 
-	// First call: 100 tokens used, hits the 100 TPM limit.
+	// First call: 80 input tokens used, hits the 80 input TPM limit.
 	_, err := rl.Complete(context.Background(), &chat.Chat{})
 	require.NoError(t, err)
 	assert.False(t, sleepCalled)
 
-	// Second call: window has 100 tokens (>= TPM), should throttle before calling.
+	// Second call: window has 80 input tokens (>= input TPM), should throttle.
+	_, err = rl.Complete(context.Background(), &chat.Chat{})
+	require.NoError(t, err)
+	assert.True(t, sleepCalled)
+}
+
+func TestRateLimitedCompleter_OutputTPMThrottling(t *testing.T) {
+	fc := &fakeCompleter{}
+	fc.handler = func(_ context.Context, _ *chat.Chat) (message.Message, error) {
+		fc.tracker.Add(usage.TokenCount{InputTokens: 20, OutputTokens: 80})
+		return okMessage(), nil
+	}
+
+	now := time.Now()
+	currentTime := now
+	sleepCalled := false
+
+	rl := modeladapter.NewRateLimitedCompleter(fc, modeladapter.RateLimitOpts{
+		OutputTPM:  80, // exactly matches per-call output usage
+		MaxRetries: 1,
+		BaseDelay:  time.Millisecond,
+	})
+	rl.SetNowFunc(func() time.Time { return currentTime })
+	rl.SetSleepFunc(func(_ context.Context, d time.Duration) error {
+		sleepCalled = true
+		currentTime = currentTime.Add(d)
+		return nil
+	})
+
+	// First call: 80 output tokens used, hits the 80 output TPM limit.
+	_, err := rl.Complete(context.Background(), &chat.Chat{})
+	require.NoError(t, err)
+	assert.False(t, sleepCalled)
+
+	// Second call: window has 80 output tokens (>= output TPM), should throttle.
+	_, err = rl.Complete(context.Background(), &chat.Chat{})
+	require.NoError(t, err)
+	assert.True(t, sleepCalled)
+}
+
+func TestRateLimitedCompleter_IndependentLimits(t *testing.T) {
+	fc := &fakeCompleter{}
+	fc.handler = func(_ context.Context, _ *chat.Chat) (message.Message, error) {
+		// High input, low output.
+		fc.tracker.Add(usage.TokenCount{InputTokens: 90, OutputTokens: 10})
+		return okMessage(), nil
+	}
+
+	now := time.Now()
+	currentTime := now
+	sleepCalled := false
+
+	rl := modeladapter.NewRateLimitedCompleter(fc, modeladapter.RateLimitOpts{
+		InputTPM:   90,  // exactly matches per-call input usage
+		OutputTPM:  200, // output limit is generous
+		MaxRetries: 1,
+		BaseDelay:  time.Millisecond,
+	})
+	rl.SetNowFunc(func() time.Time { return currentTime })
+	rl.SetSleepFunc(func(_ context.Context, d time.Duration) error {
+		sleepCalled = true
+		currentTime = currentTime.Add(d)
+		return nil
+	})
+
+	// First call: 90 input, 10 output — hits input limit but output is fine.
+	_, err := rl.Complete(context.Background(), &chat.Chat{})
+	require.NoError(t, err)
+	assert.False(t, sleepCalled)
+
+	// Second call: input at 90 (>= 90 limit), should throttle even though output (10) is well under 200.
 	_, err = rl.Complete(context.Background(), &chat.Chat{})
 	require.NoError(t, err)
 	assert.True(t, sleepCalled)

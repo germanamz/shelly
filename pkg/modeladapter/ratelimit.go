@@ -14,17 +14,20 @@ import (
 )
 
 type tokenEntry struct {
-	timestamp time.Time
-	tokens    int
+	timestamp    time.Time
+	inputTokens  int
+	outputTokens int
 }
 
 // RateLimitedCompleter wraps a Completer with proactive TPM-based throttling
 // and reactive 429 retry with exponential backoff.
+// Input and output tokens are tracked and throttled independently.
 type RateLimitedCompleter struct {
 	inner      Completer
 	mu         sync.Mutex
 	window     []tokenEntry
-	tpm        int           // tokens-per-minute limit (0 = no proactive limiting)
+	inputTPM   int           // input tokens-per-minute limit (0 = no limit)
+	outputTPM  int           // output tokens-per-minute limit (0 = no limit)
 	maxRetries int           // max retries on 429
 	baseDelay  time.Duration // initial backoff delay
 
@@ -36,7 +39,8 @@ type RateLimitedCompleter struct {
 
 // RateLimitOpts configures the RateLimitedCompleter.
 type RateLimitOpts struct {
-	TPM        int           // Tokens per minute (0 = no proactive limit).
+	InputTPM   int           // Input tokens per minute (0 = no limit).
+	OutputTPM  int           // Output tokens per minute (0 = no limit).
 	MaxRetries int           // Max retries on 429 (default 3).
 	BaseDelay  time.Duration // Initial backoff delay (default 1s).
 }
@@ -52,7 +56,8 @@ func NewRateLimitedCompleter(inner Completer, opts RateLimitOpts) *RateLimitedCo
 
 	return &RateLimitedCompleter{
 		inner:      inner,
-		tpm:        opts.TPM,
+		inputTPM:   opts.InputTPM,
+		outputTPM:  opts.OutputTPM,
 		maxRetries: opts.MaxRetries,
 		baseDelay:  opts.BaseDelay,
 		nowFunc:    time.Now,
@@ -92,18 +97,19 @@ func (r *RateLimitedCompleter) pruneWindow(now time.Time) {
 	}
 }
 
-// windowTotal returns the sum of tokens in the current window. Must be called with mu held.
-func (r *RateLimitedCompleter) windowTotal() int {
-	total := 0
+// windowTotals returns the sum of input and output tokens in the current window.
+// Must be called with mu held.
+func (r *RateLimitedCompleter) windowTotals() (inputTotal, outputTotal int) {
 	for _, e := range r.window {
-		total += e.tokens
+		inputTotal += e.inputTokens
+		outputTotal += e.outputTokens
 	}
-	return total
+	return inputTotal, outputTotal
 }
 
-// waitForCapacity blocks until there is capacity in the TPM window.
+// waitForCapacity blocks until there is capacity in both TPM windows.
 func (r *RateLimitedCompleter) waitForCapacity(ctx context.Context) error {
-	if r.tpm <= 0 {
+	if r.inputTPM <= 0 && r.outputTPM <= 0 {
 		return nil
 	}
 
@@ -111,9 +117,12 @@ func (r *RateLimitedCompleter) waitForCapacity(ctx context.Context) error {
 		r.mu.Lock()
 		now := r.nowFunc()
 		r.pruneWindow(now)
-		total := r.windowTotal()
+		inputTotal, outputTotal := r.windowTotals()
 
-		if total < r.tpm {
+		inputOK := r.inputTPM <= 0 || inputTotal < r.inputTPM
+		outputOK := r.outputTPM <= 0 || outputTotal < r.outputTPM
+
+		if inputOK && outputOK {
 			r.mu.Unlock()
 			return nil
 		}
@@ -136,13 +145,14 @@ func (r *RateLimitedCompleter) waitForCapacity(ctx context.Context) error {
 }
 
 // recordTokens adds a token entry to the sliding window.
-func (r *RateLimitedCompleter) recordTokens(tokens int) {
+func (r *RateLimitedCompleter) recordTokens(inputTokens, outputTokens int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	r.window = append(r.window, tokenEntry{
-		timestamp: r.nowFunc(),
-		tokens:    tokens,
+		timestamp:    r.nowFunc(),
+		inputTokens:  inputTokens,
+		outputTokens: outputTokens,
 	})
 }
 
@@ -159,7 +169,7 @@ func (r *RateLimitedCompleter) Complete(ctx context.Context, c *chat.Chat) (mess
 			// Record token usage from the inner completer's tracker.
 			if ur, ok := r.inner.(UsageReporter); ok {
 				if tc, found := ur.UsageTracker().Last(); found {
-					r.recordTokens(tc.Total())
+					r.recordTokens(tc.InputTokens, tc.OutputTokens)
 				}
 			}
 			return msg, nil

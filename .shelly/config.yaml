@@ -3,14 +3,29 @@ providers:
       kind: grok
       api_key: ${GROK_API_KEY}
       model: grok-code-fast-1
+      rate_limit:
+        input_tpm: 1000000
+        output_tpm: 1000000
+        max_retries: 5
+        base_delay: 10ms
     - name: anthropic
       kind: anthropic
       api_key: ${ANTHROPIC_API_KEY}
       model: claude-opus-4-6
+      rate_limit:
+        input_tpm: 50000
+        output_tpm: 8000
+        max_retries: 5
+        base_delay: 10ms
     - name: openai
       kind: openai
       api_key: ${OPENAI_API_KEY}
       model: gpt-4o-mini
+      rate_limit:
+        input_tpm: 250000
+        output_tpm: 250000
+        max_retries: 5
+        base_delay: 10ms
 agents:
     - name: coder
       description: A code expert
