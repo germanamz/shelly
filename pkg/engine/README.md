@@ -60,8 +60,8 @@ for e := range sub.C {
 | `message_added` | A message is appended to a chat |
 | `tool_call_start` | A tool call begins |
 | `tool_call_end` | A tool call completes |
-| `agent_start` | An agent starts processing |
-| `agent_end` | An agent finishes processing |
+| `agent_start` | An agent starts processing (Data: `AgentEventData{Prefix}`) |
+| `agent_end` | An agent finishes processing (Data: `AgentEventData{Prefix}` for sub-agents) |
 | `ask_user` | An agent asks the user a question |
 | `file_change` | A file is modified |
 | `compaction` | Context window compaction occurred |
@@ -90,6 +90,7 @@ agents:
     description: A coding expert
     instructions: You are a coding expert.
     provider: default
+    prefix: "🦾"  # display prefix for TUI (default: "🤖")
     toolboxes: [filesystem, exec, search, git, http, state, tasks]
     effects:
       - kind: compact
@@ -101,6 +102,7 @@ agents:
     description: A planning expert
     instructions: You are a planning expert.
     provider: default
+    prefix: "📝"
     toolboxes: [filesystem, search, state]
     options:
       max_iterations: 50
@@ -127,6 +129,25 @@ Agents support pluggable **effects** — per-iteration hooks that run inside the
 When a provider declares `context_window` and no explicit effects are configured, the engine auto-generates a `compact` effect with the agent's `context_threshold` (default 0.8). This preserves backward compatibility with existing configs.
 
 Available effect kinds: `compact`. See `pkg/agent/effects/` for details.
+
+### Agent Display Prefix
+
+Each agent can have a configurable `prefix` (emoji + label) in its YAML config:
+
+```yaml
+agents:
+  - name: planner
+    prefix: "📝"    # renders as "📝 planner >" in the TUI
+  - name: coder
+    prefix: "🦾"    # renders as "🦾 coder >"
+  - name: assistant  # omitted prefix defaults to "🤖"
+```
+
+The prefix is passed through `agent.Options.Prefix` and included in `EventAgentStart` events via `agent.AgentEventData{Prefix}`. Frontends read it from the event data to render agent output with the appropriate visual treatment.
+
+### Sub-Agent Event Publishing
+
+The engine wires an `EventNotifier` into every registered agent. When an agent delegates to or spawns child agents, the orchestration tools automatically publish `EventAgentStart` / `EventAgentEnd` events to the `EventBus`. This allows frontends to display sub-agent activity in real time (e.g., windowed containers in the TUI). The notifier is propagated recursively to children, so arbitrarily nested delegation chains are observable.
 
 ### Toolbox Assignment and Inheritance
 

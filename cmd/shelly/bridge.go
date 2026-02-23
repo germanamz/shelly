@@ -4,6 +4,7 @@ import (
 	"context"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/germanamz/shelly/pkg/agent"
 	"github.com/germanamz/shelly/pkg/chats/chat"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/ask"
 	"github.com/germanamz/shelly/pkg/engine"
@@ -37,7 +38,11 @@ func startBridge(ctx context.Context, p *tea.Program, c *chat.Chat, events *engi
 					p.Send(askUserMsg{question: q, agent: ev.Agent})
 
 				case engine.EventAgentStart:
-					p.Send(agentStartMsg{agent: ev.Agent})
+					var prefix string
+					if d, ok := ev.Data.(agent.AgentEventData); ok {
+						prefix = d.Prefix
+					}
+					p.Send(agentStartMsg{agent: ev.Agent, prefix: prefix})
 
 				case engine.EventAgentEnd:
 					p.Send(agentEndMsg{agent: ev.Agent})

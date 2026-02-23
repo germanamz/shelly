@@ -11,6 +11,11 @@ import (
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
+// AgentEventData carries metadata about an agent lifecycle event.
+type AgentEventData struct {
+	Prefix string // Display prefix (e.g. "🤖", "📝").
+}
+
 // orchestrationToolBox builds a ToolBox containing the built-in orchestration
 // tools (list_agents, delegate_to_agent, spawn_agents) for the given agent.
 func orchestrationToolBox(a *Agent) *toolbox.ToolBox {
@@ -84,10 +89,20 @@ func delegateTool(a *Agent) toolbox.Tool {
 			}
 
 			child.registry = a.registry
+			child.options.EventNotifier = a.options.EventNotifier
 			child.AddToolBoxes(a.toolboxes...)
 			child.chat.Append(message.NewText("user", role.User, di.Task))
 
+			if a.options.EventNotifier != nil {
+				a.options.EventNotifier(ctx, "agent_start", child.name, AgentEventData{Prefix: child.Prefix()})
+			}
+
 			reply, err := child.Run(ctx)
+
+			if a.options.EventNotifier != nil {
+				a.options.EventNotifier(ctx, "agent_end", child.name, AgentEventData{Prefix: child.Prefix()})
+			}
+
 			if err != nil {
 				return "", fmt.Errorf("delegate_to_agent: agent %q: %w", di.Agent, err)
 			}
@@ -158,10 +173,20 @@ func spawnTool(a *Agent) toolbox.Tool {
 					}
 
 					child.registry = a.registry
+					child.options.EventNotifier = a.options.EventNotifier
 					child.AddToolBoxes(a.toolboxes...)
 					child.chat.Append(message.NewText("user", role.User, t.Task))
 
+					if a.options.EventNotifier != nil {
+						a.options.EventNotifier(ctx, "agent_start", child.name, AgentEventData{Prefix: child.Prefix()})
+					}
+
 					reply, err := child.Run(ctx)
+
+					if a.options.EventNotifier != nil {
+						a.options.EventNotifier(ctx, "agent_end", child.name, AgentEventData{Prefix: child.Prefix()})
+					}
+
 					if err != nil {
 						results[i] = spawnResult{
 							Agent: t.Agent,

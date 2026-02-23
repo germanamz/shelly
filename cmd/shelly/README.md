@@ -57,57 +57,80 @@ Templates define **provider slots** (e.g. "primary", "fast") that you map to you
 
 Ctrl+C gracefully interrupts the current request and exits.
 
-## Reasoning Chain
+## Message Display
 
-While the agent processes a request, intermediate reasoning steps are streamed to the terminal in real time using the chat's `Wait`/`Since` API:
+Messages are rendered using a compartmentalized, typed display system. Each message kind has its own visual treatment with emoji prefixes and distinct styling.
 
-**Default mode** shows tool invocations with arguments:
+### Display Item Types
 
-```
-you> What's the weather in Berlin?
-  [calling web_search] {"query": "weather Berlin today"}
-  [calling parse_result] {"format": "summary"}
+| Type | Visual | Description |
+|------|--------|-------------|
+| User message | `🧑 You >` (blue) | User input text |
+| Thinking | `🤖 agent >` (gray) | Agent reasoning text with optional timing footer |
+| Spinner | `⣾ 🤖 agent >` (magenta) | "Thinking..." placeholder while waiting |
+| Tool call | `🔧 tool name` (bold) | Single tool invocation with result underneath |
+| Tool group | `🔧 tool name` (bold) | Parallel calls of the same tool, windowed (max 4) |
+| Agent answer | `🤖 agent >` (cyan) | Final answer rendered as markdown |
+| Sub-agent | `🦾 sub-agent` (magenta) | Sub-agent container, windowed (max 4 items) |
 
-assistant> The current weather in Berlin is 18°C and partly cloudy.
-```
+### Agent Prefix
 
-**Verbose mode** (`-verbose`) additionally shows tool results and thinking text:
+Each agent can have a configurable display prefix (set via `prefix:` in YAML config). The default is `"🤖"`. Examples: `"📝"` for a planner, `"🦾"` for a worker. The prefix appears in thinking messages, answers, and agent containers.
 
-```
-you> What's the weather in Berlin?
-  [thinking] I need to search for current weather data.
-  [calling web_search] {"query": "weather Berlin today"}
-  [result] {"temp": 18, "condition": "partly cloudy", ...}
-  [calling parse_result] {"format": "summary"}
-  [result] 18°C, partly cloudy
-
-assistant> The current weather in Berlin is 18°C and partly cloudy.
-```
-
-Errors from tool execution are highlighted in red:
+### Example Output
 
 ```
-  [error] connection timeout: api.weather.com
+🧑 You > What's the weather in Berlin?
+
+  🤖 assistant > I need to search for current weather data.
+  🔧 Searching for "weather Berlin today"
+  └ {"temp": 18, "condition": "partly cloudy", ...}
+  🔧 Calling parse_result {"format": "summary"}
+  └ 18°C, partly cloudy
+  🤖 assistant > 0.8s
+
+🤖 assistant > The current weather in Berlin is 18°C and partly cloudy.
 ```
+
+### Sub-Agent Display
+
+When agents delegate to sub-agents, the TUI displays sub-agent activity via events from the engine. Sub-agent containers show the child agent's prefix and are windowed to show at most 4 items at a time.
+
+### Tool Groups
+
+When an agent makes multiple parallel calls to the same tool in one message, they are grouped together with windowing (max 4 visible). Older calls scroll out as new ones arrive.
+
+### Tool Results
+
+Tool results appear underneath their call with a `└` prefix. Errors are highlighted in red, successful results in dim gray.
 
 ## Usage Metrics
 
 After each agent response, usage metrics are displayed in dim text:
 
 ```
-  [last: ↑1.2k ↓0.3k · total: ↑5.3k ↓2.1k · limit: 200k · 2.3s]
+ 5.3k total, 1.5k tokens last message, 2.3s total time
 ```
 
-- `last`: Tokens used in the most recent LLM call (input ↑, output ↓)
 - `total`: Cumulative tokens across the entire session
-- `limit`: Maximum context window for the model
-- Time: Total duration of the agent's reasoning and response generation
+- `tokens last message`: Tokens used in the most recent exchange
+- `total time`: Duration of the agent's reasoning and response generation
 
 ## Architecture
 
 ```
 cmd/shelly/
 ├── main.go              Entry point, flag parsing, subcommand dispatch
+├── model.go             Root bubbletea model, state machine, event dispatch
+├── chatview.go          Chat view with agent containers, message routing
+├── agentcontainer.go    Agent container with windowing, spinner animation, tool grouping
+├── displayitems.go      Display item interface + concrete types (thinking, tool, spinner, sub-agent)
+├── styles.go            Centralized lipgloss style definitions
+├── bridge.go            Engine event → bubbletea message bridge
+├── messages.go          Bubbletea message types
+├── statusbar.go         Token usage and timing display
+├── helpers.go           Shared utilities (markdown, truncation, formatting)
+├── toolformat.go        Human-readable tool call formatting
 ├── initwizard.go        Interactive config wizard (providers, agents, YAML marshaling)
 ├── templates.go         Config templates, registry, slot-mapping wizard, template application
 ├── templates_test.go    Template unit tests
@@ -119,20 +142,21 @@ cmd/shelly/
 
 1. `main()` parses flags and dispatches subcommands (`init`, `config`) or delegates to `run()`
 2. `runInit()` branches on `--template`: `list` prints templates, a name runs `runTemplateWizard()`, no template runs the full `runWizard()`
-3. `run()` loads the YAML config, creates the engine and session, prints the banner, and enters the chat loop
-4. The chat loop reads stdin, dispatches commands, and calls `sendAndStream()` for user messages
-5. `sendAndStream()` records the chat cursor, starts a background goroutine running `streamChat()`, calls `session.Send()`, then cancels the watcher
-6. `streamChat()` uses `chat.Wait()/Since()` to observe new messages as the agent's ReAct loop appends them
+3. `run()` loads the YAML config, creates the engine and session, starts the bubbletea TUI
+4. `bridge.go` starts two goroutines: one watches engine events (agent start/end, ask user), one watches chat messages via `Wait()/Since()`
+5. `model.go` routes bubbletea messages to the chat view, which manages agent containers
+6. `chatview.go` creates agent containers on `agentStartMsg`, routes assistant/tool messages to the active container, and collapses containers on `agentEndMsg`
+7. `agentcontainer.go` manages display items (thinking, tool calls, tool groups) with windowing and spinner animation
 
-### Message Display
+### Message Routing
 
-| Role | Default | Verbose |
-|------|---------|---------|
-| `system` | Hidden | Hidden |
-| `user` | Hidden (already shown at prompt) | Hidden |
-| `assistant` with tool calls | Tool names + arguments | + thinking text |
-| `assistant` text-only | Final answer | Final answer |
-| `tool` | Hidden | Result or error content |
+| Role | Rendering |
+|------|-----------|
+| `system` | Hidden |
+| `user` | Hidden (already printed at submit time) |
+| `assistant` with tool calls | Routed to agent container: thinking items + tool call items (grouped for parallel calls) |
+| `assistant` text-only | Final answer printed to scrollback with agent prefix |
+| `tool` | Tool result matched to pending call in agent container |
 
 ## Configuration
 

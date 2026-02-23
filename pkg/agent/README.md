@@ -21,7 +21,7 @@ The core type. Created via `New(name, description, instructions, completer, opts
 - `Run(ctx) (message.Message, error)` — executes the ReAct loop with middleware.
 - `SetRegistry(r)` — enables dynamic delegation.
 - `AddToolBoxes(tbs...)` — adds user-provided tool registries.
-- `Name()`, `Description()`, `Chat()` — accessors.
+- `Name()`, `Description()`, `Chat()`, `Prefix()` — accessors.
 
 ### Registry
 
@@ -51,6 +51,19 @@ When a `Registry` is set, three tools are automatically injected:
 | `spawn_agents` | Runs multiple agents concurrently, returns collected results |
 
 Safety guards: self-delegation rejected, `MaxDelegationDepth` enforced, concurrent spawn uses cancel-on-first-error.
+
+### Sub-Agent Event Notifications
+
+When `Options.EventNotifier` is set, orchestration tools publish lifecycle events for child agents:
+
+- `agent_start` — emitted before `child.Run(ctx)` with `AgentEventData{Prefix}`.
+- `agent_end` — emitted after `child.Run(ctx)` completes (success or error).
+
+The notifier is automatically propagated to children so that nested delegation chains publish events at every level. The engine wires this to the `EventBus` so frontends can observe sub-agent activity.
+
+### Display Prefix
+
+`Options.Prefix` sets a configurable emoji/label for the agent (e.g. `"🤖"`, `"📝"`, `"🦾"`). It defaults to `"🤖"` when empty. Frontends read the prefix via `Agent.Prefix()` or from `AgentEventData` in lifecycle events to render agent output with the appropriate visual treatment.
 
 ## Effects System
 
@@ -115,11 +128,11 @@ When an agent delegates to or spawns a child agent, the child receives a **union
 ## Architecture
 
 ```
-agent.go        — Agent struct, New(), Run() ReAct loop, system prompt building
+agent.go        — Agent struct, New(), Run() ReAct loop, system prompt building, EventNotifier, Prefix
 effect.go       — Effect interface, EffectFunc, IterationPhase, IterationContext
 effects/        — Reusable Effect implementations (compact, etc.)
 registry.go     — Registry for dynamic agent discovery + Factory pattern
-tools.go        — Built-in orchestration tools
+tools.go        — Built-in orchestration tools, AgentEventData, sub-agent event publishing
 middleware.go   — Runner interface, Middleware type, built-in middleware
 ```
 
@@ -137,11 +150,12 @@ middleware.go   — Runner interface, Middleware type, built-in middleware
 // Simple agent with tools.
 a := agent.New("assistant", "Helpful bot", "Be helpful.", completer, agent.Options{
     MaxIterations: 20,
+    Prefix:        "🤖",
 })
 a.AddToolBoxes(myTools)
 reply, err := a.Run(ctx)
 
-// Agent with delegation.
+// Agent with delegation and sub-agent event notifications.
 reg := agent.NewRegistry()
 reg.Register("researcher", "Finds information", researcherFactory)
 reg.Register("coder", "Writes code", coderFactory)
@@ -149,6 +163,10 @@ reg.Register("coder", "Writes code", coderFactory)
 orch := agent.New("orchestrator", "Coordinates work", "Break tasks into subtasks.", completer, agent.Options{
     MaxDelegationDepth: 3,
     Skills:             skills,
+    Prefix:             "🧠",
+    EventNotifier: func(ctx context.Context, kind, name string, data any) {
+        fmt.Printf("sub-agent event: %s %s\n", kind, name)
+    },
 })
 orch.SetRegistry(reg)
 reply, err := orch.Run(ctx)

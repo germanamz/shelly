@@ -23,6 +23,10 @@ import (
 // without the model producing a final answer.
 var ErrMaxIterations = errors.New("agent: max iterations reached")
 
+// EventNotifier is called by orchestration tools to publish sub-agent
+// lifecycle events (e.g. "agent_start", "agent_end") to the engine's EventBus.
+type EventNotifier func(ctx context.Context, kind string, agentName string, data any)
+
 // Options configures an Agent.
 type Options struct {
 	MaxIterations      int           // ReAct loop limit (0 = unlimited).
@@ -31,6 +35,8 @@ type Options struct {
 	Middleware         []Middleware  // Applied around Run().
 	Effects            []Effect      // Per-iteration hooks run inside the ReAct loop.
 	Context            string        // Project context injected into the system prompt.
+	EventNotifier      EventNotifier // Publishes sub-agent lifecycle events.
+	Prefix             string        // Display prefix (emoji + label) for the TUI.
 }
 
 // Agent is the unified agent type. It runs a ReAct loop, can delegate to other
@@ -72,6 +78,14 @@ func (a *Agent) Name() string { return a.name }
 
 // Description returns the agent's description.
 func (a *Agent) Description() string { return a.description }
+
+// Prefix returns the agent's display prefix, defaulting to "🤖" if unset.
+func (a *Agent) Prefix() string {
+	if a.options.Prefix != "" {
+		return a.options.Prefix
+	}
+	return "🤖"
+}
 
 // Chat returns the agent's chat.
 func (a *Agent) Chat() *chat.Chat { return a.chat }

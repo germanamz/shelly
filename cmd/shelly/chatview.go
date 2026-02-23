@@ -5,66 +5,49 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/chats/role"
 )
 
-var (
-	userStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("2"))
-	assistantStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
-	userBlockStyle = lipgloss.NewStyle().
-			PaddingLeft(2).
-			BorderLeft(true).
-			BorderStyle(lipgloss.ThickBorder()).
-			BorderForeground(lipgloss.Color("2"))
-	assistantBlockStyle = lipgloss.NewStyle().
-				PaddingLeft(1)
-	errorBlockStyle = lipgloss.NewStyle().
-			PaddingLeft(1).
-			BorderLeft(true).
-			BorderStyle(lipgloss.ThickBorder()).
-			BorderForeground(lipgloss.Color("1"))
-)
-
-// chatViewModel manages active reasoning chains and prints committed content
+// chatViewModel manages active agent containers and prints committed content
 // to the terminal scrollback via tea.Println.
 type chatViewModel struct {
-	activeChains  map[string]*reasonChain
-	chainOrder    []string // agent names in arrival order
+	agents        map[string]*agentContainer
+	agentOrder    []string // agent names in arrival order
 	verbose       bool
 	processing    bool   // true while the agent is working
 	spinnerIdx    int    // frame index for standalone processing spinner
-	processingMsg string // random message shown while waiting for first chain
+	processingMsg string // random message shown while waiting for first agent
+	width         int
 }
 
 func newChatView(verbose bool) chatViewModel {
 	return chatViewModel{
-		activeChains: make(map[string]*reasonChain),
-		verbose:      verbose,
+		agents:  make(map[string]*agentContainer),
+		verbose: verbose,
 	}
 }
 
-// View renders only the live portion: active reasoning chains and the
+// View renders only the live portion: active agent containers and the
 // standalone processing spinner. Committed content is printed to the
 // terminal scrollback via tea.Println and is not part of this view.
 func (m chatViewModel) View() string {
 	var sb strings.Builder
 
-	for _, agent := range m.chainOrder {
-		chain, ok := m.activeChains[agent]
+	for _, name := range m.agentOrder {
+		ac, ok := m.agents[name]
 		if !ok {
 			continue
 		}
-		live := chain.renderLive(m.verbose)
+		live := ac.View(m.width)
 		if live != "" {
 			sb.WriteString(live)
 		}
 	}
 
-	// Show standalone spinner when processing but no active chains yet.
-	if m.processing && len(m.activeChains) == 0 {
+	// Show standalone spinner when processing but no active agents yet.
+	if m.processing && len(m.agents) == 0 {
 		frame := spinnerFrames[m.spinnerIdx%len(spinnerFrames)]
 		fmt.Fprintf(&sb, "  %s %s\n",
 			spinnerStyle.Render(frame),
@@ -80,8 +63,6 @@ func (m chatViewModel) View() string {
 func (m *chatViewModel) addMessage(msg message.Message) tea.Cmd {
 	switch msg.Role {
 	case role.System, role.User:
-		// System messages are hidden; user messages are already printed
-		// by handleSubmit, so skip them to avoid duplication.
 		return nil
 	case role.Assistant:
 		return m.processAssistantMessage(msg)
@@ -95,29 +76,49 @@ func (m *chatViewModel) addMessage(msg message.Message) tea.Cmd {
 func (m *chatViewModel) processAssistantMessage(msg message.Message) tea.Cmd {
 	calls := msg.ToolCalls()
 	text := msg.TextContent()
-	agent := msg.Sender
-	if agent == "" {
-		agent = "assistant"
+	agentName := msg.Sender
+	if agentName == "" {
+		agentName = "assistant"
 	}
 
 	if len(calls) > 0 {
-		chain := m.getOrCreateChain(agent)
+		ac := m.getOrCreateAgent(agentName, "")
 
 		if text != "" {
-			chain.addThinking(text)
+			ac.addThinking(text)
+		}
+
+		// Detect parallel calls: count calls per tool name.
+		toolCounts := make(map[string]int)
+		for _, tc := range calls {
+			toolCounts[tc.Name]++
 		}
 
 		for _, tc := range calls {
-			chain.addCall(tc.Name, tc.Arguments)
+			if toolCounts[tc.Name] > 1 {
+				// Parallel calls of the same tool → group them.
+				tg := ac.findLastToolGroup(tc.Name)
+				if tg == nil {
+					tg = ac.addToolGroup(tc.Name, 4)
+				}
+				tg.addCall(tc.Arguments)
+			} else {
+				ac.addToolCall(tc.Name, tc.Arguments)
+			}
 		}
 		return nil
 	}
 
 	// Final answer — no tool calls. Print to scrollback.
 	if text != "" {
+		ac := m.agents[agentName]
+		prefix := "🤖"
+		if ac != nil {
+			prefix = ac.prefix
+		}
 		rendered := renderMarkdown(text)
-		line := assistantBlockStyle.Render(
-			assistantStyle.Render(fmt.Sprintf("%s> ", agent)) + rendered,
+		line := answerBlockStyle.Render(
+			answerPrefixStyle.Render(fmt.Sprintf("%s %s > ", prefix, agentName)) + rendered,
 		)
 		return tea.Println(line)
 	}
@@ -125,12 +126,12 @@ func (m *chatViewModel) processAssistantMessage(msg message.Message) tea.Cmd {
 }
 
 func (m *chatViewModel) processToolMessage(msg message.Message) {
-	agent := msg.Sender
-	if agent == "" {
-		agent = "assistant"
+	agentName := msg.Sender
+	if agentName == "" {
+		agentName = "assistant"
 	}
 
-	chain, ok := m.activeChains[agent]
+	ac, ok := m.agents[agentName]
 	if !ok {
 		return
 	}
@@ -140,25 +141,34 @@ func (m *chatViewModel) processToolMessage(msg message.Message) {
 		if !ok {
 			continue
 		}
-		chain.addResult(tr.Content, tr.IsError)
+		ac.completeToolCall(tr.Content, tr.IsError)
 	}
 }
 
-// endAgent collapses the named agent's chain into a summary and prints it
-// to the terminal scrollback.
-func (m *chatViewModel) endAgent(agent string) tea.Cmd {
-	chain, ok := m.activeChains[agent]
+// startAgent creates or retrieves an agent container with the given prefix.
+func (m *chatViewModel) startAgent(agentName, prefix string) {
+	if _, ok := m.agents[agentName]; ok {
+		return
+	}
+	ac := newAgentContainer(agentName, prefix, 0)
+	m.agents[agentName] = ac
+	m.agentOrder = append(m.agentOrder, agentName)
+}
+
+// endAgent collapses the named agent's container into a summary and prints it.
+func (m *chatViewModel) endAgent(agentName string) tea.Cmd {
+	ac, ok := m.agents[agentName]
 	if !ok {
 		return nil
 	}
 
-	summary := chain.collapsedSummary()
+	ac.done = true
+	summary := ac.collapsedSummary()
 
-	delete(m.activeChains, agent)
-	// Remove from chainOrder.
-	for i, name := range m.chainOrder {
-		if name == agent {
-			m.chainOrder = append(m.chainOrder[:i], m.chainOrder[i+1:]...)
+	delete(m.agents, agentName)
+	for i, name := range m.agentOrder {
+		if name == agentName {
+			m.agentOrder = append(m.agentOrder[:i], m.agentOrder[i+1:]...)
 			break
 		}
 	}
@@ -177,26 +187,25 @@ func (m *chatViewModel) setProcessing(on bool) {
 	}
 }
 
-// advanceSpinners increments the spinner frame for all active chains
-// and the standalone processing spinner.
+// advanceSpinners increments the spinner frame for all active containers.
 func (m *chatViewModel) advanceSpinners() {
 	m.spinnerIdx++
-	for _, chain := range m.activeChains {
-		chain.frameIdx++
+	for _, ac := range m.agents {
+		ac.advanceSpinners()
 	}
 }
 
-// hasActiveChains returns true if any agent chain is still in progress.
+// hasActiveChains returns true if any agent container is still in progress.
 func (m *chatViewModel) hasActiveChains() bool {
-	return len(m.activeChains) > 0
+	return len(m.agents) > 0
 }
 
-func (m *chatViewModel) getOrCreateChain(agent string) *reasonChain {
-	chain, ok := m.activeChains[agent]
+func (m *chatViewModel) getOrCreateAgent(agentName, prefix string) *agentContainer {
+	ac, ok := m.agents[agentName]
 	if !ok {
-		chain = newReasonChain(agent)
-		m.activeChains[agent] = chain
-		m.chainOrder = append(m.chainOrder, agent)
+		ac = newAgentContainer(agentName, prefix, 0)
+		m.agents[agentName] = ac
+		m.agentOrder = append(m.agentOrder, agentName)
 	}
-	return chain
+	return ac
 }

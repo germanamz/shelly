@@ -413,16 +413,40 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 		return fmt.Errorf("engine: agent %q: %w", ac.Name, err)
 	}
 
+	// Build EventNotifier that publishes sub-agent lifecycle events.
+	eventNotifier := agent.EventNotifier(func(ctx context.Context, kind string, agentName string, data any) {
+		sid, _ := sessionIDFromContext(ctx)
+		var ek EventKind
+		switch kind {
+		case "agent_start":
+			ek = EventAgentStart
+		case "agent_end":
+			ek = EventAgentEnd
+		default:
+			return
+		}
+		e.events.Publish(Event{
+			Kind:      ek,
+			SessionID: sid,
+			Agent:     agentName,
+			Timestamp: time.Now(),
+			Data:      data,
+		})
+	})
+
 	// Capture values for factory closure.
 	name := ac.Name
 	desc := ac.Description
 	instr := ac.Instructions
+	prefix := ac.Prefix
 	opts := agent.Options{
 		MaxIterations:      ac.Options.MaxIterations,
 		MaxDelegationDepth: ac.Options.MaxDelegationDepth,
 		Skills:             skills,
 		Effects:            agentEffects,
 		Context:            ctxStr,
+		EventNotifier:      eventNotifier,
+		Prefix:             prefix,
 	}
 
 	e.registry.Register(name, desc, func() *agent.Agent {

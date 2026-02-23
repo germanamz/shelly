@@ -6,17 +6,17 @@ providers:
       rate_limit:
         max_retries: 3
         base_delay: 1s
-    - name: grok
-      kind: grok
-      api_key: ${GROK_API_KEY}
-      model: grok-4-1-fast-reasoning
-      rate_limit:
-        max_retries: 3
-        base_delay: 1s
     - name: openai
       kind: openai
       api_key: ${OPENAI_API_KEY}
       model: gpt-5.1
+      rate_limit:
+        max_retries: 3
+        base_delay: 1s
+    - name: grok
+      kind: grok
+      api_key: ${GROK_API_KEY}
+      model: grok-4-1-fast-reasoning
       rate_limit:
         max_retries: 3
         base_delay: 1s

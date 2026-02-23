@@ -69,6 +69,7 @@ func (s *Session) SendParts(ctx context.Context, parts ...content.Part) (message
 		SessionID: s.id,
 		Agent:     s.agent.Name(),
 		Timestamp: time.Now(),
+		Data:      agent.AgentEventData{Prefix: s.agent.Prefix()},
 	})
 
 	ctx = withSessionID(ctx, s.id)

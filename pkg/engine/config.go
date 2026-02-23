@@ -70,6 +70,7 @@ type AgentConfig struct {
 	Toolboxes    []string       `yaml:"toolboxes"`
 	Effects      []EffectConfig `yaml:"effects"`
 	Options      AgentOptions   `yaml:"options"`
+	Prefix       string         `yaml:"prefix"` // Display prefix (e.g. "🤖", "📝"). Default: "🤖".
 }
 
 // AgentOptions holds optional agent behaviour settings.

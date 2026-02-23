@@ -39,7 +39,7 @@ Shelly is a Go project (module: `github.com/germanamz/shelly`, Go 1.25). CLI ent
 
 ## Project Structure
 
-- `cmd/shelly/` — main package (entry point + tests)
+- `cmd/shelly/` — main package (entry point, bubbletea TUI with typed display items, agent containers, and centralized styles)
 - `examples/` — YAML config files for running Shelly (e.g., `simple-assistant.yaml`)
 - `pkg/chats/` — provider-agnostic LLM chat data model (role, content, message, chat)
 - `pkg/modeladapter/` — LLM adapter abstraction layer (`Completer` interface, `ModelAdapter` base struct, usage tracking)
@@ -49,7 +49,7 @@ Shelly is a Go project (module: `github.com/germanamz/shelly`, Go 1.25). CLI ent
 - `pkg/skill/` — folder-based skill loading with YAML frontmatter (procedures agents follow, on-demand via `load_skill` tool)
 - `pkg/shellydir/` — zero-dependency value object for `.shelly/` directory path resolution, structure bootstrapping, and permissions migration
 - `pkg/projectctx/` — loads curated context (`*.md` files) and generates/caches a structural project index for agent system prompts
-- `pkg/agent/` — unified agent with ReAct loop, registry-based delegation, middleware, orchestration tools, and pluggable effects system
+- `pkg/agent/` — unified agent with ReAct loop, registry-based delegation, middleware, orchestration tools, pluggable effects system, and sub-agent event notifications via `EventNotifier`
 - `pkg/agent/effects/` — reusable Effect implementations (e.g. context window compaction)
 - `pkg/agentctx/` — shared context key helpers for propagating agent identity across packages
 - `pkg/state/` — key-value state store for agents

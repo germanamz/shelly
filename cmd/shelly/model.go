@@ -85,7 +85,7 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case agentStartMsg:
-		m.chatView.getOrCreateChain(msg.agent)
+		m.chatView.startAgent(msg.agent, msg.prefix)
 		return m, nil
 
 	case agentEndMsg:
@@ -173,6 +173,7 @@ func (m appModel) View() string {
 
 func (m *appModel) handleResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.width = msg.Width
+	m.chatView.width = m.width
 	initMarkdownRenderer(m.width - 4)
 	m.inputBox.setWidth(m.width)
 	return m, nil
@@ -218,7 +219,7 @@ func (m *appModel) handleSubmit(msg inputSubmitMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Print user message to terminal scrollback.
-	userLine := userBlockStyle.Render(userStyle.Render("you> ") + text)
+	userLine := userBlockStyle.Render(userPrefixStyle.Render("🧑 You > ") + text)
 	printCmd := tea.Println(userLine)
 
 	m.state = stateProcessing

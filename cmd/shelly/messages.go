@@ -15,7 +15,8 @@ type chatMessageMsg struct {
 
 // agentStartMsg signals that the named agent started its ReAct loop.
 type agentStartMsg struct {
-	agent string
+	agent  string
+	prefix string // display prefix (e.g. "🤖", "📝")
 }
 
 // agentEndMsg signals that the named agent finished its ReAct loop.
