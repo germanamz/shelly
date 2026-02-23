@@ -17,19 +17,21 @@ import (
 )
 
 // fakeCompleter is a test double for modeladapter.Completer that also
-// implements UsageReporter.
+// implements UsageReporter and RateLimitInfoReporter.
 type fakeCompleter struct {
-	tracker   usage.Tracker
-	maxTokens int
-	handler   func(ctx context.Context, c *chat.Chat) (message.Message, error)
+	tracker       usage.Tracker
+	maxTokens     int
+	handler       func(ctx context.Context, c *chat.Chat) (message.Message, error)
+	rateLimitInfo *modeladapter.RateLimitInfo
 }
 
 func (f *fakeCompleter) Complete(ctx context.Context, c *chat.Chat, _ []toolbox.Tool) (message.Message, error) {
 	return f.handler(ctx, c)
 }
 
-func (f *fakeCompleter) UsageTracker() *usage.Tracker { return &f.tracker }
-func (f *fakeCompleter) ModelMaxTokens() int          { return f.maxTokens }
+func (f *fakeCompleter) UsageTracker() *usage.Tracker                   { return &f.tracker }
+func (f *fakeCompleter) ModelMaxTokens() int                            { return f.maxTokens }
+func (f *fakeCompleter) LastRateLimitInfo() *modeladapter.RateLimitInfo { return f.rateLimitInfo }
 
 func okMessage() message.Message {
 	return message.Message{Role: role.Assistant}
@@ -69,6 +71,7 @@ func TestRateLimitedCompleter_RetryOn429(t *testing.T) {
 		sleeps++
 		return nil
 	})
+	rl.SetRandFunc(func() float64 { return 0.5 }) // zero jitter
 
 	msg, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
 	require.NoError(t, err)
@@ -280,9 +283,166 @@ func TestRateLimitedCompleter_RetryAfterUsed(t *testing.T) {
 		sleepDur = d
 		return nil
 	})
+	rl.SetRandFunc(func() float64 { return 0.5 }) // zero jitter (factor = 1.0)
 
 	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
 	require.NoError(t, err)
 	// RetryAfter (10s) should be used because it's larger than baseDelay * 2^0 (1s).
 	assert.Equal(t, 10*time.Second, sleepDur)
+}
+
+func TestRateLimitedCompleter_RPMThrottling(t *testing.T) {
+	fc := &fakeCompleter{}
+	fc.handler = func(_ context.Context, _ *chat.Chat) (message.Message, error) {
+		fc.tracker.Add(usage.TokenCount{InputTokens: 10, OutputTokens: 10})
+		return okMessage(), nil
+	}
+
+	now := time.Now()
+	currentTime := now
+	sleepCalled := false
+
+	rl := modeladapter.NewRateLimitedCompleter(fc, modeladapter.RateLimitOpts{
+		RPM:        1, // only 1 request per minute
+		MaxRetries: 1,
+		BaseDelay:  time.Millisecond,
+	})
+	rl.SetNowFunc(func() time.Time { return currentTime })
+	rl.SetSleepFunc(func(_ context.Context, d time.Duration) error {
+		sleepCalled = true
+		currentTime = currentTime.Add(d)
+		return nil
+	})
+
+	// First call succeeds without throttling.
+	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
+	require.NoError(t, err)
+	assert.False(t, sleepCalled)
+
+	// Second call: window has 1 entry (>= RPM of 1), should throttle.
+	_, err = rl.Complete(context.Background(), &chat.Chat{}, nil)
+	require.NoError(t, err)
+	assert.True(t, sleepCalled)
+}
+
+func TestRateLimitedCompleter_RPMAndTPMCombined(t *testing.T) {
+	fc := &fakeCompleter{}
+	fc.handler = func(_ context.Context, _ *chat.Chat) (message.Message, error) {
+		fc.tracker.Add(usage.TokenCount{InputTokens: 10, OutputTokens: 5})
+		return okMessage(), nil
+	}
+
+	now := time.Now()
+	currentTime := now
+	sleepCount := 0
+
+	rl := modeladapter.NewRateLimitedCompleter(fc, modeladapter.RateLimitOpts{
+		RPM:        2,   // allow 2 requests per minute
+		InputTPM:   100, // generous TPM limit
+		MaxRetries: 1,
+		BaseDelay:  time.Millisecond,
+	})
+	rl.SetNowFunc(func() time.Time { return currentTime })
+	rl.SetSleepFunc(func(_ context.Context, d time.Duration) error {
+		sleepCount++
+		currentTime = currentTime.Add(d)
+		return nil
+	})
+
+	// Two calls should succeed without throttling.
+	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
+	require.NoError(t, err)
+	_, err = rl.Complete(context.Background(), &chat.Chat{}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0, sleepCount)
+
+	// Third call hits RPM limit (2 entries in window >= RPM of 2).
+	_, err = rl.Complete(context.Background(), &chat.Chat{}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 1, sleepCount)
+}
+
+func TestRateLimitedCompleter_BackoffJitter(t *testing.T) {
+	var calls atomic.Int32
+	fc := &fakeCompleter{
+		handler: func(_ context.Context, _ *chat.Chat) (message.Message, error) {
+			if calls.Add(1) <= 1 {
+				return message.Message{}, &modeladapter.RateLimitError{Body: "slow"}
+			}
+			return okMessage(), nil
+		},
+	}
+
+	var sleepDur time.Duration
+	rl := modeladapter.NewRateLimitedCompleter(fc, modeladapter.RateLimitOpts{
+		MaxRetries: 2,
+		BaseDelay:  time.Second,
+	})
+	rl.SetSleepFunc(func(_ context.Context, d time.Duration) error {
+		sleepDur = d
+		return nil
+	})
+	// randFunc returning 0.0 → factor = 0.75 (minimum jitter)
+	rl.SetRandFunc(func() float64 { return 0.0 })
+
+	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
+	require.NoError(t, err)
+	// Base backoff for attempt 0: 1s * 2^0 = 1s. Jitter factor 0.75 → 750ms.
+	assert.Equal(t, 750*time.Millisecond, sleepDur)
+}
+
+func TestRateLimitedCompleter_AdaptiveThrottle_LowRemaining(t *testing.T) {
+	now := time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC)
+	resetTime := now.Add(10 * time.Second)
+
+	fc := &fakeCompleter{
+		handler: func(_ context.Context, _ *chat.Chat) (message.Message, error) {
+			return okMessage(), nil
+		},
+		rateLimitInfo: &modeladapter.RateLimitInfo{
+			RemainingRequests: 0,
+			RequestsReset:     resetTime,
+			RemainingTokens:   500,
+			TokensReset:       time.Time{},
+		},
+	}
+
+	var sleepDur time.Duration
+	rl := modeladapter.NewRateLimitedCompleter(fc, modeladapter.RateLimitOpts{})
+	rl.SetNowFunc(func() time.Time { return now })
+	rl.SetSleepFunc(func(_ context.Context, d time.Duration) error {
+		sleepDur = d
+		return nil
+	})
+
+	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
+	require.NoError(t, err)
+	// Should sleep until reset time (10 seconds from now).
+	assert.Equal(t, 10*time.Second, sleepDur)
+}
+
+func TestRateLimitedCompleter_AdaptiveThrottle_NotTriggered(t *testing.T) {
+	now := time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC)
+
+	fc := &fakeCompleter{
+		handler: func(_ context.Context, _ *chat.Chat) (message.Message, error) {
+			return okMessage(), nil
+		},
+		rateLimitInfo: &modeladapter.RateLimitInfo{
+			RemainingRequests: 50,
+			RemainingTokens:   5000,
+		},
+	}
+
+	sleepCalled := false
+	rl := modeladapter.NewRateLimitedCompleter(fc, modeladapter.RateLimitOpts{})
+	rl.SetNowFunc(func() time.Time { return now })
+	rl.SetSleepFunc(func(_ context.Context, _ time.Duration) error {
+		sleepCalled = true
+		return nil
+	})
+
+	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
+	require.NoError(t, err)
+	assert.False(t, sleepCalled, "adaptive throttle should not trigger with plenty of remaining capacity")
 }

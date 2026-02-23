@@ -21,6 +21,7 @@ type editorProvider struct {
 	Model      string
 	InputTPM   string
 	OutputTPM  string
+	RPM        string
 	MaxRetries string
 	BaseDelay  string
 }
@@ -174,6 +175,10 @@ func configToEditor(cfg engine.Config) editorConfig {
 			ep.OutputTPM = strconv.Itoa(p.RateLimit.OutputTPM)
 		}
 
+		if p.RateLimit.RPM > 0 {
+			ep.RPM = strconv.Itoa(p.RateLimit.RPM)
+		}
+
 		if p.RateLimit.MaxRetries > 0 {
 			ep.MaxRetries = strconv.Itoa(p.RateLimit.MaxRetries)
 		}
@@ -218,6 +223,7 @@ func editorToEngineConfig(ec editorConfig) engine.Config {
 	for _, p := range ec.Providers {
 		inputTPM, _ := strconv.Atoi(p.InputTPM)
 		outputTPM, _ := strconv.Atoi(p.OutputTPM)
+		rpm, _ := strconv.Atoi(p.RPM)
 		maxRetries, _ := strconv.Atoi(p.MaxRetries)
 
 		cfg.Providers = append(cfg.Providers, engine.ProviderConfig{
@@ -229,6 +235,7 @@ func editorToEngineConfig(ec editorConfig) engine.Config {
 			RateLimit: engine.RateLimitConfig{
 				InputTPM:   inputTPM,
 				OutputTPM:  outputTPM,
+				RPM:        rpm,
 				MaxRetries: maxRetries,
 				BaseDelay:  p.BaseDelay,
 			},
@@ -283,12 +290,14 @@ func marshalEditorConfig(ec editorConfig) ([]byte, error) {
 
 		inputTPM, _ := strconv.Atoi(p.InputTPM)
 		outputTPM, _ := strconv.Atoi(p.OutputTPM)
+		rpm, _ := strconv.Atoi(p.RPM)
 		maxRetries, _ := strconv.Atoi(p.MaxRetries)
 
-		if inputTPM > 0 || outputTPM > 0 || maxRetries > 0 || p.BaseDelay != "" {
+		if inputTPM > 0 || outputTPM > 0 || rpm > 0 || maxRetries > 0 || p.BaseDelay != "" {
 			py.RateLimit = &rateLimitYAML{
 				InputTPM:   inputTPM,
 				OutputTPM:  outputTPM,
+				RPM:        rpm,
 				MaxRetries: maxRetries,
 				BaseDelay:  p.BaseDelay,
 			}
@@ -452,6 +461,7 @@ func editProviderForm(p *editorProvider) error {
 		huh.NewGroup(
 			huh.NewInput().Title("Input tokens per minute (0 = no limit)").Value(&p.InputTPM).Validate(validateOptionalNonNegativeInt),
 			huh.NewInput().Title("Output tokens per minute (0 = no limit)").Value(&p.OutputTPM).Validate(validateOptionalNonNegativeInt),
+			huh.NewInput().Title("Requests per minute (0 = no limit)").Value(&p.RPM).Validate(validateOptionalNonNegativeInt),
 			huh.NewInput().Title("Max retries on 429").Value(&p.MaxRetries).Validate(validateOptionalNonNegativeInt),
 			huh.NewInput().Title("Base backoff delay (e.g. 1s, 500ms)").Value(&p.BaseDelay).Validate(validateDuration),
 		).Title("Rate Limiting"),

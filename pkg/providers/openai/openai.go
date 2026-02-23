@@ -32,6 +32,7 @@ func New(baseURL, apiKey, model string) *Adapter {
 	a.Auth = modeladapter.Auth{Key: apiKey}
 	a.Name = model
 	a.MaxTokens = 4096
+	a.HeaderParser = modeladapter.ParseOpenAIRateLimitHeaders
 
 	return a
 }

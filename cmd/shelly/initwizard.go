@@ -16,6 +16,7 @@ type wizardProvider struct {
 	Model      string
 	InputTPM   string
 	OutputTPM  string
+	RPM        string
 	MaxRetries string
 	BaseDelay  string
 }
@@ -127,12 +128,14 @@ func wizardPromptProvider() (wizardProvider, error) {
 	if configRL {
 		p.InputTPM = "0"
 		p.OutputTPM = "0"
+		p.RPM = "0"
 		p.MaxRetries = "3"
 		p.BaseDelay = "1s"
 
 		if err := huh.NewForm(huh.NewGroup(
 			huh.NewInput().Title("Input tokens per minute (0 = no limit)").Value(&p.InputTPM).Validate(validateNonNegativeInt),
 			huh.NewInput().Title("Output tokens per minute (0 = no limit)").Value(&p.OutputTPM).Validate(validateNonNegativeInt),
+			huh.NewInput().Title("Requests per minute (0 = no limit)").Value(&p.RPM).Validate(validateNonNegativeInt),
 			huh.NewInput().Title("Max retries on 429").Value(&p.MaxRetries).Validate(validateNonNegativeInt),
 			huh.NewInput().Title("Base backoff delay (e.g. 1s, 500ms)").Value(&p.BaseDelay).Validate(validateDuration),
 		)).Run(); err != nil {
@@ -290,6 +293,7 @@ type providerYAML struct {
 type rateLimitYAML struct {
 	InputTPM   int    `yaml:"input_tpm,omitempty"`
 	OutputTPM  int    `yaml:"output_tpm,omitempty"`
+	RPM        int    `yaml:"rpm,omitempty"`
 	MaxRetries int    `yaml:"max_retries,omitempty"`
 	BaseDelay  string `yaml:"base_delay,omitempty"`
 }
@@ -323,12 +327,14 @@ func marshalWizardConfig(cfg wizardConfig) ([]byte, error) {
 
 		inputTPM, _ := strconv.Atoi(p.InputTPM)
 		outputTPM, _ := strconv.Atoi(p.OutputTPM)
+		rpm, _ := strconv.Atoi(p.RPM)
 		maxRetries, _ := strconv.Atoi(p.MaxRetries)
 
-		if inputTPM > 0 || outputTPM > 0 || maxRetries > 0 || p.BaseDelay != "" {
+		if inputTPM > 0 || outputTPM > 0 || rpm > 0 || maxRetries > 0 || p.BaseDelay != "" {
 			py.RateLimit = &rateLimitYAML{
 				InputTPM:   inputTPM,
 				OutputTPM:  outputTPM,
+				RPM:        rpm,
 				MaxRetries: maxRetries,
 				BaseDelay:  p.BaseDelay,
 			}

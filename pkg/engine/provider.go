@@ -95,7 +95,7 @@ func buildCompleter(cfg ProviderConfig) (modeladapter.Completer, error) {
 	}
 
 	rl := cfg.RateLimit
-	if rl.InputTPM > 0 || rl.OutputTPM > 0 || rl.MaxRetries > 0 || rl.BaseDelay != "" {
+	if rl.InputTPM > 0 || rl.OutputTPM > 0 || rl.RPM > 0 || rl.MaxRetries > 0 || rl.BaseDelay != "" {
 		var baseDelay time.Duration
 		if rl.BaseDelay != "" {
 			var parseErr error
@@ -108,6 +108,7 @@ func buildCompleter(cfg ProviderConfig) (modeladapter.Completer, error) {
 		c = modeladapter.NewRateLimitedCompleter(c, modeladapter.RateLimitOpts{
 			InputTPM:   rl.InputTPM,
 			OutputTPM:  rl.OutputTPM,
+			RPM:        rl.RPM,
 			MaxRetries: rl.MaxRetries,
 			BaseDelay:  baseDelay,
 		})

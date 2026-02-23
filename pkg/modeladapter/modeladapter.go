@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -33,17 +34,23 @@ func (e *RateLimitError) Error() string {
 	return fmt.Sprintf("rate limited: %s", e.Body)
 }
 
-// parseRetryAfter parses the Retry-After header value as either seconds (integer)
-// or falls back to zero if unparseable.
-func parseRetryAfter(val string) time.Duration {
+// ParseRetryAfter parses the Retry-After header value as either seconds (integer)
+// or an HTTP-date (RFC 7231). Returns zero if unparseable or if the date is in the past.
+func ParseRetryAfter(val string) time.Duration {
 	if val == "" {
 		return 0
 	}
-	secs, err := strconv.Atoi(val)
-	if err != nil {
+	if secs, err := strconv.Atoi(val); err == nil {
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(val); err == nil {
+		d := time.Until(t)
+		if d > 0 {
+			return d
+		}
 		return 0
 	}
-	return time.Duration(secs) * time.Second
+	return 0
 }
 
 // Completer sends a conversation to an LLM and returns the assistant's reply.
@@ -71,14 +78,17 @@ type Auth struct {
 // usage tracking. Concrete types should define their own Complete method to
 // shadow the default stub.
 type ModelAdapter struct {
-	Name        string            // Model identifier (e.g. "gpt-4").
-	Temperature float64           // Sampling temperature.
-	MaxTokens   int               // Maximum tokens in the response.
-	Auth        Auth              // Authentication settings.
-	BaseURL     string            // API base URL (no trailing slash).
-	Client      *http.Client      // HTTP client; falls back to http.DefaultClient.
-	Headers     map[string]string // Extra headers applied to every request.
-	Usage       usage.Tracker     // Token usage tracker.
+	Name         string                // Model identifier (e.g. "gpt-4").
+	Temperature  float64               // Sampling temperature.
+	MaxTokens    int                   // Maximum tokens in the response.
+	Auth         Auth                  // Authentication settings.
+	BaseURL      string                // API base URL (no trailing slash).
+	Client       *http.Client          // HTTP client; falls back to http.DefaultClient.
+	Headers      map[string]string     // Extra headers applied to every request.
+	Usage        usage.Tracker         // Token usage tracker.
+	HeaderParser RateLimitHeaderParser // Optional parser for rate limit response headers.
+
+	rateLimitInfo atomic.Pointer[RateLimitInfo]
 }
 
 // New creates a ModelAdapter with the given settings.
@@ -96,6 +106,9 @@ func (a *ModelAdapter) UsageTracker() *usage.Tracker { return &a.Usage }
 
 // ModelMaxTokens returns the maximum tokens the model will generate per response.
 func (a *ModelAdapter) ModelMaxTokens() int { return a.MaxTokens }
+
+// LastRateLimitInfo returns the most recently observed rate limit info, or nil.
+func (a *ModelAdapter) LastRateLimitInfo() *RateLimitInfo { return a.rateLimitInfo.Load() }
 
 // Complete is a stub that returns an error. Concrete providers that embed
 // ModelAdapter should define their own Complete method to shadow this one.
@@ -182,7 +195,7 @@ func (a *ModelAdapter) PostJSON(ctx context.Context, path string, payload any, d
 	if resp.StatusCode == http.StatusTooManyRequests {
 		respBody, _ := io.ReadAll(resp.Body)
 		return &RateLimitError{
-			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
+			RetryAfter: ParseRetryAfter(resp.Header.Get("Retry-After")),
 			Body:       string(respBody),
 		}
 	}
@@ -190,6 +203,13 @@ func (a *ModelAdapter) PostJSON(ctx context.Context, path string, payload any, d
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		respBody, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	// Parse and store rate limit info from response headers.
+	if a.HeaderParser != nil {
+		if info := a.HeaderParser(resp.Header, time.Now()); info != nil {
+			a.rateLimitInfo.Store(info)
+		}
 	}
 
 	if dest == nil {

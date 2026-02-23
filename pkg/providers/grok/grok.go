@@ -28,9 +28,11 @@ type GrokAdapter struct {
 // New creates a GrokAdapter with the given API key and HTTP client.
 // A nil client falls back to http.DefaultClient.
 func New(apiKey string, client *http.Client) *GrokAdapter {
-	return &GrokAdapter{
+	a := &GrokAdapter{
 		ModelAdapter: modeladapter.New(DefaultBaseURL, modeladapter.Auth{Key: apiKey}, client),
 	}
+	a.HeaderParser = modeladapter.ParseOpenAIRateLimitHeaders
+	return a
 }
 
 // Complete sends a conversation to the Grok chat completions endpoint

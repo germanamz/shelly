@@ -38,6 +38,7 @@ func New(baseURL, apiKey, model string) *Adapter {
 	a.Headers = map[string]string{
 		"anthropic-version": "2023-06-01",
 	}
+	a.HeaderParser = modeladapter.ParseAnthropicRateLimitHeaders
 
 	return a
 }

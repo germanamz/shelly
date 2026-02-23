@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -21,8 +22,8 @@ type tokenEntry struct {
 	outputTokens int
 }
 
-// RateLimitedCompleter wraps a Completer with proactive TPM-based throttling
-// and reactive 429 retry with exponential backoff.
+// RateLimitedCompleter wraps a Completer with proactive TPM/RPM-based throttling
+// and reactive 429 retry with exponential backoff and jitter.
 // Input and output tokens are tracked and throttled independently.
 type RateLimitedCompleter struct {
 	inner      Completer
@@ -30,6 +31,7 @@ type RateLimitedCompleter struct {
 	window     []tokenEntry
 	inputTPM   int           // input tokens-per-minute limit (0 = no limit)
 	outputTPM  int           // output tokens-per-minute limit (0 = no limit)
+	rpm        int           // requests-per-minute limit (0 = no limit)
 	maxRetries int           // max retries on 429
 	baseDelay  time.Duration // initial backoff delay
 
@@ -37,12 +39,15 @@ type RateLimitedCompleter struct {
 	nowFunc func() time.Time
 	// sleepFunc is used for testing; defaults to a context-aware sleep.
 	sleepFunc func(ctx context.Context, d time.Duration) error
+	// randFunc returns a random float64 in [0,1); used for jitter. Defaults to rand.Float64.
+	randFunc func() float64
 }
 
 // RateLimitOpts configures the RateLimitedCompleter.
 type RateLimitOpts struct {
 	InputTPM   int           // Input tokens per minute (0 = no limit).
 	OutputTPM  int           // Output tokens per minute (0 = no limit).
+	RPM        int           // Requests per minute (0 = no limit).
 	MaxRetries int           // Max retries on 429 (default 3).
 	BaseDelay  time.Duration // Initial backoff delay (default 1s).
 }
@@ -60,10 +65,12 @@ func NewRateLimitedCompleter(inner Completer, opts RateLimitOpts) *RateLimitedCo
 		inner:      inner,
 		inputTPM:   opts.InputTPM,
 		outputTPM:  opts.OutputTPM,
+		rpm:        opts.RPM,
 		maxRetries: opts.MaxRetries,
 		baseDelay:  opts.BaseDelay,
 		nowFunc:    time.Now,
 		sleepFunc:  contextSleep,
+		randFunc:   rand.Float64,
 	}
 }
 
@@ -74,6 +81,9 @@ func (r *RateLimitedCompleter) SetNowFunc(fn func() time.Time) { r.nowFunc = fn 
 func (r *RateLimitedCompleter) SetSleepFunc(fn func(ctx context.Context, d time.Duration) error) {
 	r.sleepFunc = fn
 }
+
+// SetRandFunc overrides the random number generator (for testing).
+func (r *RateLimitedCompleter) SetRandFunc(fn func() float64) { r.randFunc = fn }
 
 // contextSleep sleeps for d or until ctx is cancelled.
 func contextSleep(ctx context.Context, d time.Duration) error {
@@ -109,9 +119,9 @@ func (r *RateLimitedCompleter) windowTotals() (inputTotal, outputTotal int) {
 	return inputTotal, outputTotal
 }
 
-// waitForCapacity blocks until there is capacity in both TPM windows.
+// waitForCapacity blocks until there is capacity in both TPM and RPM windows.
 func (r *RateLimitedCompleter) waitForCapacity(ctx context.Context) error {
-	if r.inputTPM <= 0 && r.outputTPM <= 0 {
+	if r.inputTPM <= 0 && r.outputTPM <= 0 && r.rpm <= 0 {
 		return nil
 	}
 
@@ -123,8 +133,9 @@ func (r *RateLimitedCompleter) waitForCapacity(ctx context.Context) error {
 
 		inputOK := r.inputTPM <= 0 || inputTotal < r.inputTPM
 		outputOK := r.outputTPM <= 0 || outputTotal < r.outputTPM
+		rpmOK := r.rpm <= 0 || len(r.window) < r.rpm
 
-		if inputOK && outputOK {
+		if inputOK && outputOK && rpmOK {
 			r.mu.Unlock()
 			return nil
 		}
@@ -158,7 +169,14 @@ func (r *RateLimitedCompleter) recordTokens(inputTokens, outputTokens int) {
 	})
 }
 
-// Complete implements Completer with proactive TPM throttling and 429 retry.
+// jitter applies ±25% random jitter to a duration.
+func (r *RateLimitedCompleter) jitter(d time.Duration) time.Duration {
+	// Scale factor in [0.75, 1.25).
+	factor := 0.75 + r.randFunc()*0.5 //nolint:mnd // jitter range: ±25%
+	return time.Duration(float64(d) * factor)
+}
+
+// Complete implements Completer with proactive TPM/RPM throttling and 429 retry.
 func (r *RateLimitedCompleter) Complete(ctx context.Context, c *chat.Chat, tools []toolbox.Tool) (message.Message, error) {
 	if err := r.waitForCapacity(ctx); err != nil {
 		return message.Message{}, err
@@ -174,6 +192,10 @@ func (r *RateLimitedCompleter) Complete(ctx context.Context, c *chat.Chat, tools
 					r.recordTokens(tc.InputTokens, tc.OutputTokens)
 				}
 			}
+			// Preemptively sleep if the server reports near-zero remaining capacity.
+			if sleepErr := r.adaptFromServerInfo(ctx); sleepErr != nil {
+				return message.Message{}, sleepErr
+			}
 			return msg, nil
 		}
 
@@ -188,11 +210,11 @@ func (r *RateLimitedCompleter) Complete(ctx context.Context, c *chat.Chat, tools
 			break
 		}
 
-		// Compute backoff: baseDelay * 2^attempt, but use RetryAfter if larger.
-		backoff := max(
+		// Compute backoff: baseDelay * 2^attempt, but use RetryAfter if larger. Apply jitter.
+		backoff := r.jitter(max(
 			r.baseDelay*time.Duration(math.Pow(2, float64(attempt))), //nolint:mnd // exponential backoff formula
 			rle.RetryAfter,
-		)
+		))
 
 		if err := r.sleepFunc(ctx, backoff); err != nil {
 			return message.Message{}, err
@@ -200,6 +222,40 @@ func (r *RateLimitedCompleter) Complete(ctx context.Context, c *chat.Chat, tools
 	}
 
 	return message.Message{}, lastErr
+}
+
+// adaptFromServerInfo checks whether the inner completer reports near-zero
+// remaining capacity via RateLimitInfoReporter. If so, it preemptively sleeps
+// until the provider's reset time.
+func (r *RateLimitedCompleter) adaptFromServerInfo(ctx context.Context) error {
+	reporter, ok := r.inner.(RateLimitInfoReporter)
+	if !ok {
+		return nil
+	}
+
+	info := reporter.LastRateLimitInfo()
+	if info == nil {
+		return nil
+	}
+
+	now := r.nowFunc()
+	var sleepUntil time.Time
+
+	if info.RemainingRequests <= 1 && !info.RequestsReset.IsZero() && info.RequestsReset.After(now) {
+		sleepUntil = info.RequestsReset
+	}
+
+	if info.RemainingTokens <= 1 && !info.TokensReset.IsZero() && info.TokensReset.After(now) {
+		if info.TokensReset.After(sleepUntil) {
+			sleepUntil = info.TokensReset
+		}
+	}
+
+	if sleepUntil.IsZero() {
+		return nil
+	}
+
+	return r.sleepFunc(ctx, sleepUntil.Sub(now))
 }
 
 // UsageTracker forwards to the inner completer if it implements UsageReporter.

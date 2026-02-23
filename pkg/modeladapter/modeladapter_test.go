@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/germanamz/shelly/pkg/chats/chat"
@@ -341,4 +342,63 @@ func TestDialWS_ConnectionError(t *testing.T) {
 
 	_, _, err := a.DialWS(context.Background(), "/ws")
 	assert.ErrorContains(t, err, "dial websocket")
+}
+
+// --- ParseRetryAfter tests ---
+
+func TestParseRetryAfter_IntegerSeconds(t *testing.T) {
+	d := modeladapter.ParseRetryAfter("30")
+	assert.Equal(t, 30*time.Second, d)
+}
+
+func TestParseRetryAfter_HTTPDate(t *testing.T) {
+	// Use a future date to ensure positive duration.
+	future := time.Now().Add(time.Minute).UTC()
+	val := future.Format(http.TimeFormat)
+	d := modeladapter.ParseRetryAfter(val)
+	// Should be roughly 1 minute (±a few seconds for test execution time).
+	assert.InDelta(t, time.Minute.Seconds(), d.Seconds(), 5)
+}
+
+func TestParseRetryAfter_PastDate(t *testing.T) {
+	past := time.Now().Add(-time.Hour).UTC()
+	val := past.Format(http.TimeFormat)
+	d := modeladapter.ParseRetryAfter(val)
+	assert.Equal(t, time.Duration(0), d)
+}
+
+func TestParseRetryAfter_Empty(t *testing.T) {
+	d := modeladapter.ParseRetryAfter("")
+	assert.Equal(t, time.Duration(0), d)
+}
+
+func TestParseRetryAfter_Invalid(t *testing.T) {
+	d := modeladapter.ParseRetryAfter("not-a-number-or-date")
+	assert.Equal(t, time.Duration(0), d)
+}
+
+// --- PostJSON stores rate limit info ---
+
+func TestPostJSON_StoresRateLimitInfo(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("x-ratelimit-remaining-requests", "5")
+		w.Header().Set("x-ratelimit-remaining-tokens", "2000")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	a := modeladapter.New(srv.URL, modeladapter.Auth{}, srv.Client())
+	a.HeaderParser = modeladapter.ParseOpenAIRateLimitHeaders
+
+	// Before the call, no rate limit info.
+	assert.Nil(t, a.LastRateLimitInfo())
+
+	err := a.PostJSON(context.Background(), "/v1/chat", map[string]string{"model": "test"}, nil)
+	require.NoError(t, err)
+
+	info := a.LastRateLimitInfo()
+	require.NotNil(t, info)
+	assert.Equal(t, 5, info.RemainingRequests)
+	assert.Equal(t, 2000, info.RemainingTokens)
 }

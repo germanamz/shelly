@@ -32,6 +32,7 @@ type GitConfig struct {
 type RateLimitConfig struct {
 	InputTPM   int    `yaml:"input_tpm"`   // Input tokens per minute (0 = no limit).
 	OutputTPM  int    `yaml:"output_tpm"`  // Output tokens per minute (0 = no limit).
+	RPM        int    `yaml:"rpm"`         // Requests per minute (0 = no limit).
 	MaxRetries int    `yaml:"max_retries"` // Max retries on 429 (default 3).
 	BaseDelay  string `yaml:"base_delay"`  // Initial backoff delay as a duration string (e.g. "1s", "500ms").
 }
