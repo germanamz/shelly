@@ -13,6 +13,8 @@ import (
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
+var _ Completer = (*RateLimitedCompleter)(nil)
+
 type tokenEntry struct {
 	timestamp    time.Time
 	inputTokens  int
@@ -157,14 +159,14 @@ func (r *RateLimitedCompleter) recordTokens(inputTokens, outputTokens int) {
 }
 
 // Complete implements Completer with proactive TPM throttling and 429 retry.
-func (r *RateLimitedCompleter) Complete(ctx context.Context, c *chat.Chat) (message.Message, error) {
+func (r *RateLimitedCompleter) Complete(ctx context.Context, c *chat.Chat, tools []toolbox.Tool) (message.Message, error) {
 	if err := r.waitForCapacity(ctx); err != nil {
 		return message.Message{}, err
 	}
 
 	var lastErr error
 	for attempt := range r.maxRetries + 1 {
-		msg, err := r.inner.Complete(ctx, c)
+		msg, err := r.inner.Complete(ctx, c, tools)
 		if err == nil {
 			// Record token usage from the inner completer's tracker.
 			if ur, ok := r.inner.(UsageReporter); ok {
@@ -198,13 +200,6 @@ func (r *RateLimitedCompleter) Complete(ctx context.Context, c *chat.Chat) (mess
 	}
 
 	return message.Message{}, lastErr
-}
-
-// SetTools forwards to the inner completer if it implements ToolAware.
-func (r *RateLimitedCompleter) SetTools(tools []toolbox.Tool) {
-	if ta, ok := r.inner.(ToolAware); ok {
-		ta.SetTools(tools)
-	}
 }
 
 // UsageTracker forwards to the inner completer if it implements UsageReporter.

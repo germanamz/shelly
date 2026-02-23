@@ -10,6 +10,7 @@ import (
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/chats/role"
 	"github.com/germanamz/shelly/pkg/modeladapter"
+	"github.com/germanamz/shelly/pkg/tools/toolbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +20,7 @@ type mockCompleter struct {
 	reply string
 }
 
-func (m *mockCompleter) Complete(_ context.Context, _ *chat.Chat) (message.Message, error) {
+func (m *mockCompleter) Complete(_ context.Context, _ *chat.Chat, _ []toolbox.Tool) (message.Message, error) {
 	return message.NewText("bot", role.Assistant, m.reply), nil
 }
 

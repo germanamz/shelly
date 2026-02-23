@@ -17,21 +17,19 @@ import (
 )
 
 // fakeCompleter is a test double for modeladapter.Completer that also
-// implements UsageReporter and ToolAware.
+// implements UsageReporter.
 type fakeCompleter struct {
 	tracker   usage.Tracker
 	maxTokens int
-	tools     []toolbox.Tool
 	handler   func(ctx context.Context, c *chat.Chat) (message.Message, error)
 }
 
-func (f *fakeCompleter) Complete(ctx context.Context, c *chat.Chat) (message.Message, error) {
+func (f *fakeCompleter) Complete(ctx context.Context, c *chat.Chat, _ []toolbox.Tool) (message.Message, error) {
 	return f.handler(ctx, c)
 }
 
-func (f *fakeCompleter) UsageTracker() *usage.Tracker  { return &f.tracker }
-func (f *fakeCompleter) ModelMaxTokens() int           { return f.maxTokens }
-func (f *fakeCompleter) SetTools(tools []toolbox.Tool) { f.tools = tools }
+func (f *fakeCompleter) UsageTracker() *usage.Tracker { return &f.tracker }
+func (f *fakeCompleter) ModelMaxTokens() int          { return f.maxTokens }
 
 func okMessage() message.Message {
 	return message.Message{Role: role.Assistant}
@@ -46,7 +44,7 @@ func TestRateLimitedCompleter_PassthroughOnSuccess(t *testing.T) {
 	}
 
 	rl := modeladapter.NewRateLimitedCompleter(fc, modeladapter.RateLimitOpts{})
-	msg, err := rl.Complete(context.Background(), &chat.Chat{})
+	msg, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, role.Assistant, msg.Role)
 }
@@ -72,7 +70,7 @@ func TestRateLimitedCompleter_RetryOn429(t *testing.T) {
 		return nil
 	})
 
-	msg, err := rl.Complete(context.Background(), &chat.Chat{})
+	msg, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, role.Assistant, msg.Role)
 	assert.Equal(t, int32(3), calls.Load())
@@ -92,7 +90,7 @@ func TestRateLimitedCompleter_MaxRetriesExhausted(t *testing.T) {
 	})
 	rl.SetSleepFunc(func(_ context.Context, _ time.Duration) error { return nil })
 
-	_, err := rl.Complete(context.Background(), &chat.Chat{})
+	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
 	require.Error(t, err)
 
 	var rle *modeladapter.RateLimitError
@@ -117,7 +115,7 @@ func TestRateLimitedCompleter_ContextCancellation(t *testing.T) {
 		return ctx.Err()
 	})
 
-	_, err := rl.Complete(ctx, &chat.Chat{})
+	_, err := rl.Complete(ctx, &chat.Chat{}, nil)
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
@@ -145,12 +143,12 @@ func TestRateLimitedCompleter_InputTPMThrottling(t *testing.T) {
 	})
 
 	// First call: 80 input tokens used, hits the 80 input TPM limit.
-	_, err := rl.Complete(context.Background(), &chat.Chat{})
+	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
 	require.NoError(t, err)
 	assert.False(t, sleepCalled)
 
 	// Second call: window has 80 input tokens (>= input TPM), should throttle.
-	_, err = rl.Complete(context.Background(), &chat.Chat{})
+	_, err = rl.Complete(context.Background(), &chat.Chat{}, nil)
 	require.NoError(t, err)
 	assert.True(t, sleepCalled)
 }
@@ -179,12 +177,12 @@ func TestRateLimitedCompleter_OutputTPMThrottling(t *testing.T) {
 	})
 
 	// First call: 80 output tokens used, hits the 80 output TPM limit.
-	_, err := rl.Complete(context.Background(), &chat.Chat{})
+	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
 	require.NoError(t, err)
 	assert.False(t, sleepCalled)
 
 	// Second call: window has 80 output tokens (>= output TPM), should throttle.
-	_, err = rl.Complete(context.Background(), &chat.Chat{})
+	_, err = rl.Complete(context.Background(), &chat.Chat{}, nil)
 	require.NoError(t, err)
 	assert.True(t, sleepCalled)
 }
@@ -215,12 +213,12 @@ func TestRateLimitedCompleter_IndependentLimits(t *testing.T) {
 	})
 
 	// First call: 90 input, 10 output — hits input limit but output is fine.
-	_, err := rl.Complete(context.Background(), &chat.Chat{})
+	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
 	require.NoError(t, err)
 	assert.False(t, sleepCalled)
 
 	// Second call: input at 90 (>= 90 limit), should throttle even though output (10) is well under 200.
-	_, err = rl.Complete(context.Background(), &chat.Chat{})
+	_, err = rl.Complete(context.Background(), &chat.Chat{}, nil)
 	require.NoError(t, err)
 	assert.True(t, sleepCalled)
 }
@@ -238,11 +236,6 @@ func TestRateLimitedCompleter_InterfaceForwarding(t *testing.T) {
 	// UsageReporter forwarding.
 	assert.Equal(t, 8192, rl.ModelMaxTokens())
 	assert.Same(t, fc.UsageTracker(), rl.UsageTracker())
-
-	// ToolAware forwarding.
-	tools := []toolbox.Tool{{Name: "test_tool"}}
-	rl.SetTools(tools)
-	assert.Equal(t, tools, fc.tools)
 }
 
 func TestRateLimitedCompleter_NonRateLimitErrorNotRetried(t *testing.T) {
@@ -259,7 +252,7 @@ func TestRateLimitedCompleter_NonRateLimitErrorNotRetried(t *testing.T) {
 		BaseDelay:  time.Millisecond,
 	})
 
-	_, err := rl.Complete(context.Background(), &chat.Chat{})
+	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
 	require.ErrorIs(t, err, assert.AnError)
 	assert.Equal(t, 1, calls, "non-rate-limit errors should not be retried")
 }
@@ -288,7 +281,7 @@ func TestRateLimitedCompleter_RetryAfterUsed(t *testing.T) {
 		return nil
 	})
 
-	_, err := rl.Complete(context.Background(), &chat.Chat{})
+	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
 	require.NoError(t, err)
 	// RetryAfter (10s) should be used because it's larger than baseDelay * 2^0 (1s).
 	assert.Equal(t, 10*time.Second, sleepDur)

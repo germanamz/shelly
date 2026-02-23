@@ -14,6 +14,7 @@ import (
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/chats/role"
 	"github.com/germanamz/shelly/pkg/modeladapter"
+	"github.com/germanamz/shelly/pkg/tools/toolbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +29,7 @@ type mockCompleter struct {
 	err error
 }
 
-func (m *mockCompleter) Complete(_ context.Context, _ *chat.Chat) (message.Message, error) {
+func (m *mockCompleter) Complete(_ context.Context, _ *chat.Chat, _ []toolbox.Tool) (message.Message, error) {
 	return m.msg, m.err
 }
 
@@ -37,7 +38,7 @@ func TestCompleter_Success(t *testing.T) {
 	p := &mockCompleter{msg: reply}
 
 	c := chat.New(message.NewText("alice", role.User, "hello"))
-	got, err := p.Complete(context.Background(), c)
+	got, err := p.Complete(context.Background(), c, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, role.Assistant, got.Role)
@@ -48,7 +49,7 @@ func TestCompleter_Error(t *testing.T) {
 	p := &mockCompleter{err: errors.New("api error")}
 
 	c := chat.New(message.NewText("alice", role.User, "hello"))
-	_, err := p.Complete(context.Background(), c)
+	_, err := p.Complete(context.Background(), c, nil)
 
 	assert.EqualError(t, err, "api error")
 }
@@ -61,7 +62,7 @@ var _ modeladapter.Completer = (*modeladapter.ModelAdapter)(nil)
 func TestModelAdapter_StubComplete(t *testing.T) {
 	var a modeladapter.ModelAdapter
 
-	_, err := a.Complete(context.Background(), chat.New())
+	_, err := a.Complete(context.Background(), chat.New(), nil)
 	assert.EqualError(t, err, "adapter: Complete not implemented")
 }
 

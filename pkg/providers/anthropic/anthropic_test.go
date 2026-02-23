@@ -88,7 +88,7 @@ func TestComplete_SimpleText(t *testing.T) {
 		message.NewText("user", role.User, "Hi"),
 	)
 
-	msg, err := adapter.Complete(context.Background(), c)
+	msg, err := adapter.Complete(context.Background(), c, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, role.Assistant, msg.Role)
@@ -124,7 +124,7 @@ func TestComplete_MultiTurn(t *testing.T) {
 		message.NewText("user", role.User, "Please answer."),
 	)
 
-	msg, err := adapter.Complete(context.Background(), c)
+	msg, err := adapter.Complete(context.Background(), c, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "The capital of France is Paris.", msg.TextContent())
 }
@@ -167,7 +167,7 @@ func TestComplete_ToolCall(t *testing.T) {
 		}
 	})
 
-	adapter.Tools = []toolbox.Tool{
+	tools := []toolbox.Tool{
 		{
 			Name:        "get_weather",
 			Description: "Get weather for a city",
@@ -179,7 +179,7 @@ func TestComplete_ToolCall(t *testing.T) {
 		message.NewText("user", role.User, "What's the weather in Paris?"),
 	)
 
-	msg, err := adapter.Complete(context.Background(), c)
+	msg, err := adapter.Complete(context.Background(), c, tools)
 	require.NoError(t, err)
 
 	calls := msg.ToolCalls()
@@ -193,7 +193,7 @@ func TestComplete_ToolCall(t *testing.T) {
 		Content:    `{"temp": "22C", "condition": "sunny"}`,
 	}))
 
-	msg, err = adapter.Complete(context.Background(), c)
+	msg, err = adapter.Complete(context.Background(), c, tools)
 	require.NoError(t, err)
 	assert.Equal(t, "The weather in Paris is sunny.", msg.TextContent())
 
@@ -228,7 +228,7 @@ func TestComplete_SystemPromptSkipped(t *testing.T) {
 		message.NewText("user", role.User, "Hello"),
 	)
 
-	_, err := adapter.Complete(context.Background(), c)
+	_, err := adapter.Complete(context.Background(), c, nil)
 	require.NoError(t, err)
 }
 
@@ -242,7 +242,7 @@ func TestComplete_HTTPError(t *testing.T) {
 		message.NewText("user", role.User, "Hi"),
 	)
 
-	_, err := adapter.Complete(context.Background(), c)
+	_, err := adapter.Complete(context.Background(), c, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "401")
 }

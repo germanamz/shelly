@@ -17,15 +17,11 @@ import (
 
 const completionsPath = "/v1/chat/completions"
 
-var (
-	_ modeladapter.Completer = (*Adapter)(nil)
-	_ modeladapter.ToolAware = (*Adapter)(nil)
-)
+var _ modeladapter.Completer = (*Adapter)(nil)
 
 // Adapter implements modeladapter.Completer for the OpenAI Chat Completions API.
 type Adapter struct {
 	modeladapter.ModelAdapter
-	Tools []toolbox.Tool
 }
 
 // New creates an Adapter configured for the OpenAI API.
@@ -40,15 +36,10 @@ func New(baseURL, apiKey, model string) *Adapter {
 	return a
 }
 
-// SetTools sets the tools that will be declared in API requests.
-func (a *Adapter) SetTools(tools []toolbox.Tool) {
-	a.Tools = tools
-}
-
 // Complete sends a conversation to the OpenAI Chat Completions API and returns
 // the assistant's reply.
-func (a *Adapter) Complete(ctx context.Context, c *chat.Chat) (message.Message, error) {
-	req := a.buildRequest(c)
+func (a *Adapter) Complete(ctx context.Context, c *chat.Chat, tools []toolbox.Tool) (message.Message, error) {
+	req := a.buildRequest(c, tools)
 
 	var resp apiResponse
 	if err := a.PostJSON(ctx, completionsPath, req, &resp); err != nil {
@@ -131,7 +122,7 @@ type apiUsage struct {
 
 // --- conversion helpers ---
 
-func (a *Adapter) buildRequest(c *chat.Chat) apiRequest {
+func (a *Adapter) buildRequest(c *chat.Chat, tools []toolbox.Tool) apiRequest {
 	req := apiRequest{
 		Model:     a.Name,
 		MaxTokens: a.MaxTokens,
@@ -142,9 +133,9 @@ func (a *Adapter) buildRequest(c *chat.Chat) apiRequest {
 		req.Temperature = &t
 	}
 
-	if len(a.Tools) > 0 {
-		req.Tools = make([]apiToolDef, len(a.Tools))
-		for i, t := range a.Tools {
+	if len(tools) > 0 {
+		req.Tools = make([]apiToolDef, len(tools))
+		for i, t := range tools {
 			schema := t.InputSchema
 			if schema == nil {
 				schema = json.RawMessage(`{"type":"object"}`)

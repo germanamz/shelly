@@ -24,7 +24,7 @@ type sequenceCompleter struct {
 	index   int
 }
 
-func (p *sequenceCompleter) Complete(_ context.Context, _ *chat.Chat) (message.Message, error) {
+func (p *sequenceCompleter) Complete(_ context.Context, _ *chat.Chat, _ []toolbox.Tool) (message.Message, error) {
 	if p.index >= len(p.replies) {
 		return message.Message{}, errors.New("no more replies")
 	}
@@ -38,7 +38,7 @@ type errorCompleter struct {
 	err error
 }
 
-func (p *errorCompleter) Complete(_ context.Context, _ *chat.Chat) (message.Message, error) {
+func (p *errorCompleter) Complete(_ context.Context, _ *chat.Chat, _ []toolbox.Tool) (message.Message, error) {
 	return message.Message{}, p.err
 }
 
@@ -626,6 +626,178 @@ func TestSpawnAgentsSelfRejected(t *testing.T) {
 
 	a := New("orch", "", "", orchCompleter, Options{})
 	a.SetRegistry(reg)
+
+	result, err := a.Run(context.Background())
+
+	require.NoError(t, err)
+	assert.Equal(t, "Done.", result.TextContent())
+}
+
+func TestSpawnAgentsResilientErrors(t *testing.T) {
+	reg := NewRegistry()
+
+	// worker-a succeeds.
+	reg.Register("worker-a", "Worker A", func() *Agent {
+		return New("worker-a", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.NewText("", role.Assistant, "result-a"),
+			},
+		}, Options{})
+	})
+
+	// worker-b always fails.
+	reg.Register("worker-b", "Worker B", func() *Agent {
+		return New("worker-b", "", "", &errorCompleter{
+			err: errors.New("worker-b exploded"),
+		}, Options{})
+	})
+
+	orchCompleter := &sequenceCompleter{
+		replies: []message.Message{
+			message.New("", role.Assistant,
+				content.ToolCall{
+					ID:        "c1",
+					Name:      "spawn_agents",
+					Arguments: `{"tasks":[{"agent":"worker-a","task":"task-a"},{"agent":"worker-b","task":"task-b"}]}`,
+				},
+			),
+			message.NewText("", role.Assistant, "Collected."),
+		},
+	}
+
+	a := New("orch", "", "", orchCompleter, Options{})
+	a.SetRegistry(reg)
+
+	result, err := a.Run(context.Background())
+
+	require.NoError(t, err)
+	assert.Equal(t, "Collected.", result.TextContent())
+
+	// Check that worker-a result is present and worker-b has an error.
+	var spawnResultStr string
+	a.Chat().Each(func(_ int, m message.Message) bool {
+		if m.Role == role.Tool {
+			for _, p := range m.Parts {
+				if tr, ok := p.(content.ToolResult); ok && !tr.IsError {
+					spawnResultStr = tr.Content
+					return false
+				}
+			}
+		}
+		return true
+	})
+
+	assert.Contains(t, spawnResultStr, "result-a")
+	assert.Contains(t, spawnResultStr, "worker-b exploded")
+}
+
+func TestSpawnAgentsToolboxInheritance(t *testing.T) {
+	// Parent toolbox with a custom tool.
+	parentTB := toolbox.New()
+	parentTB.Register(toolbox.Tool{
+		Name:        "parent_tool",
+		Description: "A tool from the parent",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Handler: func(_ context.Context, _ json.RawMessage) (string, error) {
+			return "parent_tool_result", nil
+		},
+	})
+
+	reg := NewRegistry()
+
+	// Worker that calls parent_tool to prove it was inherited.
+	reg.Register("worker", "Worker", func() *Agent {
+		return New("worker", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{ID: "c1", Name: "parent_tool", Arguments: `{}`},
+				),
+				message.NewText("", role.Assistant, "got parent tool"),
+			},
+		}, Options{})
+	})
+
+	orchCompleter := &sequenceCompleter{
+		replies: []message.Message{
+			message.New("", role.Assistant,
+				content.ToolCall{
+					ID:        "c1",
+					Name:      "spawn_agents",
+					Arguments: `{"tasks":[{"agent":"worker","task":"use parent tool"}]}`,
+				},
+			),
+			message.NewText("", role.Assistant, "Done."),
+		},
+	}
+
+	a := New("orch", "", "", orchCompleter, Options{})
+	a.SetRegistry(reg)
+	a.AddToolBoxes(parentTB)
+
+	result, err := a.Run(context.Background())
+
+	require.NoError(t, err)
+	assert.Equal(t, "Done.", result.TextContent())
+
+	// Verify the spawn result contains the worker's response.
+	var spawnResultStr string
+	a.Chat().Each(func(_ int, m message.Message) bool {
+		if m.Role == role.Tool {
+			for _, p := range m.Parts {
+				if tr, ok := p.(content.ToolResult); ok && !tr.IsError {
+					spawnResultStr = tr.Content
+					return false
+				}
+			}
+		}
+		return true
+	})
+
+	assert.Contains(t, spawnResultStr, "got parent tool")
+}
+
+func TestDelegateToolboxInheritance(t *testing.T) {
+	// Parent toolbox with a custom tool.
+	parentTB := toolbox.New()
+	parentTB.Register(toolbox.Tool{
+		Name:        "parent_tool",
+		Description: "A tool from the parent",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Handler: func(_ context.Context, _ json.RawMessage) (string, error) {
+			return "parent_tool_result", nil
+		},
+	})
+
+	reg := NewRegistry()
+
+	// Worker that calls parent_tool to prove it was inherited.
+	reg.Register("worker", "Worker", func() *Agent {
+		return New("worker", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{ID: "c1", Name: "parent_tool", Arguments: `{}`},
+				),
+				message.NewText("", role.Assistant, "got parent tool"),
+			},
+		}, Options{})
+	})
+
+	orchCompleter := &sequenceCompleter{
+		replies: []message.Message{
+			message.New("", role.Assistant,
+				content.ToolCall{
+					ID:        "c1",
+					Name:      "delegate_to_agent",
+					Arguments: `{"agent":"worker","task":"use parent tool"}`,
+				},
+			),
+			message.NewText("", role.Assistant, "Done."),
+		},
+	}
+
+	a := New("orch", "", "", orchCompleter, Options{})
+	a.SetRegistry(reg)
+	a.AddToolBoxes(parentTB)
 
 	result, err := a.Run(context.Background())
 

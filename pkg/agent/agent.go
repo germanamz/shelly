@@ -110,8 +110,14 @@ func (a *Agent) run(ctx context.Context) (message.Message, error) {
 	// Collect all toolboxes (user + orchestration).
 	toolboxes := a.allToolBoxes()
 
+	// Collect tool declarations from all toolboxes for the completer.
+	var tools []toolbox.Tool
+	for _, tb := range toolboxes {
+		tools = append(tools, tb.Tools()...)
+	}
+
 	for i := 0; a.options.MaxIterations == 0 || i < a.options.MaxIterations; i++ {
-		reply, err := a.completer.Complete(ctx, a.chat)
+		reply, err := a.completer.Complete(ctx, a.chat, tools)
 		if err != nil {
 			return message.Message{}, err
 		}

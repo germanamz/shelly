@@ -357,17 +357,6 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 		}
 	}
 
-	// Collect all tool declarations for ToolAware completers.
-	var allTools []toolbox.Tool
-	for _, tb := range tbs {
-		allTools = append(allTools, tb.Tools()...)
-	}
-
-	// Set tools on ToolAware completers.
-	if ta, ok := completer.(modeladapter.ToolAware); ok && len(allTools) > 0 {
-		ta.SetTools(allTools)
-	}
-
 	// Compose project context string.
 	ctxStr := e.projectCtx.String()
 

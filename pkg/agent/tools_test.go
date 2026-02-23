@@ -3,12 +3,14 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/germanamz/shelly/pkg/chats/chat"
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/chats/role"
+	"github.com/germanamz/shelly/pkg/tools/toolbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -212,4 +214,122 @@ func TestDelegateToolChildGetsRegistry(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "listed", result)
+}
+
+func TestSpawnToolResilientErrors(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register("ok", "OK agent", func() *Agent {
+		return New("ok", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.NewText("", role.Assistant, "success"),
+			},
+		}, Options{})
+	})
+	reg.Register("fail", "Fail agent", func() *Agent {
+		return New("fail", "", "", &errorCompleter{
+			err: errors.New("boom"),
+		}, Options{})
+	})
+
+	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
+	tool := spawnTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"ok","task":"go"},{"agent":"fail","task":"go"},{"agent":"missing","task":"go"}]}`,
+	))
+
+	require.NoError(t, err)
+
+	var results []spawnResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 3)
+
+	// ok agent succeeds.
+	assert.Equal(t, "ok", results[0].Agent)
+	assert.Equal(t, "success", results[0].Result)
+	assert.Empty(t, results[0].Error)
+
+	// fail agent returns error but doesn't cancel others.
+	assert.Equal(t, "fail", results[1].Agent)
+	assert.Contains(t, results[1].Error, "boom")
+
+	// missing agent returns not found error.
+	assert.Equal(t, "missing", results[2].Agent)
+	assert.Contains(t, results[2].Error, "not found")
+}
+
+func TestSpawnToolToolboxInheritance(t *testing.T) {
+	parentTB := toolbox.New()
+	parentTB.Register(toolbox.Tool{
+		Name:        "inherited_tool",
+		Description: "Inherited from parent",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Handler: func(_ context.Context, _ json.RawMessage) (string, error) {
+			return "inherited_result", nil
+		},
+	})
+
+	// Worker calls inherited_tool.
+	reg := NewRegistry()
+	reg.Register("worker", "Worker", func() *Agent {
+		return New("worker", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{ID: "c1", Name: "inherited_tool", Arguments: `{}`},
+				),
+				message.NewText("", role.Assistant, "done with inherited"),
+			},
+		}, Options{})
+	})
+
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), toolboxes: []*toolbox.ToolBox{parentTB}}
+	tool := spawnTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"worker","task":"use inherited tool"}]}`,
+	))
+
+	require.NoError(t, err)
+
+	var results []spawnResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	assert.Equal(t, "worker", results[0].Agent)
+	assert.Equal(t, "done with inherited", results[0].Result)
+	assert.Empty(t, results[0].Error)
+}
+
+func TestDelegateToolToolboxInheritance(t *testing.T) {
+	parentTB := toolbox.New()
+	parentTB.Register(toolbox.Tool{
+		Name:        "inherited_tool",
+		Description: "Inherited from parent",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Handler: func(_ context.Context, _ json.RawMessage) (string, error) {
+			return "inherited_result", nil
+		},
+	})
+
+	// Worker calls inherited_tool.
+	reg := NewRegistry()
+	reg.Register("worker", "Worker", func() *Agent {
+		return New("worker", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{ID: "c1", Name: "inherited_tool", Arguments: `{}`},
+				),
+				message.NewText("", role.Assistant, "done with inherited"),
+			},
+		}, Options{})
+	})
+
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), toolboxes: []*toolbox.ToolBox{parentTB}}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"agent":"worker","task":"use inherited tool"}`,
+	))
+
+	require.NoError(t, err)
+	assert.Equal(t, "done with inherited", result)
 }

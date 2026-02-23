@@ -65,7 +65,7 @@ func TestComplete_TextResponse(t *testing.T) {
 		message.NewText("", role.User, "Hello"),
 	)
 
-	msg, err := g.Complete(context.Background(), c)
+	msg, err := g.Complete(context.Background(), c, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, role.Assistant, msg.Role)
@@ -107,7 +107,7 @@ func TestComplete_ToolCallResponse(t *testing.T) {
 	g.Name = "grok-3"
 
 	c := chat.New(message.NewText("", role.User, "What's the weather?"))
-	msg, err := g.Complete(context.Background(), c)
+	msg, err := g.Complete(context.Background(), c, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, role.Assistant, msg.Role)
@@ -132,7 +132,7 @@ func TestComplete_EmptyChoices(t *testing.T) {
 	g.BaseURL = srv.URL
 	g.Name = "grok-3"
 
-	_, err := g.Complete(context.Background(), chat.New(message.NewText("", role.User, "hi")))
+	_, err := g.Complete(context.Background(), chat.New(message.NewText("", role.User, "hi")), nil)
 	assert.ErrorContains(t, err, "grok: empty response")
 }
 
@@ -147,7 +147,7 @@ func TestComplete_APIError(t *testing.T) {
 	g.BaseURL = srv.URL
 	g.Name = "grok-3"
 
-	_, err := g.Complete(context.Background(), chat.New(message.NewText("", role.User, "hi")))
+	_, err := g.Complete(context.Background(), chat.New(message.NewText("", role.User, "hi")), nil)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "grok:")
 }
@@ -174,7 +174,7 @@ func TestComplete_TemperatureAndMaxTokens(t *testing.T) {
 	g.Temperature = 0.7
 	g.MaxTokens = 256
 
-	_, err := g.Complete(context.Background(), chat.New(message.NewText("", role.User, "hi")))
+	_, err := g.Complete(context.Background(), chat.New(message.NewText("", role.User, "hi")), nil)
 	require.NoError(t, err)
 }
 

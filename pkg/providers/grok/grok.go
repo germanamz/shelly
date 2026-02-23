@@ -23,12 +23,6 @@ const DefaultBaseURL = "https://api.x.ai/v1"
 // GrokAdapter sends chat completions to xAI's Grok API.
 type GrokAdapter struct {
 	modeladapter.ModelAdapter
-	Tools []toolbox.Tool
-}
-
-// SetTools sets the tools that will be declared in API requests.
-func (g *GrokAdapter) SetTools(tools []toolbox.Tool) {
-	g.Tools = tools
 }
 
 // New creates a GrokAdapter with the given API key and HTTP client.
@@ -41,7 +35,7 @@ func New(apiKey string, client *http.Client) *GrokAdapter {
 
 // Complete sends a conversation to the Grok chat completions endpoint
 // and returns the assistant's reply.
-func (g *GrokAdapter) Complete(ctx context.Context, c *chat.Chat) (message.Message, error) {
+func (g *GrokAdapter) Complete(ctx context.Context, c *chat.Chat, tools []toolbox.Tool) (message.Message, error) {
 	req := chatRequest{
 		Model:       g.Name,
 		Messages:    convertMessages(c),
@@ -49,7 +43,7 @@ func (g *GrokAdapter) Complete(ctx context.Context, c *chat.Chat) (message.Messa
 		MaxTokens:   g.MaxTokens,
 	}
 
-	for _, t := range g.Tools {
+	for _, t := range tools {
 		schema := t.InputSchema
 		if schema == nil {
 			schema = json.RawMessage(`{"type":"object"}`)
@@ -190,9 +184,6 @@ func convertResponse(am apiMessage) message.Message {
 
 // verifyCompleter ensures GrokAdapter satisfies the Completer interface at compile time.
 var _ modeladapter.Completer = (*GrokAdapter)(nil)
-
-// verifyToolAware ensures GrokAdapter satisfies the ToolAware interface at compile time.
-var _ modeladapter.ToolAware = (*GrokAdapter)(nil)
 
 // MarshalToolDef converts a tool name, description, and JSON schema into the
 // API tool format used in the chat request. This is a convenience for callers

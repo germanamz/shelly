@@ -84,6 +84,7 @@ func delegateTool(a *Agent) toolbox.Tool {
 			}
 
 			child.registry = a.registry
+			child.AddToolBoxes(a.toolboxes...)
 			child.chat.Append(message.NewText("user", role.User, di.Task))
 
 			reply, err := child.Run(ctx)
@@ -138,9 +139,6 @@ func spawnTool(a *Agent) toolbox.Tool {
 				return "", fmt.Errorf("spawn_agents: max delegation depth %d reached", a.options.MaxDelegationDepth)
 			}
 
-			ctx, cancel := context.WithCancel(ctx)
-			defer cancel()
-
 			results := make([]spawnResult, len(si.Tasks))
 
 			var wg sync.WaitGroup
@@ -156,11 +154,11 @@ func spawnTool(a *Agent) toolbox.Tool {
 							Agent: t.Agent,
 							Error: fmt.Sprintf("agent %q not found", t.Agent),
 						}
-						cancel()
 						return
 					}
 
 					child.registry = a.registry
+					child.AddToolBoxes(a.toolboxes...)
 					child.chat.Append(message.NewText("user", role.User, t.Task))
 
 					reply, err := child.Run(ctx)
@@ -169,7 +167,6 @@ func spawnTool(a *Agent) toolbox.Tool {
 							Agent: t.Agent,
 							Error: err.Error(),
 						}
-						cancel()
 						return
 					}
 
