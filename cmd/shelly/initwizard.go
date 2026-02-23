@@ -27,15 +27,13 @@ type wizardAgent struct {
 	Provider           string
 	MaxIterations      int
 	MaxDelegationDepth int
+	Toolboxes          []string
 }
 
 type wizardConfig struct {
-	Providers    []wizardProvider
-	Agents       []wizardAgent
-	EntryAgent   string
-	Tools        []string
-	StateEnabled bool
-	TasksEnabled bool
+	Providers  []wizardProvider
+	Agents     []wizardAgent
+	EntryAgent string
 }
 
 type providerDefault struct {
@@ -62,14 +60,6 @@ func runWizard() ([]byte, error) {
 	}
 
 	if err := wizardEntryAgent(&cfg); err != nil {
-		return nil, err
-	}
-
-	if err := wizardTools(&cfg); err != nil {
-		return nil, err
-	}
-
-	if err := wizardFeatures(&cfg); err != nil {
 		return nil, err
 	}
 
@@ -187,6 +177,7 @@ func wizardPromptAgent(providerNames []string) (wizardAgent, error) {
 		Instructions:       "You are a helpful assistant. Be concise and accurate.",
 		MaxIterations:      10,
 		MaxDelegationDepth: 2,
+		Toolboxes:          []string{"filesystem", "exec", "search", "git", "http", "state", "tasks"},
 	}
 
 	if len(providerNames) > 0 {
@@ -208,6 +199,18 @@ func wizardPromptAgent(providerNames []string) (wizardAgent, error) {
 		huh.NewSelect[string]().Title("Provider").Options(opts...).Value(&a.Provider),
 		huh.NewInput().Title("Max iterations").Value(&maxIter).Validate(validatePositiveInt),
 		huh.NewInput().Title("Max delegation depth").Value(&maxDepth).Validate(validateNonNegativeInt),
+		huh.NewMultiSelect[string]().
+			Title("Toolboxes").
+			Options(
+				huh.NewOption("Filesystem", "filesystem").Selected(true),
+				huh.NewOption("Exec", "exec").Selected(true),
+				huh.NewOption("Search", "search").Selected(true),
+				huh.NewOption("Git", "git").Selected(true),
+				huh.NewOption("HTTP", "http").Selected(true),
+				huh.NewOption("State", "state").Selected(true),
+				huh.NewOption("Tasks", "tasks").Selected(true),
+			).
+			Value(&a.Toolboxes),
 	)).Run()
 	if err != nil {
 		return a, err
@@ -235,28 +238,6 @@ func wizardEntryAgent(cfg *wizardConfig) error {
 			Title("Which agent should be the entry point?").
 			Options(opts...).
 			Value(&cfg.EntryAgent),
-	)).Run()
-}
-
-func wizardTools(cfg *wizardConfig) error {
-	return huh.NewForm(huh.NewGroup(
-		huh.NewMultiSelect[string]().
-			Title("Which built-in tools should be enabled?").
-			Options(
-				huh.NewOption("Filesystem", "filesystem").Selected(true),
-				huh.NewOption("Exec", "exec").Selected(true),
-				huh.NewOption("Search", "search").Selected(true),
-				huh.NewOption("Git", "git").Selected(true),
-				huh.NewOption("HTTP", "http").Selected(true),
-			).
-			Value(&cfg.Tools),
-	)).Run()
-}
-
-func wizardFeatures(cfg *wizardConfig) error {
-	return huh.NewForm(huh.NewGroup(
-		huh.NewConfirm().Title("Enable shared state store?").Value(&cfg.StateEnabled),
-		huh.NewConfirm().Title("Enable shared task board?").Value(&cfg.TasksEnabled),
 	)).Run()
 }
 
@@ -293,16 +274,9 @@ func validateDuration(s string) error {
 // YAML output types.
 
 type configYAML struct {
-	Providers    []providerYAML `yaml:"providers"`
-	Agents       []agentYAML    `yaml:"agents"`
-	EntryAgent   string         `yaml:"entry_agent"`
-	Filesystem   toolYAML       `yaml:"filesystem"`
-	Exec         toolYAML       `yaml:"exec"`
-	Search       toolYAML       `yaml:"search"`
-	Git          toolYAML       `yaml:"git"`
-	HTTP         toolYAML       `yaml:"http"`
-	StateEnabled bool           `yaml:"state_enabled,omitempty"`
-	TasksEnabled bool           `yaml:"tasks_enabled,omitempty"`
+	Providers  []providerYAML `yaml:"providers"`
+	Agents     []agentYAML    `yaml:"agents"`
+	EntryAgent string         `yaml:"entry_agent"`
 }
 
 type providerYAML struct {
@@ -325,6 +299,7 @@ type agentYAML struct {
 	Description  string        `yaml:"description"`
 	Instructions string        `yaml:"instructions"`
 	Provider     string        `yaml:"provider"`
+	Toolboxes    []string      `yaml:"toolboxes,omitempty"`
 	Options      agentOptsYAML `yaml:"options"`
 }
 
@@ -333,25 +308,9 @@ type agentOptsYAML struct {
 	MaxDelegationDepth int `yaml:"max_delegation_depth"`
 }
 
-type toolYAML struct {
-	Enabled bool `yaml:"enabled"`
-}
-
 func marshalWizardConfig(cfg wizardConfig) ([]byte, error) {
-	toolSet := make(map[string]bool, len(cfg.Tools))
-	for _, t := range cfg.Tools {
-		toolSet[t] = true
-	}
-
 	yc := configYAML{
-		EntryAgent:   cfg.EntryAgent,
-		Filesystem:   toolYAML{Enabled: toolSet["filesystem"]},
-		Exec:         toolYAML{Enabled: toolSet["exec"]},
-		Search:       toolYAML{Enabled: toolSet["search"]},
-		Git:          toolYAML{Enabled: toolSet["git"]},
-		HTTP:         toolYAML{Enabled: toolSet["http"]},
-		StateEnabled: cfg.StateEnabled,
-		TasksEnabled: cfg.TasksEnabled,
+		EntryAgent: cfg.EntryAgent,
 	}
 
 	for _, p := range cfg.Providers {
@@ -384,6 +343,7 @@ func marshalWizardConfig(cfg wizardConfig) ([]byte, error) {
 			Description:  a.Description,
 			Instructions: a.Instructions,
 			Provider:     a.Provider,
+			Toolboxes:    a.Toolboxes,
 			Options: agentOptsYAML{
 				MaxIterations:      a.MaxIterations,
 				MaxDelegationDepth: a.MaxDelegationDepth,

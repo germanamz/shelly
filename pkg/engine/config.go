@@ -9,45 +9,23 @@ import (
 
 // Config is the top-level engine configuration.
 type Config struct {
-	ShellyDir    string           `yaml:"-"` // Set by CLI, not from YAML.
-	Providers    []ProviderConfig `yaml:"providers"`
-	MCPServers   []MCPConfig      `yaml:"mcp_servers"`
-	Agents       []AgentConfig    `yaml:"agents"`
-	EntryAgent   string           `yaml:"entry_agent"`
-	StateEnabled bool             `yaml:"state_enabled"`
-	TasksEnabled bool             `yaml:"tasks_enabled"`
-	Filesystem   FilesystemConfig `yaml:"filesystem"`
-	Exec         ExecConfig       `yaml:"exec"`
-	Search       SearchConfig     `yaml:"search"`
-	Git          GitConfig        `yaml:"git"`
-	HTTP         HTTPConfig       `yaml:"http"`
+	ShellyDir  string           `yaml:"-"` // Set by CLI, not from YAML.
+	Providers  []ProviderConfig `yaml:"providers"`
+	MCPServers []MCPConfig      `yaml:"mcp_servers"`
+	Agents     []AgentConfig    `yaml:"agents"`
+	EntryAgent string           `yaml:"entry_agent"`
+	Filesystem FilesystemConfig `yaml:"filesystem"`
+	Git        GitConfig        `yaml:"git"`
 }
 
-// FilesystemConfig controls the filesystem tools.
+// FilesystemConfig holds filesystem tool settings.
 type FilesystemConfig struct {
-	Enabled         bool   `yaml:"enabled"`
 	PermissionsFile string `yaml:"permissions_file"`
 }
 
-// ExecConfig controls the exec tool.
-type ExecConfig struct {
-	Enabled bool `yaml:"enabled"`
-}
-
-// SearchConfig controls the search tools.
-type SearchConfig struct {
-	Enabled bool `yaml:"enabled"`
-}
-
-// GitConfig controls the git tools.
+// GitConfig holds git tool settings.
 type GitConfig struct {
-	Enabled bool   `yaml:"enabled"`
 	WorkDir string `yaml:"work_dir"`
-}
-
-// HTTPConfig controls the http tool.
-type HTTPConfig struct {
-	Enabled bool `yaml:"enabled"`
 }
 
 // RateLimitConfig controls per-provider rate limiting.
@@ -81,7 +59,7 @@ type AgentConfig struct {
 	Description  string       `yaml:"description"`
 	Instructions string       `yaml:"instructions"`
 	Provider     string       `yaml:"provider"`
-	ToolBoxNames []string     `yaml:"toolbox_names"`
+	Toolboxes    []string     `yaml:"toolboxes"`
 	Options      AgentOptions `yaml:"options"`
 }
 
@@ -164,7 +142,7 @@ func (c Config) Validate() error {
 			return fmt.Errorf("engine: config: agent %q: unknown provider %q", a.Name, a.Provider)
 		}
 
-		for _, tb := range a.ToolBoxNames {
+		for _, tb := range a.Toolboxes {
 			if _, builtin := builtinToolboxNames[tb]; builtin {
 				continue
 			}

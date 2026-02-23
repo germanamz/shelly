@@ -38,16 +38,13 @@ type editorAgent struct {
 	Provider           string
 	MaxIterations      int
 	MaxDelegationDepth int
-	ToolBoxNames       []string
+	Toolboxes          []string
 }
 
 type editorConfig struct {
 	Providers       []editorProvider
 	Agents          []editorAgent
 	EntryAgent      string
-	Tools           []string
-	StateEnabled    bool
-	TasksEnabled    bool
 	MCPServers      []editorMCP
 	PermissionsFile string
 	GitWorkDir      string
@@ -56,17 +53,12 @@ type editorConfig struct {
 // YAML output types (preserve all fields via omitempty).
 
 type editorConfigYAML struct {
-	Providers    []editorProviderYAML `yaml:"providers"`
-	MCPServers   []mcpYAML            `yaml:"mcp_servers,omitempty"`
-	Agents       []editorAgentYAML    `yaml:"agents"`
-	EntryAgent   string               `yaml:"entry_agent"`
-	Filesystem   editorFilesystemYAML `yaml:"filesystem"`
-	Exec         toolYAML             `yaml:"exec"`
-	Search       toolYAML             `yaml:"search"`
-	Git          editorGitYAML        `yaml:"git"`
-	HTTP         toolYAML             `yaml:"http"`
-	StateEnabled bool                 `yaml:"state_enabled,omitempty"`
-	TasksEnabled bool                 `yaml:"tasks_enabled,omitempty"`
+	Providers  []editorProviderYAML `yaml:"providers"`
+	MCPServers []mcpYAML            `yaml:"mcp_servers,omitempty"`
+	Agents     []editorAgentYAML    `yaml:"agents"`
+	EntryAgent string               `yaml:"entry_agent"`
+	Filesystem editorFilesystemYAML `yaml:"filesystem,omitempty"`
+	Git        editorGitYAML        `yaml:"git,omitempty"`
 }
 
 type editorProviderYAML struct {
@@ -83,17 +75,15 @@ type editorAgentYAML struct {
 	Description  string        `yaml:"description"`
 	Instructions string        `yaml:"instructions"`
 	Provider     string        `yaml:"provider"`
-	ToolBoxNames []string      `yaml:"toolbox_names,omitempty"`
+	Toolboxes    []string      `yaml:"toolboxes,omitempty"`
 	Options      agentOptsYAML `yaml:"options"`
 }
 
 type editorFilesystemYAML struct {
-	Enabled         bool   `yaml:"enabled"`
 	PermissionsFile string `yaml:"permissions_file,omitempty"`
 }
 
 type editorGitYAML struct {
-	Enabled bool   `yaml:"enabled"`
 	WorkDir string `yaml:"work_dir,omitempty"`
 }
 
@@ -163,25 +153,8 @@ func loadRawConfig(path string) (engine.Config, error) {
 func configToEditor(cfg engine.Config) editorConfig {
 	ec := editorConfig{
 		EntryAgent:      cfg.EntryAgent,
-		StateEnabled:    cfg.StateEnabled,
-		TasksEnabled:    cfg.TasksEnabled,
 		PermissionsFile: cfg.Filesystem.PermissionsFile,
 		GitWorkDir:      cfg.Git.WorkDir,
-	}
-
-	for _, tool := range []struct {
-		name    string
-		enabled bool
-	}{
-		{"filesystem", cfg.Filesystem.Enabled},
-		{"exec", cfg.Exec.Enabled},
-		{"search", cfg.Search.Enabled},
-		{"git", cfg.Git.Enabled},
-		{"http", cfg.HTTP.Enabled},
-	} {
-		if tool.enabled {
-			ec.Tools = append(ec.Tools, tool.name)
-		}
 	}
 
 	for _, p := range cfg.Providers {
@@ -218,7 +191,7 @@ func configToEditor(cfg engine.Config) editorConfig {
 			Provider:           a.Provider,
 			MaxIterations:      a.Options.MaxIterations,
 			MaxDelegationDepth: a.Options.MaxDelegationDepth,
-			ToolBoxNames:       a.ToolBoxNames,
+			Toolboxes:          a.Toolboxes,
 		})
 	}
 
@@ -236,20 +209,10 @@ func configToEditor(cfg engine.Config) editorConfig {
 // editorToEngineConfig converts the editor working model back to engine.Config
 // for validation.
 func editorToEngineConfig(ec editorConfig) engine.Config {
-	toolSet := make(map[string]bool, len(ec.Tools))
-	for _, t := range ec.Tools {
-		toolSet[t] = true
-	}
-
 	cfg := engine.Config{
-		EntryAgent:   ec.EntryAgent,
-		StateEnabled: ec.StateEnabled,
-		TasksEnabled: ec.TasksEnabled,
-		Filesystem:   engine.FilesystemConfig{Enabled: toolSet["filesystem"], PermissionsFile: ec.PermissionsFile},
-		Exec:         engine.ExecConfig{Enabled: toolSet["exec"]},
-		Search:       engine.SearchConfig{Enabled: toolSet["search"]},
-		Git:          engine.GitConfig{Enabled: toolSet["git"], WorkDir: ec.GitWorkDir},
-		HTTP:         engine.HTTPConfig{Enabled: toolSet["http"]},
+		EntryAgent: ec.EntryAgent,
+		Filesystem: engine.FilesystemConfig{PermissionsFile: ec.PermissionsFile},
+		Git:        engine.GitConfig{WorkDir: ec.GitWorkDir},
 	}
 
 	for _, p := range ec.Providers {
@@ -278,7 +241,7 @@ func editorToEngineConfig(ec editorConfig) engine.Config {
 			Description:  a.Description,
 			Instructions: a.Instructions,
 			Provider:     a.Provider,
-			ToolBoxNames: a.ToolBoxNames,
+			Toolboxes:    a.Toolboxes,
 			Options: engine.AgentOptions{
 				MaxIterations:      a.MaxIterations,
 				MaxDelegationDepth: a.MaxDelegationDepth,
@@ -299,26 +262,14 @@ func editorToEngineConfig(ec editorConfig) engine.Config {
 
 // marshalEditorConfig serializes the editor config to YAML bytes.
 func marshalEditorConfig(ec editorConfig) ([]byte, error) {
-	toolSet := make(map[string]bool, len(ec.Tools))
-	for _, t := range ec.Tools {
-		toolSet[t] = true
-	}
-
 	yc := editorConfigYAML{
 		EntryAgent: ec.EntryAgent,
 		Filesystem: editorFilesystemYAML{
-			Enabled:         toolSet["filesystem"],
 			PermissionsFile: ec.PermissionsFile,
 		},
-		Exec:   toolYAML{Enabled: toolSet["exec"]},
-		Search: toolYAML{Enabled: toolSet["search"]},
 		Git: editorGitYAML{
-			Enabled: toolSet["git"],
 			WorkDir: ec.GitWorkDir,
 		},
-		HTTP:         toolYAML{Enabled: toolSet["http"]},
-		StateEnabled: ec.StateEnabled,
-		TasksEnabled: ec.TasksEnabled,
 	}
 
 	for _, p := range ec.Providers {
@@ -352,7 +303,7 @@ func marshalEditorConfig(ec editorConfig) ([]byte, error) {
 			Description:  a.Description,
 			Instructions: a.Instructions,
 			Provider:     a.Provider,
-			ToolBoxNames: a.ToolBoxNames,
+			Toolboxes:    a.Toolboxes,
 			Options: agentOptsYAML{
 				MaxIterations:      a.MaxIterations,
 				MaxDelegationDepth: a.MaxDelegationDepth,
@@ -384,8 +335,6 @@ func configEditorMenu(ec *editorConfig) error {
 					huh.NewOption("Providers", "providers"),
 					huh.NewOption("Agents", "agents"),
 					huh.NewOption("Entry Agent", "entry_agent"),
-					huh.NewOption("Tools", "tools"),
-					huh.NewOption("Features", "features"),
 					huh.NewOption("MCP Servers", "mcp_servers"),
 					huh.NewOption("Save & Exit", "done"),
 				).
@@ -406,14 +355,6 @@ func configEditorMenu(ec *editorConfig) error {
 			}
 		case "entry_agent":
 			if err := editEntryAgent(ec); err != nil {
-				return err
-			}
-		case "tools":
-			if err := editTools(ec); err != nil {
-				return err
-			}
-		case "features":
-			if err := editFeatures(ec); err != nil {
 				return err
 			}
 		case "mcp_servers":
@@ -616,10 +557,10 @@ func editAgentForm(a *editorAgent, providerNames, mcpNames []string) error {
 	maxIter := strconv.Itoa(a.MaxIterations)
 	maxDepth := strconv.Itoa(a.MaxDelegationDepth)
 
-	builtinToolboxes := []string{"filesystem", "exec", "search", "git", "http", "state", "tasks", "ask", "defaults"}
+	builtinToolboxes := []string{"filesystem", "exec", "search", "git", "http", "state", "tasks"}
 
-	selectedSet := make(map[string]bool, len(a.ToolBoxNames))
-	for _, tb := range a.ToolBoxNames {
+	selectedSet := make(map[string]bool, len(a.Toolboxes))
+	for _, tb := range a.Toolboxes {
 		selectedSet[tb] = true
 	}
 
@@ -661,9 +602,9 @@ func editAgentForm(a *editorAgent, providerNames, mcpNames []string) error {
 	if len(toolboxOpts) > 0 {
 		fields = append(fields,
 			huh.NewMultiSelect[string]().
-				Title("Toolbox names (agent-specific)").
+				Title("Toolboxes").
 				Options(toolboxOpts...).
-				Value(&a.ToolBoxNames),
+				Value(&a.Toolboxes),
 		)
 	}
 
@@ -695,42 +636,6 @@ func editEntryAgent(ec *editorConfig) error {
 			Title("Entry agent").
 			Options(opts...).
 			Value(&ec.EntryAgent),
-	)).Run()
-}
-
-// editTools manages the global tool toggles via multi-select.
-func editTools(ec *editorConfig) error {
-	toolSet := make(map[string]bool, len(ec.Tools))
-	for _, t := range ec.Tools {
-		toolSet[t] = true
-	}
-
-	allTools := []string{"filesystem", "exec", "search", "git", "http"}
-
-	var opts []huh.Option[string]
-	for _, name := range allTools {
-		label := strings.ToUpper(name[:1]) + name[1:]
-		opt := huh.NewOption(label, name)
-		if toolSet[name] {
-			opt = opt.Selected(true)
-		}
-
-		opts = append(opts, opt)
-	}
-
-	return huh.NewForm(huh.NewGroup(
-		huh.NewMultiSelect[string]().
-			Title("Which built-in tools should be enabled?").
-			Options(opts...).
-			Value(&ec.Tools),
-	)).Run()
-}
-
-// editFeatures manages boolean feature flags.
-func editFeatures(ec *editorConfig) error {
-	return huh.NewForm(huh.NewGroup(
-		huh.NewConfirm().Title("Enable shared state store?").Value(&ec.StateEnabled),
-		huh.NewConfirm().Title("Enable shared task board?").Value(&ec.TasksEnabled),
 	)).Run()
 }
 

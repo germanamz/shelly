@@ -26,13 +26,12 @@ agents:
     description: A helpful assistant
     instructions: Be concise.
     provider: default
-    toolbox_names: [search]
+    toolboxes: [search, state]
     options:
       max_iterations: 10
       max_delegation_depth: 3
 
 entry_agent: assistant
-state_enabled: true
 `
 
 func TestLoadConfig(t *testing.T) {
@@ -59,8 +58,8 @@ func TestLoadConfig(t *testing.T) {
 	assert.Equal(t, 10, cfg.Agents[0].Options.MaxIterations)
 	assert.Equal(t, 3, cfg.Agents[0].Options.MaxDelegationDepth)
 
+	assert.Equal(t, []string{"search", "state"}, cfg.Agents[0].Toolboxes)
 	assert.Equal(t, "assistant", cfg.EntryAgent)
-	assert.True(t, cfg.StateEnabled)
 }
 
 func TestLoadConfig_FileNotFound(t *testing.T) {
@@ -163,7 +162,7 @@ func TestConfig_Validate_UnknownProvider(t *testing.T) {
 func TestConfig_Validate_UnknownToolbox(t *testing.T) {
 	cfg := Config{
 		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
-		Agents:    []AgentConfig{{Name: "a1", ToolBoxNames: []string{"nope"}}},
+		Agents:    []AgentConfig{{Name: "a1", Toolboxes: []string{"nope"}}},
 	}
 	assert.ErrorContains(t, cfg.Validate(), "unknown toolbox")
 }
@@ -171,7 +170,7 @@ func TestConfig_Validate_UnknownToolbox(t *testing.T) {
 func TestConfig_Validate_StateToolbox(t *testing.T) {
 	cfg := Config{
 		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
-		Agents:    []AgentConfig{{Name: "a1", ToolBoxNames: []string{"state"}}},
+		Agents:    []AgentConfig{{Name: "a1", Toolboxes: []string{"state"}}},
 	}
 	assert.NoError(t, cfg.Validate())
 }
@@ -222,7 +221,7 @@ func TestConfig_Validate_MCPCommandRequired(t *testing.T) {
 func TestConfig_Validate_FilesystemToolbox(t *testing.T) {
 	cfg := Config{
 		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
-		Agents:    []AgentConfig{{Name: "a1", ToolBoxNames: []string{"filesystem"}}},
+		Agents:    []AgentConfig{{Name: "a1", Toolboxes: []string{"filesystem"}}},
 	}
 	assert.NoError(t, cfg.Validate())
 }
@@ -242,7 +241,7 @@ func TestConfig_Validate_DuplicateMCP(t *testing.T) {
 func TestConfig_Validate_SearchToolbox(t *testing.T) {
 	cfg := Config{
 		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
-		Agents:    []AgentConfig{{Name: "a1", ToolBoxNames: []string{"search"}}},
+		Agents:    []AgentConfig{{Name: "a1", Toolboxes: []string{"search"}}},
 	}
 	assert.NoError(t, cfg.Validate())
 }
@@ -250,7 +249,7 @@ func TestConfig_Validate_SearchToolbox(t *testing.T) {
 func TestConfig_Validate_GitToolbox(t *testing.T) {
 	cfg := Config{
 		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
-		Agents:    []AgentConfig{{Name: "a1", ToolBoxNames: []string{"git"}}},
+		Agents:    []AgentConfig{{Name: "a1", Toolboxes: []string{"git"}}},
 	}
 	assert.NoError(t, cfg.Validate())
 }
@@ -258,7 +257,7 @@ func TestConfig_Validate_GitToolbox(t *testing.T) {
 func TestConfig_Validate_HTTPToolbox(t *testing.T) {
 	cfg := Config{
 		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
-		Agents:    []AgentConfig{{Name: "a1", ToolBoxNames: []string{"http"}}},
+		Agents:    []AgentConfig{{Name: "a1", Toolboxes: []string{"http"}}},
 	}
 	assert.NoError(t, cfg.Validate())
 }

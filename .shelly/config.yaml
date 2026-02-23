@@ -31,6 +31,7 @@ agents:
       description: A code expert
       instructions: You are a coding enginering expert that helps with designing, planning and coding software solutions.
       provider: grok
+      toolboxes: [filesystem, exec, search, git, http, state, tasks]
       options:
         max_iterations: 1000
         max_delegation_depth: 4
@@ -38,6 +39,7 @@ agents:
       description: A planning expert
       instructions: You are a planning expert. You are able to plan software solutions. You are able to use the tools provided to you to plan software solutions.
       provider: anthropic
+      toolboxes: [filesystem, search, state]
       options:
         max_iterations: 1000
         max_delegation_depth: 4
@@ -45,6 +47,7 @@ agents:
       description: A helpful assistant
       instructions: You are a helpful assistant. You are able to help with the user's questions. You are able to use the tools provided to you to help with the user's questions.
       provider: anthropic
+      toolboxes: [filesystem, exec, search, git, http, state, tasks]
       options:
         max_iterations: 1000
         max_delegation_depth: 4
@@ -52,19 +55,8 @@ agents:
       description: A code reviewer
       instructions: You are a code reviewer. You are able to review code and provide feedback. You are able to use the tools provided to you to review code and provide feedback.
       provider: anthropic
+      toolboxes: [filesystem, search, git]
       options:
         max_iterations: 1000
         max_delegation_depth: 4
 entry_agent: assistant
-filesystem:
-    enabled: true
-exec:
-    enabled: true
-search:
-    enabled: true
-git:
-    enabled: true
-http:
-    enabled: true
-state_enabled: true
-tasks_enabled: true

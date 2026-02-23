@@ -10,7 +10,6 @@ import (
 	"github.com/germanamz/shelly/pkg/agent"
 	"github.com/germanamz/shelly/pkg/agentctx"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/ask"
-	"github.com/germanamz/shelly/pkg/codingtoolbox/defaults"
 	shellyexec "github.com/germanamz/shelly/pkg/codingtoolbox/exec"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/filesystem"
 	shellygit "github.com/germanamz/shelly/pkg/codingtoolbox/git"
@@ -122,19 +121,7 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		e.toolboxes[mc.Name] = tb
 	}
 
-	// Create state store if enabled.
-	if cfg.StateEnabled {
-		e.store = &state.Store{}
-		e.toolboxes["state"] = e.store.Tools("shared")
-	}
-
-	// Create task store if enabled.
-	if cfg.TasksEnabled {
-		e.taskStore = &tasks.Store{}
-		e.toolboxes["tasks"] = e.taskStore.Tools("shared")
-	}
-
-	// Create ask responder.
+	// Create ask responder (always available).
 	e.responder = ask.NewResponder(func(ctx context.Context, q ask.Question) {
 		sid, _ := sessionIDFromContext(ctx)
 		aname := agentctx.AgentNameFromContext(ctx)
@@ -148,21 +135,45 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 	})
 	e.toolboxes["ask"] = e.responder.Tools()
 
+	// Determine which built-in toolboxes are referenced by at least one agent.
+	refs := referencedBuiltins(cfg.Agents)
+
+	// Create state store if referenced.
+	if _, ok := refs["state"]; ok {
+		e.store = &state.Store{}
+		e.toolboxes["state"] = e.store.Tools("shared")
+	}
+
+	// Create task store if referenced.
+	if _, ok := refs["tasks"]; ok {
+		e.taskStore = &tasks.Store{}
+		e.toolboxes["tasks"] = e.taskStore.Tools("shared")
+	}
+
 	// Resolve permissions file path: prefer shellydir, fall back to config.
 	permFile := dir.PermissionsPath()
 	if !dir.Exists() && cfg.Filesystem.PermissionsFile != "" {
 		permFile = cfg.Filesystem.PermissionsFile
 	}
 
-	// Create shared permissions store and permission-gated tools.
-	if cfg.Filesystem.Enabled || cfg.Exec.Enabled || cfg.Search.Enabled || cfg.Git.Enabled || cfg.HTTP.Enabled {
+	// Create permission-gated tools only if referenced by at least one agent.
+	permToolboxes := []string{"filesystem", "exec", "search", "git", "http"}
+	needsPerm := false
+	for _, name := range permToolboxes {
+		if _, ok := refs[name]; ok {
+			needsPerm = true
+			break
+		}
+	}
+
+	if needsPerm {
 		permStore, err := permissions.New(permFile)
 		if err != nil {
 			_ = e.Close()
 			return nil, fmt.Errorf("engine: permissions: %w", err)
 		}
 
-		if cfg.Filesystem.Enabled {
+		if _, ok := refs["filesystem"]; ok {
 			notifyFn := func(ctx context.Context, message string) {
 				sid, _ := sessionIDFromContext(ctx)
 				aname := agentctx.AgentNameFromContext(ctx)
@@ -178,29 +189,26 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 			e.toolboxes["filesystem"] = fsTools.Tools()
 		}
 
-		if cfg.Exec.Enabled {
+		if _, ok := refs["exec"]; ok {
 			execTools := shellyexec.New(permStore, e.responder.Ask)
 			e.toolboxes["exec"] = execTools.Tools()
 		}
 
-		if cfg.Search.Enabled {
+		if _, ok := refs["search"]; ok {
 			searchTools := search.New(permStore, e.responder.Ask)
 			e.toolboxes["search"] = searchTools.Tools()
 		}
 
-		if cfg.Git.Enabled {
+		if _, ok := refs["git"]; ok {
 			gitTools := shellygit.New(permStore, e.responder.Ask, cfg.Git.WorkDir)
 			e.toolboxes["git"] = gitTools.Tools()
 		}
 
-		if cfg.HTTP.Enabled {
+		if _, ok := refs["http"]; ok {
 			httpTools := shellyhttp.New(permStore, e.responder.Ask)
 			e.toolboxes["http"] = httpTools.Tools()
 		}
 	}
-
-	// Build the defaults toolbox from all enabled built-in toolboxes.
-	e.buildDefaults()
 
 	// Register agent factories.
 	for _, ac := range cfg.Agents {
@@ -286,20 +294,20 @@ var builtinToolboxNames = map[string]struct{}{
 	"search":     {},
 	"git":        {},
 	"http":       {},
-	"defaults":   {},
 }
 
-// buildDefaults assembles the defaults toolbox from all enabled built-in
-// toolboxes. Every agent receives the defaults toolbox automatically.
-func (e *Engine) buildDefaults() {
-	var sources []*toolbox.ToolBox
-	for name, tb := range e.toolboxes {
-		if _, ok := builtinToolboxNames[name]; ok {
-			sources = append(sources, tb)
+// referencedBuiltins returns the set of built-in toolbox names that appear in
+// at least one agent's Toolboxes list.
+func referencedBuiltins(agents []AgentConfig) map[string]struct{} {
+	refs := make(map[string]struct{})
+	for _, a := range agents {
+		for _, name := range a.Toolboxes {
+			if _, ok := builtinToolboxNames[name]; ok {
+				refs[name] = struct{}{}
+			}
 		}
 	}
-
-	e.toolboxes["defaults"] = defaults.New(sources...)
+	return refs
 }
 
 // registerAgent creates a factory for the given agent config and registers it.
@@ -315,17 +323,19 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 		return fmt.Errorf("engine: agent %q: provider %q not found", ac.Name, providerName)
 	}
 
-	// Start with the defaults toolbox — every agent gets it.
+	// Always include the ask toolbox.
 	var tbs []*toolbox.ToolBox
-	if dtb, ok := e.toolboxes["defaults"]; ok {
-		tbs = append(tbs, dtb)
+	if askTB, ok := e.toolboxes["ask"]; ok {
+		tbs = append(tbs, askTB)
 	}
 
-	// Collect additional toolboxes.
-	for _, name := range ac.ToolBoxNames {
-		if _, ok := builtinToolboxNames[name]; ok {
-			continue // already included via defaults
+	// Collect the agent's declared toolboxes, skipping ask (already added).
+	seen := map[string]struct{}{"ask": {}}
+	for _, name := range ac.Toolboxes {
+		if _, dup := seen[name]; dup {
+			continue
 		}
+		seen[name] = struct{}{}
 
 		tb, ok := e.toolboxes[name]
 		if !ok {

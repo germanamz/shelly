@@ -77,33 +77,38 @@ providers:
     model: claude-sonnet-4-20250514
 
 mcp_servers:
-  - name: search
+  - name: web-search
     command: mcp-search
 
 agents:
+  - name: coder
+    description: A coding expert
+    instructions: You are a coding expert.
+    provider: default
+    toolboxes: [filesystem, exec, search, git, http, state, tasks]
+    options:
+      max_iterations: 100
+  - name: planner
+    description: A planning expert
+    instructions: You are a planning expert.
+    provider: default
+    toolboxes: [filesystem, search, state]
+    options:
+      max_iterations: 50
   - name: assistant
     description: A helpful assistant
     instructions: Be helpful and concise.
     provider: default
-    toolbox_names: [search, state]
+    toolboxes: [filesystem, exec, search, git, http, state, tasks, web-search]
     options:
       max_iterations: 10
 
 entry_agent: assistant
-state_enabled: true
-tasks_enabled: true
 
 filesystem:
-  enabled: true
-exec:
-  enabled: true
-search:
-  enabled: true
+  permissions_file: perms.yaml
 git:
-  enabled: true
   work_dir: /path/to/repo
-http:
-  enabled: true
 ```
 
 ### Provider Factory
