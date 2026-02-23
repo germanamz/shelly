@@ -24,9 +24,10 @@ func main() {
 				initCmd.PrintDefaults()
 			}
 			dir := initCmd.String("shelly-dir", ".shelly", "path to .shelly directory")
+			tmpl := initCmd.String("template", "", "use a config template (use \"list\" to see available templates)")
 			_ = initCmd.Parse(os.Args[2:])
 
-			if err := runInit(*dir); err != nil {
+			if err := runInit(*dir, *tmpl); err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 				os.Exit(1)
 			}
@@ -75,13 +76,33 @@ func main() {
 	}
 }
 
-func runInit(dirPath string) error {
-	d := shellydir.New(dirPath)
+func runInit(dirPath, templateName string) error {
+	if templateName == "list" {
+		printTemplateList()
+		return nil
+	}
 
-	configYAML, err := runWizard()
+	var (
+		configYAML []byte
+		err        error
+	)
+
+	if templateName != "" {
+		tmpl := findTemplate(templateName)
+		if tmpl == nil {
+			return fmt.Errorf("unknown template %q (use --template list to see available templates)", templateName)
+		}
+
+		configYAML, err = runTemplateWizard(tmpl)
+	} else {
+		configYAML, err = runWizard()
+	}
+
 	if err != nil {
 		return err
 	}
+
+	d := shellydir.New(dirPath)
 
 	if err := shellydir.BootstrapWithConfig(d, configYAML); err != nil {
 		return err

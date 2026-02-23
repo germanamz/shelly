@@ -21,6 +21,11 @@ type wizardProvider struct {
 	BaseDelay  string
 }
 
+type wizardEffect struct {
+	Kind   string
+	Params map[string]any
+}
+
 type wizardAgent struct {
 	Name               string
 	Description        string
@@ -29,6 +34,7 @@ type wizardAgent struct {
 	MaxIterations      int
 	MaxDelegationDepth int
 	Toolboxes          []string
+	Effects            []wizardEffect
 }
 
 type wizardConfig struct {
@@ -298,12 +304,18 @@ type rateLimitYAML struct {
 	BaseDelay  string `yaml:"base_delay,omitempty"`
 }
 
+type effectYAML struct {
+	Kind   string         `yaml:"kind"`
+	Params map[string]any `yaml:"params,omitempty"`
+}
+
 type agentYAML struct {
 	Name         string        `yaml:"name"`
 	Description  string        `yaml:"description"`
 	Instructions string        `yaml:"instructions"`
 	Provider     string        `yaml:"provider"`
 	Toolboxes    []string      `yaml:"toolboxes,omitempty"`
+	Effects      []effectYAML  `yaml:"effects,omitempty"`
 	Options      agentOptsYAML `yaml:"options"`
 }
 
@@ -344,7 +356,7 @@ func marshalWizardConfig(cfg wizardConfig) ([]byte, error) {
 	}
 
 	for _, a := range cfg.Agents {
-		yc.Agents = append(yc.Agents, agentYAML{
+		ay := agentYAML{
 			Name:         a.Name,
 			Description:  a.Description,
 			Instructions: a.Instructions,
@@ -354,7 +366,13 @@ func marshalWizardConfig(cfg wizardConfig) ([]byte, error) {
 				MaxIterations:      a.MaxIterations,
 				MaxDelegationDepth: a.MaxDelegationDepth,
 			},
-		})
+		}
+
+		for _, e := range a.Effects {
+			ay.Effects = append(ay.Effects, effectYAML(e))
+		}
+
+		yc.Agents = append(yc.Agents, ay)
 	}
 
 	return yaml.Marshal(yc)

@@ -179,10 +179,22 @@ export PATH="$(go env GOPATH)/bin:$PATH"
 ## Quick Start
 
 ```bash
-task build   # Build binary to ./bin/shelly
-task run     # Run without building
-./bin/shelly # Run the built binary
+task build              # Build binary to ./bin/shelly
+./bin/shelly init       # Interactive setup wizard
+./bin/shelly            # Start chatting
 ```
+
+### Config Templates
+
+Skip the full wizard by bootstrapping from a pre-built template:
+
+```bash
+./bin/shelly init --template list           # List available templates
+./bin/shelly init --template simple-assistant  # Single agent setup
+./bin/shelly init --template dev-team          # Orchestrator + planner + coder
+```
+
+Templates define provider **slots** (e.g. "primary", "fast") that you map to your providers during setup. Only provider configuration is interactive — agent structure comes from the template.
 
 ## Development
 
