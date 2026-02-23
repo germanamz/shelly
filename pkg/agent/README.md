@@ -105,12 +105,12 @@ See `pkg/agent/effects/` for available implementations:
 When an agent delegates to or spawns a child agent, the child receives a **union** of its own configured toolboxes and the parent's toolboxes. The sequence is:
 
 1. The child's factory is called, producing a fresh agent with only its config-defined toolboxes.
-2. The parent calls `child.AddToolBoxes(a.toolboxes...)`, appending all of the parent's toolboxes.
+2. The parent calls `child.AddToolBoxes(a.toolboxes...)`, which adds only toolboxes not already present (pointer-based deduplication).
 3. The child's registry is set to the parent's registry, enabling further delegation.
 
-Since `AddToolBoxes` appends parent toolboxes **after** the child's own, and `callTool` uses first-match, the child's config-defined tools take precedence on name collisions.
+`AddToolBoxes` deduplicates by pointer equality — if the parent and child share the same `*ToolBox` (e.g., both configured with `filesystem`), it will not be added twice. This prevents duplicate tool declarations from being sent to the LLM.
 
-**Implication**: a child agent may end up with tools beyond what its YAML config specifies. For example, if `code_reviewer` is configured with `[filesystem, search, git]` but is delegated from an `assistant` with `[filesystem, exec, search, git, http, state, tasks]`, the child will also have access to `exec`, `http`, `state`, and `tasks` via inheritance.
+**Implication**: a child agent may end up with tools beyond what its YAML config specifies. For example, if `code_reviewer` is configured with `[filesystem, search, git]` but is delegated from an `assistant` with `[filesystem, exec, search, git, http, state, tasks]`, the child will also have access to `exec`, `http`, `state`, and `tasks` via inheritance — but shared toolboxes like `filesystem`, `search`, and `git` will not be duplicated.
 
 ## Architecture
 

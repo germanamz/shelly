@@ -84,9 +84,21 @@ func (a *Agent) SetRegistry(r *Registry) {
 	a.registry = r
 }
 
-// AddToolBoxes adds user-provided toolboxes to the agent.
+// AddToolBoxes adds user-provided toolboxes to the agent, skipping any that
+// are already present (pointer equality) to avoid duplicate tools.
 func (a *Agent) AddToolBoxes(tbs ...*toolbox.ToolBox) {
-	a.toolboxes = append(a.toolboxes, tbs...)
+	existing := make(map[*toolbox.ToolBox]struct{}, len(a.toolboxes))
+	for _, tb := range a.toolboxes {
+		existing[tb] = struct{}{}
+	}
+
+	for _, tb := range tbs {
+		if _, dup := existing[tb]; dup {
+			continue
+		}
+		existing[tb] = struct{}{}
+		a.toolboxes = append(a.toolboxes, tb)
+	}
 }
 
 // Run executes the agent's ReAct loop with middleware applied.

@@ -756,6 +756,47 @@ func TestSpawnAgentsToolboxInheritance(t *testing.T) {
 	assert.Contains(t, spawnResultStr, "got parent tool")
 }
 
+func TestAddToolBoxesDeduplicates(t *testing.T) {
+	tb1 := newEchoToolBox()
+	tb2 := toolbox.New()
+	tb2.Register(toolbox.Tool{
+		Name:        "other",
+		Description: "Other tool",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Handler: func(_ context.Context, _ json.RawMessage) (string, error) {
+			return "ok", nil
+		},
+	})
+
+	a := New("bot", "", "", &sequenceCompleter{}, Options{})
+
+	// First call adds both.
+	a.AddToolBoxes(tb1, tb2)
+	assert.Len(t, a.toolboxes, 2)
+
+	// Second call with the same pointers should not add duplicates.
+	a.AddToolBoxes(tb1, tb2)
+	assert.Len(t, a.toolboxes, 2)
+
+	// Adding just one that's already present.
+	a.AddToolBoxes(tb1)
+	assert.Len(t, a.toolboxes, 2)
+
+	// A genuinely new toolbox is still accepted.
+	tb3 := toolbox.New()
+	a.AddToolBoxes(tb3)
+	assert.Len(t, a.toolboxes, 3)
+}
+
+func TestAddToolBoxesDeduplicatesWithinSingleCall(t *testing.T) {
+	tb := newEchoToolBox()
+	a := New("bot", "", "", &sequenceCompleter{}, Options{})
+
+	// Passing the same pointer twice in one call.
+	a.AddToolBoxes(tb, tb)
+	assert.Len(t, a.toolboxes, 1)
+}
+
 func TestDelegateToolboxInheritance(t *testing.T) {
 	// Parent toolbox with a custom tool.
 	parentTB := toolbox.New()
