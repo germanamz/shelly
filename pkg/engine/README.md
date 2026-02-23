@@ -7,6 +7,7 @@ Framework composition root that assembles all Shelly components from configurati
 ```
 engine/
 ├── config.go          Config structs + YAML loader
+├── effects.go         Effect factory registry + buildEffects()
 ├── engine.go          Engine type: wiring, lifecycle, session management
 ├── session.go         Session type: user interaction, Send(), chat access
 ├── event.go           EventBus, Event, EventKind, Subscription
@@ -90,9 +91,12 @@ agents:
     instructions: You are a coding expert.
     provider: default
     toolboxes: [filesystem, exec, search, git, http, state, tasks]
+    effects:
+      - kind: compact
+        params:
+          threshold: 0.8  # compact at 80% of context window
     options:
       max_iterations: 100
-      context_threshold: 0.8  # compact at 80% of context window
   - name: planner
     description: A planning expert
     instructions: You are a planning expert.
@@ -116,9 +120,13 @@ git:
   work_dir: /path/to/repo
 ```
 
-### Context Window Compaction
+### Effects
 
-Providers can declare `context_window` (max tokens). Agents can set `context_threshold` (fraction of the window that triggers compaction, default 0.8 when context_window > 0). When the agent's input tokens reach the threshold, the conversation is summarized and replaced, allowing the agent to continue without hitting API limits. See `pkg/agent` README for details.
+Agents support pluggable **effects** — per-iteration hooks that run inside the ReAct loop. Effects are configured per-agent in YAML via the `effects:` list, or auto-generated from legacy options for backward compatibility.
+
+When a provider declares `context_window` and no explicit effects are configured, the engine auto-generates a `compact` effect with the agent's `context_threshold` (default 0.8). This preserves backward compatibility with existing configs.
+
+Available effect kinds: `compact`. See `pkg/agent/effects/` for details.
 
 ### Toolbox Assignment and Inheritance
 

@@ -55,14 +55,21 @@ type MCPConfig struct {
 	Args    []string `yaml:"args"`
 }
 
+// EffectConfig describes a single effect attached to an agent.
+type EffectConfig struct {
+	Kind   string         `yaml:"kind"`
+	Params map[string]any `yaml:"params"`
+}
+
 // AgentConfig describes an agent to register.
 type AgentConfig struct {
-	Name         string       `yaml:"name"`
-	Description  string       `yaml:"description"`
-	Instructions string       `yaml:"instructions"`
-	Provider     string       `yaml:"provider"`
-	Toolboxes    []string     `yaml:"toolboxes"`
-	Options      AgentOptions `yaml:"options"`
+	Name         string         `yaml:"name"`
+	Description  string         `yaml:"description"`
+	Instructions string         `yaml:"instructions"`
+	Provider     string         `yaml:"provider"`
+	Toolboxes    []string       `yaml:"toolboxes"`
+	Effects      []EffectConfig `yaml:"effects"`
+	Options      AgentOptions   `yaml:"options"`
 }
 
 // AgentOptions holds optional agent behaviour settings.
@@ -91,6 +98,11 @@ func LoadConfig(path string) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// knownEffectKinds lists all recognised effect kind strings.
+var knownEffectKinds = map[string]struct{}{
+	"compact": {},
 }
 
 // Validate checks that the configuration is internally consistent.
@@ -147,6 +159,15 @@ func (c Config) Validate() error {
 		if a.Options.ContextThreshold < 0 || a.Options.ContextThreshold >= 1 {
 			if a.Options.ContextThreshold != 0 {
 				return fmt.Errorf("engine: config: agent %q: context_threshold must be in (0, 1) or 0 to disable", a.Name)
+			}
+		}
+
+		for i, ef := range a.Effects {
+			if ef.Kind == "" {
+				return fmt.Errorf("engine: config: agent %q: effect[%d]: kind is required", a.Name, i)
+			}
+			if _, ok := knownEffectKinds[ef.Kind]; !ok {
+				return fmt.Errorf("engine: config: agent %q: effect[%d]: unknown kind %q", a.Name, i, ef.Kind)
 			}
 		}
 

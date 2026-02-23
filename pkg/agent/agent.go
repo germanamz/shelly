@@ -29,14 +29,8 @@ type Options struct {
 	MaxDelegationDepth int           // Prevents infinite delegation loops (0 = unlimited).
 	Skills             []skill.Skill // Procedures the agent knows.
 	Middleware         []Middleware  // Applied around Run().
+	Effects            []Effect      // Per-iteration hooks run inside the ReAct loop.
 	Context            string        // Project context injected into the system prompt.
-	ContextWindow      int           // Provider's context window size (0 = no compaction).
-	ContextThreshold   float64       // Fraction triggering compaction (0 = disabled, default 0.8).
-
-	// AskFunc optionally asks the user a question on compaction failure.
-	AskFunc func(ctx context.Context, text string, options []string) (string, error)
-	// NotifyFunc optionally emits events (e.g. compaction notifications).
-	NotifyFunc func(ctx context.Context, message string)
 }
 
 // Agent is the unified agent type. It runs a ReAct loop, can delegate to other
@@ -124,8 +118,16 @@ func (a *Agent) run(ctx context.Context) (message.Message, error) {
 	}
 
 	for i := 0; a.options.MaxIterations == 0 || i < a.options.MaxIterations; i++ {
-		if i > 0 && a.shouldCompact() {
-			_ = a.compact(ctx)
+		ic := IterationContext{
+			Phase:     PhaseBeforeComplete,
+			Iteration: i,
+			Chat:      a.chat,
+			Completer: a.completer,
+			AgentName: a.name,
+		}
+
+		if err := a.evalEffects(ctx, ic); err != nil {
+			return message.Message{}, err
 		}
 
 		reply, err := a.completer.Complete(ctx, a.chat, tools)
@@ -135,6 +137,11 @@ func (a *Agent) run(ctx context.Context) (message.Message, error) {
 
 		reply.Sender = a.name
 		a.chat.Append(reply)
+
+		ic.Phase = PhaseAfterComplete
+		if err := a.evalEffects(ctx, ic); err != nil {
+			return message.Message{}, err
+		}
 
 		calls := reply.ToolCalls()
 		if len(calls) == 0 {
@@ -148,6 +155,17 @@ func (a *Agent) run(ctx context.Context) (message.Message, error) {
 	}
 
 	return message.Message{}, ErrMaxIterations
+}
+
+// evalEffects runs registered effects for the given phase.
+func (a *Agent) evalEffects(ctx context.Context, ic IterationContext) error {
+	for _, eff := range a.options.Effects {
+		if err := eff.Eval(ctx, ic); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // allToolBoxes returns the combined set of user toolboxes and orchestration

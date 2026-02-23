@@ -391,6 +391,28 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 		}
 	}
 
+	// Build effects from explicit config or auto-generate from legacy options.
+	effectConfigs := ac.Effects
+	if len(effectConfigs) == 0 && contextWindow > 0 {
+		// Backward compat: auto-generate a compact effect from context_threshold.
+		effectConfigs = []EffectConfig{{
+			Kind:   "compact",
+			Params: map[string]any{"threshold": contextThreshold},
+		}}
+	}
+
+	wctx := EffectWiringContext{
+		ContextWindow: contextWindow,
+		AgentName:     ac.Name,
+		AskFunc:       e.responder.Ask,
+		NotifyFunc:    notifyFn,
+	}
+
+	agentEffects, err := buildEffects(effectConfigs, wctx)
+	if err != nil {
+		return fmt.Errorf("engine: agent %q: %w", ac.Name, err)
+	}
+
 	// Capture values for factory closure.
 	name := ac.Name
 	desc := ac.Description
@@ -399,11 +421,8 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 		MaxIterations:      ac.Options.MaxIterations,
 		MaxDelegationDepth: ac.Options.MaxDelegationDepth,
 		Skills:             skills,
+		Effects:            agentEffects,
 		Context:            ctxStr,
-		ContextWindow:      contextWindow,
-		ContextThreshold:   contextThreshold,
-		AskFunc:            e.responder.Ask,
-		NotifyFunc:         notifyFn,
 	}
 
 	e.registry.Register(name, desc, func() *agent.Agent {

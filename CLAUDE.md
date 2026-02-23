@@ -49,7 +49,8 @@ Shelly is a Go project (module: `github.com/germanamz/shelly`, Go 1.25). CLI ent
 - `pkg/skill/` — folder-based skill loading with YAML frontmatter (procedures agents follow, on-demand via `load_skill` tool)
 - `pkg/shellydir/` — zero-dependency value object for `.shelly/` directory path resolution, structure bootstrapping, and permissions migration
 - `pkg/projectctx/` — loads curated context (`*.md` files) and generates/caches a structural project index for agent system prompts
-- `pkg/agent/` — unified agent with ReAct loop, registry-based delegation, middleware, orchestration tools, and context window compaction
+- `pkg/agent/` — unified agent with ReAct loop, registry-based delegation, middleware, orchestration tools, and pluggable effects system
+- `pkg/agent/effects/` — reusable Effect implementations (e.g. context window compaction)
 - `pkg/agentctx/` — shared context key helpers for propagating agent identity across packages
 - `pkg/state/` — key-value state store for agents
 - `pkg/tasks/` — shared task board for multi-agent coordination (create, claim, watch tasks)
@@ -69,6 +70,7 @@ Shelly is a Go project (module: `github.com/germanamz/shelly`, Go 1.25). CLI ent
 - `pkg/projectctx/` depends on `pkg/shellydir/` (path resolution)
 - `pkg/agentctx/` has no dependencies on other `pkg/` packages (zero-dependency by design)
 - `pkg/agent/` depends on `pkg/agentctx/`, `pkg/modeladapter/`, `pkg/tools/toolbox/`, `pkg/chats/`, and `pkg/skill/`
+- `pkg/agent/effects/` depends on `pkg/agent` (for `Effect` interface), `pkg/chats/`, and `pkg/modeladapter/` — `pkg/agent` never imports `pkg/agent/effects/`
 - `pkg/tasks/` depends on `pkg/agentctx/` and `pkg/tools/toolbox/`
 - `pkg/engine/` depends on all other `pkg/` packages — it is the top-level composition root
 - `cmd/shelly/` is the CLI entry point
