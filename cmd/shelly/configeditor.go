@@ -514,7 +514,11 @@ func editAgents(ec *editorConfig) error {
 				a.Provider = providerNames[0]
 			}
 
-			if err := editAgentForm(&a, providerNames, mcpNames); err != nil {
+			if err := editAgentForm(&a, providerNames); err != nil {
+				return err
+			}
+
+			if err := editAgentToolboxes(&a, mcpNames); err != nil {
 				return err
 			}
 
@@ -524,7 +528,7 @@ func editAgents(ec *editorConfig) error {
 
 			for i := range ec.Agents {
 				if ec.Agents[i].Name == name {
-					if err := editAgentForm(&ec.Agents[i], providerNames, mcpNames); err != nil {
+					if err := editAgentMenu(&ec.Agents[i], providerNames, mcpNames); err != nil {
 						return err
 					}
 
@@ -547,8 +551,42 @@ func editAgents(ec *editorConfig) error {
 	}
 }
 
-// editAgentForm shows a pre-filled form for editing a single agent.
-func editAgentForm(a *editorAgent, providerNames, mcpNames []string) error {
+// editAgentMenu shows a sub-menu for editing different aspects of an agent.
+func editAgentMenu(a *editorAgent, providerNames, mcpNames []string) error {
+	for {
+		var choice string
+
+		err := huh.NewForm(huh.NewGroup(
+			huh.NewSelect[string]().
+				Title(fmt.Sprintf("Edit Agent: %s", a.Name)).
+				Options(
+					huh.NewOption("Details", "details"),
+					huh.NewOption("Toolboxes", "toolboxes"),
+					huh.NewOption("Back", "back"),
+				).
+				Value(&choice),
+		)).Run()
+		if err != nil {
+			return err
+		}
+
+		switch choice {
+		case "details":
+			if err := editAgentForm(a, providerNames); err != nil {
+				return err
+			}
+		case "toolboxes":
+			if err := editAgentToolboxes(a, mcpNames); err != nil {
+				return err
+			}
+		case "back":
+			return nil
+		}
+	}
+}
+
+// editAgentForm shows a pre-filled form for editing agent details.
+func editAgentForm(a *editorAgent, providerNames []string) error {
 	provOpts := make([]huh.Option[string], len(providerNames))
 	for i, n := range providerNames {
 		provOpts[i] = huh.NewOption(n, n)
@@ -557,6 +595,33 @@ func editAgentForm(a *editorAgent, providerNames, mcpNames []string) error {
 	maxIter := strconv.Itoa(a.MaxIterations)
 	maxDepth := strconv.Itoa(a.MaxDelegationDepth)
 
+	fields := []huh.Field{
+		huh.NewInput().Title("Agent name").Value(&a.Name),
+		huh.NewInput().Title("Description").Value(&a.Description),
+		huh.NewText().Title("Instructions").Value(&a.Instructions),
+	}
+
+	if len(provOpts) > 0 {
+		fields = append(fields, huh.NewSelect[string]().Title("Provider").Options(provOpts...).Value(&a.Provider))
+	}
+
+	fields = append(fields,
+		huh.NewInput().Title("Max iterations").Value(&maxIter).Validate(validatePositiveInt),
+		huh.NewInput().Title("Max delegation depth").Value(&maxDepth).Validate(validateNonNegativeInt),
+	)
+
+	if err := huh.NewForm(huh.NewGroup(fields...)).Run(); err != nil {
+		return err
+	}
+
+	a.MaxIterations, _ = strconv.Atoi(maxIter)
+	a.MaxDelegationDepth, _ = strconv.Atoi(maxDepth)
+
+	return nil
+}
+
+// editAgentToolboxes shows a multi-select form for editing an agent's toolboxes.
+func editAgentToolboxes(a *editorAgent, mcpNames []string) error {
 	builtinToolboxes := []string{"filesystem", "exec", "search", "git", "http", "state", "tasks"}
 
 	selectedSet := make(map[string]bool, len(a.Toolboxes))
@@ -584,38 +649,18 @@ func editAgentForm(a *editorAgent, providerNames, mcpNames []string) error {
 		toolboxOpts = append(toolboxOpts, opt)
 	}
 
-	fields := []huh.Field{
-		huh.NewInput().Title("Agent name").Value(&a.Name),
-		huh.NewInput().Title("Description").Value(&a.Description),
-		huh.NewText().Title("Instructions").Value(&a.Instructions),
+	if len(toolboxOpts) == 0 {
+		fmt.Println("No toolboxes available.")
+
+		return nil
 	}
 
-	if len(provOpts) > 0 {
-		fields = append(fields, huh.NewSelect[string]().Title("Provider").Options(provOpts...).Value(&a.Provider))
-	}
-
-	fields = append(fields,
-		huh.NewInput().Title("Max iterations").Value(&maxIter).Validate(validatePositiveInt),
-		huh.NewInput().Title("Max delegation depth").Value(&maxDepth).Validate(validateNonNegativeInt),
-	)
-
-	if len(toolboxOpts) > 0 {
-		fields = append(fields,
-			huh.NewMultiSelect[string]().
-				Title("Toolboxes").
-				Options(toolboxOpts...).
-				Value(&a.Toolboxes),
-		)
-	}
-
-	if err := huh.NewForm(huh.NewGroup(fields...)).Run(); err != nil {
-		return err
-	}
-
-	a.MaxIterations, _ = strconv.Atoi(maxIter)
-	a.MaxDelegationDepth, _ = strconv.Atoi(maxDepth)
-
-	return nil
+	return huh.NewForm(huh.NewGroup(
+		huh.NewMultiSelect[string]().
+			Title("Toolboxes").
+			Options(toolboxOpts...).
+			Value(&a.Toolboxes),
+	)).Run()
 }
 
 // editEntryAgent lets the user pick which agent is the entry point.
