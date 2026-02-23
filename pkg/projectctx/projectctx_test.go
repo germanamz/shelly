@@ -17,9 +17,24 @@ func TestContext_String(t *testing.T) {
 		want string
 	}{
 		{
-			name: "both curated and generated",
+			name: "all fields",
+			ctx:  Context{External: "external", Curated: "curated", Generated: "generated"},
+			want: "external\n\ncurated\n\ngenerated",
+		},
+		{
+			name: "external and curated",
+			ctx:  Context{External: "external", Curated: "curated"},
+			want: "external\n\ncurated",
+		},
+		{
+			name: "curated and generated",
 			ctx:  Context{Curated: "curated content", Generated: "generated content"},
 			want: "curated content\n\ngenerated content",
+		},
+		{
+			name: "external only",
+			ctx:  Context{External: "external content"},
+			want: "external content",
 		},
 		{
 			name: "curated only",
@@ -90,7 +105,7 @@ func TestLoad(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(localDir, "context-cache.json"), []byte("Generated index"), 0o600))
 
 	d := shellydir.New(tmp)
-	ctx := Load(d)
+	ctx := Load(d, filepath.Dir(tmp))
 
 	assert.Equal(t, "Project info", ctx.Curated)
 	assert.Equal(t, "Generated index", ctx.Generated)
@@ -98,7 +113,7 @@ func TestLoad(t *testing.T) {
 
 func TestLoad_MissingDir(t *testing.T) {
 	d := shellydir.New("/nonexistent/.shelly")
-	ctx := Load(d)
+	ctx := Load(d, "/nonexistent")
 
 	assert.Empty(t, ctx.Curated)
 	assert.Empty(t, ctx.Generated)

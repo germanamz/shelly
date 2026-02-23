@@ -4,10 +4,16 @@ Package `projectctx` loads curated context and generates/caches a structural pro
 
 ## Purpose
 
-Agents need to understand the project they are working in. This package assembles project context from two sources:
+Agents need to understand the project they are working in. This package assembles project context from three sources:
 
-1. **Curated context** — hand-written `*.md` files in the `.shelly/` root (e.g., `context.md`).
-2. **Generated index** — an auto-generated structural overview cached in `.shelly/local/context-cache.json`.
+1. **External context** — context files from other AI coding tools, loaded from the project root:
+   - `CLAUDE.md` (Claude Code)
+   - `.cursorrules` (Cursor legacy)
+   - `.cursor/rules/*.mdc` (Cursor modern, YAML frontmatter stripped)
+2. **Curated context** — hand-written `*.md` files in the `.shelly/` root (e.g., `context.md`).
+3. **Generated index** — an auto-generated structural overview cached in `.shelly/local/context-cache.json`.
+
+External context appears first in the combined output so that Shelly-specific curated context takes precedence by appearing later.
 
 The combined context is injected into agent system prompts via `agent.Options.Context`.
 
@@ -26,7 +32,7 @@ The cache is considered stale when `go.mod` is newer than the cache file. Use `I
 
 ```go
 d := shellydir.New(".shelly")
-ctx := projectctx.Load(d)
+ctx := projectctx.Load(d, "/path/to/project")
 
 // Inject into agent options.
 opts := agent.Options{

@@ -58,6 +58,14 @@ func New(name, description, instructions string, completer modeladapter.Complete
 	}
 }
 
+// Init builds the system prompt and appends it to the chat. Call this after
+// SetRegistry and AddToolBoxes so the prompt includes all available agents.
+func (a *Agent) Init() {
+	if a.chat.SystemPrompt() == "" {
+		a.chat.Append(message.NewText(a.name, role.System, a.buildSystemPrompt()))
+	}
+}
+
 // Name returns the agent's name.
 func (a *Agent) Name() string { return a.name }
 
@@ -96,10 +104,8 @@ func (a *Agent) Run(ctx context.Context) (message.Message, error) {
 func (a *Agent) run(ctx context.Context) (message.Message, error) {
 	ctx = agentctx.WithAgentName(ctx, a.name)
 
-	// Build system prompt if the chat is empty.
-	if a.chat.Len() == 0 {
-		a.chat.Append(message.NewText(a.name, role.System, a.buildSystemPrompt()))
-	}
+	// Ensure system prompt exists (fallback for direct usage without Init).
+	a.Init()
 
 	// Collect all toolboxes (user + orchestration).
 	toolboxes := a.allToolBoxes()
@@ -162,6 +168,9 @@ func (a *Agent) buildSystemPrompt() string {
 	// Project context.
 	if a.options.Context != "" {
 		b.WriteString("\n## Project Context\n\n")
+		b.WriteString("The following is context about the project you are working in. ")
+		b.WriteString("Treat this as your own knowledge — do not say you lack context about the project. ")
+		b.WriteString("Use this information to guide your responses and actions.\n\n")
 		b.WriteString(a.options.Context)
 		b.WriteString("\n")
 	}

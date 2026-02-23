@@ -13,15 +13,26 @@ import (
 
 // Context holds the assembled project context.
 type Context struct {
+	External  string // Content from external AI tool context files (CLAUDE.md, .cursorrules, etc.).
 	Curated   string // Content from curated *.md files.
 	Generated string // Auto-generated structural index.
 }
 
 // String returns the combined context for injection into a system prompt.
+// External context appears first, followed by curated, then generated — so
+// project-specific Shelly context takes precedence by appearing later.
 func (c Context) String() string {
 	var b strings.Builder
 
+	if c.External != "" {
+		b.WriteString(c.External)
+	}
+
 	if c.Curated != "" {
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+
 		b.WriteString(c.Curated)
 	}
 
@@ -36,10 +47,12 @@ func (c Context) String() string {
 	return b.String()
 }
 
-// Load assembles project context from curated files and the generated cache.
-// Both sources are best-effort: missing files are silently skipped.
-func Load(d shellydir.Dir) Context {
+// Load assembles project context from external tool files, curated files, and
+// the generated cache. All sources are best-effort: missing files are silently
+// skipped.
+func Load(d shellydir.Dir, projectRoot string) Context {
 	return Context{
+		External:  LoadExternal(projectRoot),
 		Curated:   LoadCurated(d),
 		Generated: loadGenerated(d),
 	}

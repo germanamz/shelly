@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -90,7 +91,7 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 	}
 
 	// Load project context (best-effort).
-	e.projectCtx = projectctx.Load(dir)
+	e.projectCtx = projectctx.Load(dir, filepath.Dir(dir.Root()))
 
 	// Build provider completers.
 	for _, pc := range cfg.Providers {
@@ -244,6 +245,7 @@ func (e *Engine) NewSession(agentName string) (*Session, error) {
 
 	a := factory()
 	a.SetRegistry(e.registry)
+	a.Init()
 
 	s := newSession(id, a, e.events, e.responder)
 

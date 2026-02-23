@@ -328,6 +328,7 @@ func TestSystemPromptContext(t *testing.T) {
 
 	prompt := a.Chat().SystemPrompt()
 	assert.Contains(t, prompt, "## Project Context")
+	assert.Contains(t, prompt, "Treat this as your own knowledge")
 	assert.Contains(t, prompt, "This is a Go project using module github.com/example/foo.")
 	// Context should appear after instructions.
 	instrIdx := len("## Instructions")
