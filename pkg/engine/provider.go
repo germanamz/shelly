@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/germanamz/shelly/pkg/modeladapter"
 	"github.com/germanamz/shelly/pkg/providers/anthropic"
@@ -80,12 +81,36 @@ func newGrok(cfg ProviderConfig) (modeladapter.Completer, error) {
 }
 
 // buildCompleter creates a Completer from a ProviderConfig using the registered
-// factory for its Kind.
+// factory for its Kind. If rate limiting is configured, the completer is wrapped
+// with a RateLimitedCompleter.
 func buildCompleter(cfg ProviderConfig) (modeladapter.Completer, error) {
 	factory, ok := getFactory(cfg.Kind)
 	if !ok {
 		return nil, fmt.Errorf("engine: unknown provider kind %q", cfg.Kind)
 	}
 
-	return factory(cfg)
+	c, err := factory(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	rl := cfg.RateLimit
+	if rl.TPM > 0 || rl.MaxRetries > 0 || rl.BaseDelay != "" {
+		var baseDelay time.Duration
+		if rl.BaseDelay != "" {
+			var parseErr error
+			baseDelay, parseErr = time.ParseDuration(rl.BaseDelay)
+			if parseErr != nil {
+				return nil, fmt.Errorf("engine: provider %q: invalid base_delay %q: %w", cfg.Name, rl.BaseDelay, parseErr)
+			}
+		}
+
+		c = modeladapter.NewRateLimitedCompleter(c, modeladapter.RateLimitOpts{
+			TPM:        rl.TPM,
+			MaxRetries: rl.MaxRetries,
+			BaseDelay:  baseDelay,
+		})
+	}
+
+	return c, nil
 }

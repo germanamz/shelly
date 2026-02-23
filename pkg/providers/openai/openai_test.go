@@ -12,6 +12,7 @@ import (
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/chats/role"
+	"github.com/germanamz/shelly/pkg/modeladapter"
 	"github.com/germanamz/shelly/pkg/providers/openai"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 	"github.com/stretchr/testify/assert"
@@ -262,5 +263,7 @@ func TestComplete_HTTPError(t *testing.T) {
 
 	_, err := adapter.Complete(context.Background(), c)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "429")
+
+	var rle *modeladapter.RateLimitError
+	assert.ErrorAs(t, err, &rle)
 }

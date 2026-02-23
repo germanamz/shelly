@@ -8,13 +8,42 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/germanamz/shelly/pkg/chats/chat"
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/modeladapter/usage"
 )
+
+// RateLimitError is returned when the API responds with HTTP 429 (Too Many Requests).
+// It carries an optional RetryAfter duration parsed from the Retry-After header.
+type RateLimitError struct {
+	RetryAfter time.Duration
+	Body       string
+}
+
+func (e *RateLimitError) Error() string {
+	if e.RetryAfter > 0 {
+		return fmt.Sprintf("rate limited (retry after %s): %s", e.RetryAfter, e.Body)
+	}
+	return fmt.Sprintf("rate limited: %s", e.Body)
+}
+
+// parseRetryAfter parses the Retry-After header value as either seconds (integer)
+// or falls back to zero if unparseable.
+func parseRetryAfter(val string) time.Duration {
+	if val == "" {
+		return 0
+	}
+	secs, err := strconv.Atoi(val)
+	if err != nil {
+		return 0
+	}
+	return time.Duration(secs) * time.Second
+}
 
 // Completer sends a conversation to an LLM and returns the assistant's reply.
 type Completer interface {
@@ -147,6 +176,14 @@ func (a *ModelAdapter) PostJSON(ctx context.Context, path string, payload any, d
 		return fmt.Errorf("do request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		respBody, _ := io.ReadAll(resp.Body)
+		return &RateLimitError{
+			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
+			Body:       string(respBody),
+		}
+	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		respBody, _ := io.ReadAll(resp.Body)

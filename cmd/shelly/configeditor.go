@@ -14,11 +14,14 @@ import (
 // Editor working types.
 
 type editorProvider struct {
-	Kind    string
-	Name    string
-	BaseURL string
-	APIKey  string //nolint:gosec // env var reference, not a secret
-	Model   string
+	Kind       string
+	Name       string
+	BaseURL    string
+	APIKey     string //nolint:gosec // env var reference, not a secret
+	Model      string
+	TPM        string
+	MaxRetries string
+	BaseDelay  string
 }
 
 type editorMCP struct {
@@ -66,11 +69,12 @@ type editorConfigYAML struct {
 }
 
 type editorProviderYAML struct {
-	Name    string `yaml:"name"`
-	Kind    string `yaml:"kind"`
-	BaseURL string `yaml:"base_url,omitempty"`
-	APIKey  string `yaml:"api_key"` //nolint:gosec // env var reference, not a secret
-	Model   string `yaml:"model"`
+	Name      string         `yaml:"name"`
+	Kind      string         `yaml:"kind"`
+	BaseURL   string         `yaml:"base_url,omitempty"`
+	APIKey    string         `yaml:"api_key"` //nolint:gosec // env var reference, not a secret
+	Model     string         `yaml:"model"`
+	RateLimit *rateLimitYAML `yaml:"rate_limit,omitempty"`
 }
 
 type editorAgentYAML struct {
@@ -180,13 +184,25 @@ func configToEditor(cfg engine.Config) editorConfig {
 	}
 
 	for _, p := range cfg.Providers {
-		ec.Providers = append(ec.Providers, editorProvider{
+		ep := editorProvider{
 			Kind:    p.Kind,
 			Name:    p.Name,
 			BaseURL: p.BaseURL,
 			APIKey:  p.APIKey,
 			Model:   p.Model,
-		})
+		}
+
+		if p.RateLimit.TPM > 0 {
+			ep.TPM = strconv.Itoa(p.RateLimit.TPM)
+		}
+
+		if p.RateLimit.MaxRetries > 0 {
+			ep.MaxRetries = strconv.Itoa(p.RateLimit.MaxRetries)
+		}
+
+		ep.BaseDelay = p.RateLimit.BaseDelay
+
+		ec.Providers = append(ec.Providers, ep)
 	}
 
 	for _, a := range cfg.Agents {
@@ -232,12 +248,20 @@ func editorToEngineConfig(ec editorConfig) engine.Config {
 	}
 
 	for _, p := range ec.Providers {
+		tpm, _ := strconv.Atoi(p.TPM)
+		maxRetries, _ := strconv.Atoi(p.MaxRetries)
+
 		cfg.Providers = append(cfg.Providers, engine.ProviderConfig{
 			Name:    p.Name,
 			Kind:    p.Kind,
 			BaseURL: p.BaseURL,
 			APIKey:  p.APIKey,
 			Model:   p.Model,
+			RateLimit: engine.RateLimitConfig{
+				TPM:        tpm,
+				MaxRetries: maxRetries,
+				BaseDelay:  p.BaseDelay,
+			},
 		})
 	}
 
@@ -291,13 +315,26 @@ func marshalEditorConfig(ec editorConfig) ([]byte, error) {
 	}
 
 	for _, p := range ec.Providers {
-		yc.Providers = append(yc.Providers, editorProviderYAML{
+		py := editorProviderYAML{
 			Name:    p.Name,
 			Kind:    p.Kind,
 			BaseURL: p.BaseURL,
 			APIKey:  p.APIKey,
 			Model:   p.Model,
-		})
+		}
+
+		tpm, _ := strconv.Atoi(p.TPM)
+		maxRetries, _ := strconv.Atoi(p.MaxRetries)
+
+		if tpm > 0 || maxRetries > 0 || p.BaseDelay != "" {
+			py.RateLimit = &rateLimitYAML{
+				TPM:        tpm,
+				MaxRetries: maxRetries,
+				BaseDelay:  p.BaseDelay,
+			}
+		}
+
+		yc.Providers = append(yc.Providers, py)
 	}
 
 	for _, a := range ec.Agents {
@@ -447,20 +484,35 @@ func editProviders(ec *editorConfig) error {
 
 // editProviderForm shows a pre-filled form for editing a single provider.
 func editProviderForm(p *editorProvider) error {
-	return huh.NewForm(huh.NewGroup(
-		huh.NewSelect[string]().
-			Title("Provider kind").
-			Options(
-				huh.NewOption("Anthropic", "anthropic"),
-				huh.NewOption("OpenAI", "openai"),
-				huh.NewOption("Grok", "grok"),
-			).
-			Value(&p.Kind),
-		huh.NewInput().Title("Provider name").Value(&p.Name),
-		huh.NewInput().Title("Base URL (optional)").Value(&p.BaseURL),
-		huh.NewInput().Title("API key env var").Value(&p.APIKey),
-		huh.NewInput().Title("Model").Value(&p.Model),
-	)).Run()
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Provider kind").
+				Options(
+					huh.NewOption("Anthropic", "anthropic"),
+					huh.NewOption("OpenAI", "openai"),
+					huh.NewOption("Grok", "grok"),
+				).
+				Value(&p.Kind),
+			huh.NewInput().Title("Provider name").Value(&p.Name),
+			huh.NewInput().Title("Base URL (optional)").Value(&p.BaseURL),
+			huh.NewInput().Title("API key env var").Value(&p.APIKey),
+			huh.NewInput().Title("Model").Value(&p.Model),
+		),
+		huh.NewGroup(
+			huh.NewInput().Title("Tokens per minute (0 = no limit)").Value(&p.TPM).Validate(validateOptionalNonNegativeInt),
+			huh.NewInput().Title("Max retries on 429").Value(&p.MaxRetries).Validate(validateOptionalNonNegativeInt),
+			huh.NewInput().Title("Base backoff delay (e.g. 1s, 500ms)").Value(&p.BaseDelay).Validate(validateDuration),
+		).Title("Rate Limiting"),
+	).Run()
+}
+
+func validateOptionalNonNegativeInt(s string) error {
+	if s == "" {
+		return nil
+	}
+
+	return validateNonNegativeInt(s)
 }
 
 // editAgents manages the agents list (Add/Edit/Remove/Back).

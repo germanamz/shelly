@@ -50,13 +50,21 @@ type HTTPConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
+// RateLimitConfig controls per-provider rate limiting.
+type RateLimitConfig struct {
+	TPM        int    `yaml:"tpm"`         // Tokens per minute (0 = no proactive limit).
+	MaxRetries int    `yaml:"max_retries"` // Max retries on 429 (default 3).
+	BaseDelay  string `yaml:"base_delay"`  // Initial backoff delay as a duration string (e.g. "1s", "500ms").
+}
+
 // ProviderConfig describes an LLM provider instance.
 type ProviderConfig struct {
-	Name    string `yaml:"name"`
-	Kind    string `yaml:"kind"`
-	BaseURL string `yaml:"base_url"`
-	APIKey  string `yaml:"api_key"` //nolint:gosec // configuration field, not a hardcoded secret
-	Model   string `yaml:"model"`
+	Name      string          `yaml:"name"`
+	Kind      string          `yaml:"kind"`
+	BaseURL   string          `yaml:"base_url"`
+	APIKey    string          `yaml:"api_key"` //nolint:gosec // configuration field, not a hardcoded secret
+	Model     string          `yaml:"model"`
+	RateLimit RateLimitConfig `yaml:"rate_limit"`
 }
 
 // MCPConfig describes an MCP server to connect to.

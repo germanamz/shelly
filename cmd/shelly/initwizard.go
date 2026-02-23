@@ -3,16 +3,20 @@ package main
 import (
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/charmbracelet/huh"
 	"gopkg.in/yaml.v3"
 )
 
 type wizardProvider struct {
-	Kind   string
-	Name   string
-	APIKey string //nolint:gosec // env var reference, not a secret
-	Model  string
+	Kind       string
+	Name       string
+	APIKey     string //nolint:gosec // env var reference, not a secret
+	Model      string
+	TPM        string
+	MaxRetries string
+	BaseDelay  string
 }
 
 type wizardAgent struct {
@@ -114,13 +118,36 @@ func wizardPromptProvider() (wizardProvider, error) {
 	p.APIKey = defaults.APIKey
 	p.Model = defaults.Model
 
-	err := huh.NewForm(huh.NewGroup(
+	if err := huh.NewForm(huh.NewGroup(
 		huh.NewInput().Title("Provider name").Value(&p.Name),
 		huh.NewInput().Title("API key env var").Value(&p.APIKey),
 		huh.NewInput().Title("Model").Value(&p.Model),
-	)).Run()
+	)).Run(); err != nil {
+		return p, err
+	}
 
-	return p, err
+	var configRL bool
+	if err := huh.NewForm(huh.NewGroup(
+		huh.NewConfirm().Title("Configure rate limiting?").Value(&configRL),
+	)).Run(); err != nil {
+		return p, err
+	}
+
+	if configRL {
+		p.TPM = "0"
+		p.MaxRetries = "3"
+		p.BaseDelay = "1s"
+
+		if err := huh.NewForm(huh.NewGroup(
+			huh.NewInput().Title("Tokens per minute (0 = no limit)").Value(&p.TPM).Validate(validateNonNegativeInt),
+			huh.NewInput().Title("Max retries on 429").Value(&p.MaxRetries).Validate(validateNonNegativeInt),
+			huh.NewInput().Title("Base backoff delay (e.g. 1s, 500ms)").Value(&p.BaseDelay).Validate(validateDuration),
+		)).Run(); err != nil {
+			return p, err
+		}
+	}
+
+	return p, nil
 }
 
 func wizardAgents(cfg *wizardConfig) error {
@@ -248,6 +275,18 @@ func validateNonNegativeInt(s string) error {
 	return nil
 }
 
+func validateDuration(s string) error {
+	if s == "" {
+		return nil
+	}
+
+	if _, err := time.ParseDuration(s); err != nil {
+		return fmt.Errorf("must be a valid duration (e.g. 1s, 500ms)")
+	}
+
+	return nil
+}
+
 // YAML output types.
 
 type configYAML struct {
@@ -264,10 +303,17 @@ type configYAML struct {
 }
 
 type providerYAML struct {
-	Name   string `yaml:"name"`
-	Kind   string `yaml:"kind"`
-	APIKey string `yaml:"api_key"` //nolint:gosec // env var reference, not a secret
-	Model  string `yaml:"model"`
+	Name      string         `yaml:"name"`
+	Kind      string         `yaml:"kind"`
+	APIKey    string         `yaml:"api_key"` //nolint:gosec // env var reference, not a secret
+	Model     string         `yaml:"model"`
+	RateLimit *rateLimitYAML `yaml:"rate_limit,omitempty"`
+}
+
+type rateLimitYAML struct {
+	TPM        int    `yaml:"tpm,omitempty"`
+	MaxRetries int    `yaml:"max_retries,omitempty"`
+	BaseDelay  string `yaml:"base_delay,omitempty"`
 }
 
 type agentYAML struct {
@@ -305,12 +351,25 @@ func marshalWizardConfig(cfg wizardConfig) ([]byte, error) {
 	}
 
 	for _, p := range cfg.Providers {
-		yc.Providers = append(yc.Providers, providerYAML{
+		py := providerYAML{
 			Name:   p.Name,
 			Kind:   p.Kind,
 			APIKey: p.APIKey,
 			Model:  p.Model,
-		})
+		}
+
+		tpm, _ := strconv.Atoi(p.TPM)
+		maxRetries, _ := strconv.Atoi(p.MaxRetries)
+
+		if tpm > 0 || maxRetries > 0 || p.BaseDelay != "" {
+			py.RateLimit = &rateLimitYAML{
+				TPM:        tpm,
+				MaxRetries: maxRetries,
+				BaseDelay:  p.BaseDelay,
+			}
+		}
+
+		yc.Providers = append(yc.Providers, py)
 	}
 
 	for _, a := range cfg.Agents {
