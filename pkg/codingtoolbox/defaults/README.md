@@ -4,7 +4,7 @@ Package `defaults` provides a plug-and-play default toolbox builder. It merges m
 
 ## Purpose
 
-Instead of requiring every agent to list built-in toolboxes (ask, filesystem, state) individually, the engine builds a single defaults toolbox from all enabled built-in tools and injects it into every agent. Additional toolboxes (e.g. MCP servers) can still be added per-agent via `toolbox_names` in config.
+Merges multiple toolboxes into one composite toolbox. This package is available for consumers that need to combine toolboxes outside the engine. The engine itself uses per-agent `toolboxes` lists in configuration — each agent declares exactly which toolboxes it needs, and the `ask` toolbox is always included implicitly.
 
 ## Usage
 

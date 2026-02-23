@@ -76,8 +76,10 @@ Tool handlers read agent identity via `agentctx.AgentNameFromContext(ctx)` for `
 
 ## Configuration
 
-Enable in YAML config:
+Include `tasks` in an agent's `toolboxes` list to enable the shared task board for that agent:
 
 ```yaml
-tasks_enabled: true
+agents:
+  - name: orchestrator
+    toolboxes: [tasks, filesystem, search]
 ```
