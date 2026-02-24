@@ -218,8 +218,8 @@ func (m *appModel) handleSubmit(msg inputSubmitMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Println(helpText())
 	}
 
-	// Print user message to terminal scrollback.
-	userLine := userBlockStyle.Render(userPrefixStyle.Render("🧑 You > ") + text)
+	// Print user message to terminal scrollback with a leading blank line.
+	userLine := "\n" + renderUserMessage(text)
 	printCmd := tea.Println(userLine)
 
 	m.state = stateProcessing

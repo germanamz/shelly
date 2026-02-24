@@ -27,16 +27,23 @@ func (m *thinkingMessage) View(width int) string {
 	if prefix == "" {
 		prefix = "🤖"
 	}
-	maxLen := 120
-	txt := truncate(m.text, maxLen)
-	line := fmt.Sprintf("  %s",
-		thinkingTextStyle.Render(fmt.Sprintf("%s %s > %s", prefix, m.agent, txt)),
-	)
+	header := thinkingTextStyle.Render(fmt.Sprintf("%s %s >", prefix, m.agent))
+
+	var sb strings.Builder
+	first := true
+	for line := range strings.SplitSeq(strings.TrimRight(m.text, "\n"), "\n") {
+		if first {
+			fmt.Fprintf(&sb, "  %s %s", header, thinkingTextStyle.Render(line))
+			first = false
+		} else {
+			fmt.Fprintf(&sb, "\n  %s", thinkingTextStyle.Render("  "+line))
+		}
+	}
 	if m.elapsed > 0 {
 		footer := thinkingFooterStyle.Render(fmt.Sprintf("── Thought for %s", fmtDuration(m.elapsed)))
-		line += "\n  " + footer
+		sb.WriteString("\n  " + footer)
 	}
-	return line
+	return sb.String()
 }
 
 func (m *thinkingMessage) IsLive() bool { return false }

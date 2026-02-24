@@ -117,8 +117,8 @@ func (m *chatViewModel) processAssistantMessage(msg message.Message) tea.Cmd {
 			prefix = ac.prefix
 		}
 		rendered := renderMarkdown(text)
-		line := answerBlockStyle.Render(
-			answerPrefixStyle.Render(fmt.Sprintf("%s %s > ", prefix, agentName)) + rendered,
+		line := "\n" + answerBlockStyle.Render(
+			answerPrefixStyle.Render(fmt.Sprintf("%s %s > ", prefix, agentName))+rendered,
 		)
 		return tea.Println(line)
 	}
@@ -174,7 +174,7 @@ func (m *chatViewModel) endAgent(agentName string) tea.Cmd {
 	}
 
 	if summary != "" {
-		return tea.Println(summary)
+		return tea.Println("\n" + summary)
 	}
 	return nil
 }
