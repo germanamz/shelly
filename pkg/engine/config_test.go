@@ -238,9 +238,11 @@ func TestConfig_Validate_DuplicateMCP(t *testing.T) {
 	assert.ErrorContains(t, cfg.Validate(), "duplicate mcp server name")
 }
 
+func intPtr(v int) *int { return &v }
+
 func TestConfig_Validate_NegativeContextWindow(t *testing.T) {
 	cfg := Config{
-		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic", ContextWindow: -1}},
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic", ContextWindow: intPtr(-1)}},
 		Agents:    []AgentConfig{{Name: "a1"}},
 	}
 	assert.ErrorContains(t, cfg.Validate(), "context_window must be >= 0")
@@ -248,7 +250,23 @@ func TestConfig_Validate_NegativeContextWindow(t *testing.T) {
 
 func TestConfig_Validate_ValidContextWindow(t *testing.T) {
 	cfg := Config{
-		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic", ContextWindow: 200000}},
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic", ContextWindow: intPtr(200000)}},
+		Agents:    []AgentConfig{{Name: "a1"}},
+	}
+	assert.NoError(t, cfg.Validate())
+}
+
+func TestConfig_Validate_NilContextWindow(t *testing.T) {
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
+		Agents:    []AgentConfig{{Name: "a1"}},
+	}
+	assert.NoError(t, cfg.Validate())
+}
+
+func TestConfig_Validate_ZeroContextWindow(t *testing.T) {
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic", ContextWindow: intPtr(0)}},
 		Agents:    []AgentConfig{{Name: "a1"}},
 	}
 	assert.NoError(t, cfg.Validate())

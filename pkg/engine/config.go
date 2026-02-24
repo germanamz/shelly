@@ -9,13 +9,14 @@ import (
 
 // Config is the top-level engine configuration.
 type Config struct {
-	ShellyDir  string           `yaml:"-"` // Set by CLI, not from YAML.
-	Providers  []ProviderConfig `yaml:"providers"`
-	MCPServers []MCPConfig      `yaml:"mcp_servers"`
-	Agents     []AgentConfig    `yaml:"agents"`
-	EntryAgent string           `yaml:"entry_agent"`
-	Filesystem FilesystemConfig `yaml:"filesystem"`
-	Git        GitConfig        `yaml:"git"`
+	ShellyDir             string           `yaml:"-"` // Set by CLI, not from YAML.
+	Providers             []ProviderConfig `yaml:"providers"`
+	MCPServers            []MCPConfig      `yaml:"mcp_servers"`
+	Agents                []AgentConfig    `yaml:"agents"`
+	EntryAgent            string           `yaml:"entry_agent"`
+	Filesystem            FilesystemConfig `yaml:"filesystem"`
+	Git                   GitConfig        `yaml:"git"`
+	DefaultContextWindows map[string]int   `yaml:"default_context_windows"` // Per-kind context window overrides (e.g. anthropic: 200000).
 }
 
 // FilesystemConfig holds filesystem tool settings.
@@ -44,7 +45,7 @@ type ProviderConfig struct {
 	BaseURL       string          `yaml:"base_url"`
 	APIKey        string          `yaml:"api_key"` //nolint:gosec // configuration field, not a hardcoded secret
 	Model         string          `yaml:"model"`
-	ContextWindow int             `yaml:"context_window"` // Max context tokens (0 = no compaction).
+	ContextWindow *int            `yaml:"context_window"` // Max context tokens (nil = use provider default, 0 = no compaction).
 	RateLimit     RateLimitConfig `yaml:"rate_limit"`
 }
 
@@ -122,7 +123,7 @@ func (c Config) Validate() error {
 		if p.Kind == "" {
 			return fmt.Errorf("engine: config: provider %q: kind is required", p.Name)
 		}
-		if p.ContextWindow < 0 {
+		if p.ContextWindow != nil && *p.ContextWindow < 0 {
 			return fmt.Errorf("engine: config: provider %q: context_window must be >= 0", p.Name)
 		}
 		if _, dup := providerNames[p.Name]; dup {

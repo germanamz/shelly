@@ -386,7 +386,7 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 	var contextWindow int
 	for _, pc := range e.cfg.Providers {
 		if pc.Name == providerName {
-			contextWindow = pc.ContextWindow
+			contextWindow = resolveContextWindow(pc, e.cfg.DefaultContextWindows)
 			break
 		}
 	}

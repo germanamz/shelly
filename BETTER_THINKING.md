@@ -20,21 +20,9 @@ Fixed: Per-agent skill assignment via `skills` field in `AgentConfig`. Each agen
 
 Fixed: Sub-agents (depth > 0) now receive a `task_complete` tool that signals completion with structured metadata (`status`, `summary`, `files_modified`, `tests_run`, `caveats`). The system prompt includes a `<completion_protocol>` section. When called, the ReAct loop stops immediately and `delegate_to_agent` returns the `CompletionResult` as JSON. `spawn_agents` includes a `completion` field in each result. Backward compatible: agents that stop without calling `task_complete` still return `TextContent()`. See `pkg/agent/tools.go` and `pkg/agent/agent.go`.
 
-## Issue 4: Compact Effect Is Silently Inert
+## ~~Issue 4: Compact Effect Is Silently Inert~~ (FIXED)
 
-**`.shelly/config.yaml`** — No `context_window` is set on the provider.
-
-**`pkg/agent/effects/compact.go:76-93`** — `shouldCompact()` returns `false` when `context_window <= 0`:
-
-```go
-func (e *CompactEffect) shouldCompact(completer modeladapter.Completer) bool {
-    if e.cfg.ContextWindow <= 0 || e.cfg.Threshold <= 0 {
-        return false
-    }
-}
-```
-
-The coder declares effects (`trim_tool_results`, `compact`) but they never fire because `context_window` is unset. The coder accumulates unbounded context until it hits the provider's hard token limit, at which point responses become truncated or incoherent.
+Fixed: `ProviderConfig.ContextWindow` is now `*int` to distinguish "not set" (nil) from "explicitly disabled" (0). Known provider kinds have built-in default context windows (anthropic: 200k, openai: 128k, grok: 131k). When `context_window` is omitted in YAML, `resolveContextWindow()` in `pkg/engine/provider.go` returns the per-kind default, so compaction works out of the box. Setting `context_window: 0` explicitly disables compaction.
 
 ## Issue 5: Task Board Exists But Isn't Wired Into the Workflow
 
@@ -99,7 +87,7 @@ Each agent overwrites the context's agent name: `ctx = agentctx.WithAgentName(ct
 | ~~1~~ | ~~Bare text handoff~~ | ~~FIXED — `context` field added~~ | `tools.go` |
 | ~~2~~ | ~~Minimal agent instructions~~ | ~~FIXED — per-agent skills with workflow protocols~~ | `config.yaml`, `.shelly/skills/` |
 | ~~3~~ | ~~No structured completion~~ | ~~FIXED — `task_complete` tool with structured metadata~~ | `tools.go`, `agent.go` |
-| 4 | Compact effect inert | Unbounded context until provider hard limit | `compact.go:76-93`, `config.yaml` |
+| ~~4~~ | ~~Compact effect inert~~ | ~~FIXED — per-kind default context windows~~ | `provider.go`, `config.go` |
 | 5 | Task board unused | No lifecycle coordination between agents | `tasks/store.go` |
 | 6 | Notes not enforced | Durable state exists but isn't used reliably | `config.yaml` |
 | 7 | No iteration exhaustion recovery | Orchestrator can't handle coder failure | `tools.go:106-110` |
@@ -113,7 +101,7 @@ Each agent overwrites the context's agent name: `ctx = agentctx.WithAgentName(ct
 ### Configuration / Instructions (no code changes)
 - Richer orchestrator instructions: require structured task specs, mandate note usage, define verification steps
 - Richer coder instructions: read notes first, report files changed, use task board lifecycle
-- Set `context_window` on the provider so compact/trim effects actually fire
+- ~~Set `context_window` on the provider so compact/trim effects actually fire~~ (DONE — per-kind defaults)
 
 ### Code Changes
 - ~~**Structured handoff**: Pass a structured task spec (not just free text) to child agents, optionally including relevant parent context snippets~~ (DONE)

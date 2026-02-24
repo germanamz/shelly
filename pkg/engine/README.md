@@ -79,7 +79,7 @@ providers:
     kind: anthropic
     api_key: sk-xxx
     model: claude-sonnet-4-20250514
-    context_window: 200000  # max context tokens (0 = no compaction)
+    context_window: 200000  # max context tokens (omit = provider default, 0 = no compaction)
 
 mcp_servers:
   - name: web-search
@@ -121,6 +121,12 @@ agents:
 
 entry_agent: assistant
 
+# Override built-in context window defaults or add defaults for custom kinds.
+# Built-in defaults: anthropic=200000, openai=128000, grok=131072.
+default_context_windows:
+  anthropic: 180000   # override the built-in anthropic default
+  custom-llm: 64000   # add a default for a custom provider kind
+
 filesystem:
   permissions_file: perms.yaml
 git:
@@ -131,7 +137,9 @@ git:
 
 Agents support pluggable **effects** — per-iteration hooks that run inside the ReAct loop. Effects are configured per-agent in YAML via the `effects:` list, or auto-generated from legacy options for backward compatibility.
 
-When a provider declares `context_window` and no explicit effects are configured, the engine auto-generates both a `trim_tool_results` effect (lightweight, runs after each completion) and a `compact` effect with the agent's `context_threshold` (default 0.8). This graduated approach trims tool results first, then falls back to full summarisation only when needed.
+When the effective context window is non-zero and no explicit effects are configured, the engine auto-generates both a `trim_tool_results` effect (lightweight, runs after each completion) and a `compact` effect with the agent's `context_threshold` (default 0.8). This graduated approach trims tool results first, then falls back to full summarisation only when needed.
+
+Known provider kinds have built-in default context windows (anthropic: 200k, openai: 128k, grok: 131k). When `context_window` is omitted from the YAML, the default for the provider kind is used — meaning compaction works out of the box. Set `context_window: 0` explicitly to disable compaction.
 
 Available effect kinds: `compact`, `trim_tool_results`. See `pkg/agent/effects/` for details.
 

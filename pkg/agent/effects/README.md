@@ -80,8 +80,11 @@ agents:
           threshold: 0.8
 ```
 
-When a provider declares `context_window` and no explicit effects are configured,
-the engine auto-generates both `trim_tool_results` and `compact` effects.
+When the effective context window is non-zero and no explicit effects are configured,
+the engine auto-generates both `trim_tool_results` and `compact` effects. Known
+provider kinds (anthropic, openai, grok) have built-in default context windows, so
+compaction is active by default for these providers even without an explicit
+`context_window` setting.
 
 They can also be created programmatically:
 

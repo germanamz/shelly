@@ -6,19 +6,21 @@ import (
 	"time"
 
 	"github.com/charmbracelet/huh"
+	"github.com/germanamz/shelly/pkg/engine"
 	"gopkg.in/yaml.v3"
 )
 
 type wizardProvider struct {
-	Kind       string
-	Name       string
-	APIKey     string //nolint:gosec // env var reference, not a secret
-	Model      string
-	InputTPM   string
-	OutputTPM  string
-	RPM        string
-	MaxRetries string
-	BaseDelay  string
+	Kind          string
+	Name          string
+	APIKey        string //nolint:gosec // env var reference, not a secret
+	Model         string
+	ContextWindow string // empty = use default, "0" = disable compaction, positive = explicit
+	InputTPM      string
+	OutputTPM     string
+	RPM           string
+	MaxRetries    string
+	BaseDelay     string
 }
 
 type wizardEffect struct {
@@ -45,10 +47,11 @@ type skillFile struct {
 }
 
 type wizardConfig struct {
-	Providers  []wizardProvider
-	Agents     []wizardAgent
-	EntryAgent string
-	SkillFiles []skillFile
+	Providers             []wizardProvider
+	Agents                []wizardAgent
+	EntryAgent            string
+	SkillFiles            []skillFile
+	DefaultContextWindows map[string]int
 }
 
 // wizardResult is the output of a wizard run: config YAML + optional skill files.
@@ -135,10 +138,16 @@ func wizardPromptProvider() (wizardProvider, error) {
 	p.APIKey = defaults.APIKey
 	p.Model = defaults.Model
 
+	cwTitle := "Context window (empty = default, 0 = no compaction)"
+	if builtin, ok := engine.BuiltinContextWindows[p.Kind]; ok {
+		cwTitle = fmt.Sprintf("Context window (empty = default: %d, 0 = no compaction)", builtin)
+	}
+
 	if err := huh.NewForm(huh.NewGroup(
 		huh.NewInput().Title("Provider name").Value(&p.Name),
 		huh.NewInput().Title("API key env var").Value(&p.APIKey),
 		huh.NewInput().Title("Model").Value(&p.Model),
+		huh.NewInput().Title(cwTitle).Value(&p.ContextWindow).Validate(validateOptionalNonNegativeInt),
 	)).Run(); err != nil {
 		return p, err
 	}
@@ -302,17 +311,19 @@ func validateDuration(s string) error {
 // YAML output types.
 
 type configYAML struct {
-	Providers  []providerYAML `yaml:"providers"`
-	Agents     []agentYAML    `yaml:"agents"`
-	EntryAgent string         `yaml:"entry_agent"`
+	Providers             []providerYAML `yaml:"providers"`
+	Agents                []agentYAML    `yaml:"agents"`
+	EntryAgent            string         `yaml:"entry_agent"`
+	DefaultContextWindows map[string]int `yaml:"default_context_windows,omitempty"`
 }
 
 type providerYAML struct {
-	Name      string         `yaml:"name"`
-	Kind      string         `yaml:"kind"`
-	APIKey    string         `yaml:"api_key"` //nolint:gosec // env var reference, not a secret
-	Model     string         `yaml:"model"`
-	RateLimit *rateLimitYAML `yaml:"rate_limit,omitempty"`
+	Name          string         `yaml:"name"`
+	Kind          string         `yaml:"kind"`
+	APIKey        string         `yaml:"api_key"` //nolint:gosec // env var reference, not a secret
+	Model         string         `yaml:"model"`
+	ContextWindow *int           `yaml:"context_window,omitempty"`
+	RateLimit     *rateLimitYAML `yaml:"rate_limit,omitempty"`
 }
 
 type rateLimitYAML struct {
@@ -346,7 +357,8 @@ type agentOptsYAML struct {
 
 func marshalWizardConfig(cfg wizardConfig) ([]byte, error) {
 	yc := configYAML{
-		EntryAgent: cfg.EntryAgent,
+		EntryAgent:            cfg.EntryAgent,
+		DefaultContextWindows: cfg.DefaultContextWindows,
 	}
 
 	for _, p := range cfg.Providers {
@@ -355,6 +367,11 @@ func marshalWizardConfig(cfg wizardConfig) ([]byte, error) {
 			Kind:   p.Kind,
 			APIKey: p.APIKey,
 			Model:  p.Model,
+		}
+
+		if p.ContextWindow != "" {
+			v, _ := strconv.Atoi(p.ContextWindow)
+			py.ContextWindow = &v
 		}
 
 		inputTPM, _ := strconv.Atoi(p.InputTPM)

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -14,16 +15,17 @@ import (
 // Editor working types.
 
 type editorProvider struct {
-	Kind       string
-	Name       string
-	BaseURL    string
-	APIKey     string //nolint:gosec // env var reference, not a secret
-	Model      string
-	InputTPM   string
-	OutputTPM  string
-	RPM        string
-	MaxRetries string
-	BaseDelay  string
+	Kind          string
+	Name          string
+	BaseURL       string
+	APIKey        string //nolint:gosec // env var reference, not a secret
+	Model         string
+	ContextWindow string // empty = use default, "0" = disable compaction, positive = explicit
+	InputTPM      string
+	OutputTPM     string
+	RPM           string
+	MaxRetries    string
+	BaseDelay     string
 }
 
 type editorMCP struct {
@@ -43,32 +45,35 @@ type editorAgent struct {
 }
 
 type editorConfig struct {
-	Providers       []editorProvider
-	Agents          []editorAgent
-	EntryAgent      string
-	MCPServers      []editorMCP
-	PermissionsFile string
-	GitWorkDir      string
+	Providers             []editorProvider
+	Agents                []editorAgent
+	EntryAgent            string
+	MCPServers            []editorMCP
+	PermissionsFile       string
+	GitWorkDir            string
+	DefaultContextWindows map[string]int
 }
 
 // YAML output types (preserve all fields via omitempty).
 
 type editorConfigYAML struct {
-	Providers  []editorProviderYAML `yaml:"providers"`
-	MCPServers []mcpYAML            `yaml:"mcp_servers,omitempty"`
-	Agents     []editorAgentYAML    `yaml:"agents"`
-	EntryAgent string               `yaml:"entry_agent"`
-	Filesystem editorFilesystemYAML `yaml:"filesystem,omitempty"`
-	Git        editorGitYAML        `yaml:"git,omitempty"`
+	Providers             []editorProviderYAML `yaml:"providers"`
+	MCPServers            []mcpYAML            `yaml:"mcp_servers,omitempty"`
+	Agents                []editorAgentYAML    `yaml:"agents"`
+	EntryAgent            string               `yaml:"entry_agent"`
+	DefaultContextWindows map[string]int       `yaml:"default_context_windows,omitempty"`
+	Filesystem            editorFilesystemYAML `yaml:"filesystem,omitempty"`
+	Git                   editorGitYAML        `yaml:"git,omitempty"`
 }
 
 type editorProviderYAML struct {
-	Name      string         `yaml:"name"`
-	Kind      string         `yaml:"kind"`
-	BaseURL   string         `yaml:"base_url,omitempty"`
-	APIKey    string         `yaml:"api_key"` //nolint:gosec // env var reference, not a secret
-	Model     string         `yaml:"model"`
-	RateLimit *rateLimitYAML `yaml:"rate_limit,omitempty"`
+	Name          string         `yaml:"name"`
+	Kind          string         `yaml:"kind"`
+	BaseURL       string         `yaml:"base_url,omitempty"`
+	APIKey        string         `yaml:"api_key"` //nolint:gosec // env var reference, not a secret
+	Model         string         `yaml:"model"`
+	ContextWindow *int           `yaml:"context_window,omitempty"`
+	RateLimit     *rateLimitYAML `yaml:"rate_limit,omitempty"`
 }
 
 type editorAgentYAML struct {
@@ -153,9 +158,10 @@ func loadRawConfig(path string) (engine.Config, error) {
 // configToEditor converts an engine.Config to the editor working model.
 func configToEditor(cfg engine.Config) editorConfig {
 	ec := editorConfig{
-		EntryAgent:      cfg.EntryAgent,
-		PermissionsFile: cfg.Filesystem.PermissionsFile,
-		GitWorkDir:      cfg.Git.WorkDir,
+		EntryAgent:            cfg.EntryAgent,
+		PermissionsFile:       cfg.Filesystem.PermissionsFile,
+		GitWorkDir:            cfg.Git.WorkDir,
+		DefaultContextWindows: cfg.DefaultContextWindows,
 	}
 
 	for _, p := range cfg.Providers {
@@ -165,6 +171,10 @@ func configToEditor(cfg engine.Config) editorConfig {
 			BaseURL: p.BaseURL,
 			APIKey:  p.APIKey,
 			Model:   p.Model,
+		}
+
+		if p.ContextWindow != nil {
+			ep.ContextWindow = strconv.Itoa(*p.ContextWindow)
 		}
 
 		if p.RateLimit.InputTPM > 0 {
@@ -215,9 +225,10 @@ func configToEditor(cfg engine.Config) editorConfig {
 // for validation.
 func editorToEngineConfig(ec editorConfig) engine.Config {
 	cfg := engine.Config{
-		EntryAgent: ec.EntryAgent,
-		Filesystem: engine.FilesystemConfig{PermissionsFile: ec.PermissionsFile},
-		Git:        engine.GitConfig{WorkDir: ec.GitWorkDir},
+		EntryAgent:            ec.EntryAgent,
+		Filesystem:            engine.FilesystemConfig{PermissionsFile: ec.PermissionsFile},
+		Git:                   engine.GitConfig{WorkDir: ec.GitWorkDir},
+		DefaultContextWindows: ec.DefaultContextWindows,
 	}
 
 	for _, p := range ec.Providers {
@@ -226,12 +237,19 @@ func editorToEngineConfig(ec editorConfig) engine.Config {
 		rpm, _ := strconv.Atoi(p.RPM)
 		maxRetries, _ := strconv.Atoi(p.MaxRetries)
 
+		var contextWindow *int
+		if p.ContextWindow != "" {
+			v, _ := strconv.Atoi(p.ContextWindow)
+			contextWindow = &v
+		}
+
 		cfg.Providers = append(cfg.Providers, engine.ProviderConfig{
-			Name:    p.Name,
-			Kind:    p.Kind,
-			BaseURL: p.BaseURL,
-			APIKey:  p.APIKey,
-			Model:   p.Model,
+			Name:          p.Name,
+			Kind:          p.Kind,
+			BaseURL:       p.BaseURL,
+			APIKey:        p.APIKey,
+			Model:         p.Model,
+			ContextWindow: contextWindow,
 			RateLimit: engine.RateLimitConfig{
 				InputTPM:   inputTPM,
 				OutputTPM:  outputTPM,
@@ -270,7 +288,8 @@ func editorToEngineConfig(ec editorConfig) engine.Config {
 // marshalEditorConfig serializes the editor config to YAML bytes.
 func marshalEditorConfig(ec editorConfig) ([]byte, error) {
 	yc := editorConfigYAML{
-		EntryAgent: ec.EntryAgent,
+		EntryAgent:            ec.EntryAgent,
+		DefaultContextWindows: ec.DefaultContextWindows,
 		Filesystem: editorFilesystemYAML{
 			PermissionsFile: ec.PermissionsFile,
 		},
@@ -286,6 +305,11 @@ func marshalEditorConfig(ec editorConfig) ([]byte, error) {
 			BaseURL: p.BaseURL,
 			APIKey:  p.APIKey,
 			Model:   p.Model,
+		}
+
+		if p.ContextWindow != "" {
+			v, _ := strconv.Atoi(p.ContextWindow)
+			py.ContextWindow = &v
 		}
 
 		inputTPM, _ := strconv.Atoi(p.InputTPM)
@@ -345,6 +369,7 @@ func configEditorMenu(ec *editorConfig) error {
 					huh.NewOption("Agents", "agents"),
 					huh.NewOption("Entry Agent", "entry_agent"),
 					huh.NewOption("MCP Servers", "mcp_servers"),
+					huh.NewOption("Default Context Windows", "context_windows"),
 					huh.NewOption("Save & Exit", "done"),
 				).
 				Value(&choice),
@@ -368,6 +393,10 @@ func configEditorMenu(ec *editorConfig) error {
 			}
 		case "mcp_servers":
 			if err := editMCPServers(ec); err != nil {
+				return err
+			}
+		case "context_windows":
+			if err := editDefaultContextWindows(ec); err != nil {
 				return err
 			}
 		case "done":
@@ -443,6 +472,11 @@ func editProviders(ec *editorConfig) error {
 
 // editProviderForm shows a pre-filled form for editing a single provider.
 func editProviderForm(p *editorProvider) error {
+	cwTitle := "Context window (empty = default, 0 = no compaction)"
+	if builtin, ok := engine.BuiltinContextWindows[p.Kind]; ok {
+		cwTitle = fmt.Sprintf("Context window (empty = default: %d, 0 = no compaction)", builtin)
+	}
+
 	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
@@ -457,6 +491,7 @@ func editProviderForm(p *editorProvider) error {
 			huh.NewInput().Title("Base URL (optional)").Value(&p.BaseURL),
 			huh.NewInput().Title("API key env var").Value(&p.APIKey),
 			huh.NewInput().Title("Model").Value(&p.Model),
+			huh.NewInput().Title(cwTitle).Value(&p.ContextWindow).Validate(validateOptionalNonNegativeInt),
 		),
 		huh.NewGroup(
 			huh.NewInput().Title("Input tokens per minute (0 = no limit)").Value(&p.InputTPM).Validate(validateOptionalNonNegativeInt),
@@ -761,4 +796,106 @@ func editMCPServerForm(m *editorMCP) error {
 		huh.NewInput().Title("Command").Value(&m.Command),
 		huh.NewInput().Title("Arguments (space-separated)").Value(&m.Args),
 	)).Run()
+}
+
+// editDefaultContextWindows lets the user override built-in context windows per kind.
+func editDefaultContextWindows(ec *editorConfig) error {
+	if ec.DefaultContextWindows == nil {
+		ec.DefaultContextWindows = make(map[string]int)
+	}
+
+	for {
+		opts := []huh.Option[string]{}
+
+		// Known kinds in stable order.
+		knownKinds := []string{"anthropic", "openai", "grok"}
+		for _, kind := range knownKinds {
+			builtin := engine.BuiltinContextWindows[kind]
+			var label string
+			if v, ok := ec.DefaultContextWindows[kind]; ok {
+				label = fmt.Sprintf("%s (built-in: %d, override: %d)", kind, builtin, v)
+			} else {
+				label = fmt.Sprintf("%s (built-in: %d)", kind, builtin)
+			}
+			opts = append(opts, huh.NewOption(label, kind))
+		}
+
+		// Custom kinds already in the map.
+		var customKinds []string
+		for kind := range ec.DefaultContextWindows {
+			if kind == "anthropic" || kind == "openai" || kind == "grok" {
+				continue
+			}
+			customKinds = append(customKinds, kind)
+		}
+		sort.Strings(customKinds)
+		for _, kind := range customKinds {
+			label := fmt.Sprintf("%s (override: %d)", kind, ec.DefaultContextWindows[kind])
+			opts = append(opts, huh.NewOption(label, kind))
+		}
+
+		opts = append(opts,
+			huh.NewOption("Add custom kind", "add"),
+			huh.NewOption("Back", "back"),
+		)
+
+		var choice string
+		if err := huh.NewForm(huh.NewGroup(
+			huh.NewSelect[string]().Title("Default Context Windows").Options(opts...).Value(&choice),
+		)).Run(); err != nil {
+			return err
+		}
+
+		switch choice {
+		case "back":
+			// Clean up empty map so it's omitted from YAML.
+			if len(ec.DefaultContextWindows) == 0 {
+				ec.DefaultContextWindows = nil
+			}
+			return nil
+		case "add":
+			var kind, value string
+			if err := huh.NewForm(huh.NewGroup(
+				huh.NewInput().Title("Provider kind").Value(&kind),
+				huh.NewInput().Title("Default context window").Value(&value).Validate(validatePositiveInt),
+			)).Run(); err != nil {
+				return err
+			}
+			v, _ := strconv.Atoi(value)
+			ec.DefaultContextWindows[kind] = v
+		default:
+			kind := choice
+			actionOpts := []huh.Option[string]{
+				huh.NewOption("Set override", "set"),
+			}
+			if _, ok := ec.DefaultContextWindows[kind]; ok {
+				actionOpts = append(actionOpts, huh.NewOption("Remove override", "remove"))
+			}
+			actionOpts = append(actionOpts, huh.NewOption("Back", "back"))
+
+			var action string
+			if err := huh.NewForm(huh.NewGroup(
+				huh.NewSelect[string]().Title(fmt.Sprintf("Edit: %s", kind)).Options(actionOpts...).Value(&action),
+			)).Run(); err != nil {
+				return err
+			}
+
+			switch action {
+			case "set":
+				current := ""
+				if v, ok := ec.DefaultContextWindows[kind]; ok {
+					current = strconv.Itoa(v)
+				}
+				if err := huh.NewForm(huh.NewGroup(
+					huh.NewInput().Title("Context window").Value(&current).Validate(validatePositiveInt),
+				)).Run(); err != nil {
+					return err
+				}
+				v, _ := strconv.Atoi(current)
+				ec.DefaultContextWindows[kind] = v
+			case "remove":
+				delete(ec.DefaultContextWindows, kind)
+			}
+		}
+	}
 }

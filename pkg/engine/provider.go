@@ -11,6 +11,28 @@ import (
 	"github.com/germanamz/shelly/pkg/providers/openai"
 )
 
+// BuiltinContextWindows maps well-known provider kinds to their default context
+// window sizes in tokens. Used when ContextWindow is nil (omitted in YAML).
+var BuiltinContextWindows = map[string]int{
+	"anthropic": 200000,
+	"openai":    128000,
+	"grok":      131072,
+}
+
+// resolveContextWindow returns the effective context window for a provider.
+// If ContextWindow is explicitly set (including 0), that value is used.
+// Otherwise, configDefaults is checked first (user overrides), then the
+// built-in defaultContextWindows. Returns 0 for unknown kinds with no override.
+func resolveContextWindow(cfg ProviderConfig, configDefaults map[string]int) int {
+	if cfg.ContextWindow != nil {
+		return *cfg.ContextWindow
+	}
+	if v, ok := configDefaults[cfg.Kind]; ok {
+		return v
+	}
+	return BuiltinContextWindows[cfg.Kind]
+}
+
 // ProviderFactory creates a Completer from a ProviderConfig.
 type ProviderFactory func(cfg ProviderConfig) (modeladapter.Completer, error)
 
