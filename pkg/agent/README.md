@@ -21,7 +21,7 @@ The core type. Created via `New(name, description, instructions, completer, opts
 - `Run(ctx) (message.Message, error)` — executes the ReAct loop with middleware.
 - `SetRegistry(r)` — enables dynamic delegation.
 - `AddToolBoxes(tbs...)` — adds user-provided tool registries.
-- `Name()`, `Description()`, `Chat()`, `Prefix()` — accessors.
+- `Name()`, `Description()`, `Chat()`, `Prefix()`, `CompletionResult()` — accessors.
 
 ### Registry
 
@@ -49,10 +49,32 @@ When a `Registry` is set, three tools are automatically injected:
 | `list_agents` | Lists all available agents (excluding self) |
 | `delegate_to_agent` | Delegates a task to another agent, returns its response. Requires `agent`, `task`, and `context` fields. |
 | `spawn_agents` | Runs multiple agents concurrently, returns collected results. Each task requires `agent`, `task`, and `context` fields. |
+| `task_complete` | **(sub-agents only)** Signals task completion with structured metadata (status, summary, files modified, tests run, caveats). |
 
 Both `delegate_to_agent` and `spawn_agents` require a `context` field — background information (file contents, decisions, constraints) that the child agent needs. The context is prepended as a `<delegation_context>`-tagged user message before the task message, so the child sees: system prompt -> context -> task.
 
 Safety guards: self-delegation rejected, `MaxDelegationDepth` enforced, concurrent spawn uses cancel-on-first-error.
+
+### Structured Completion Protocol
+
+Sub-agents (depth > 0) receive a `task_complete` tool that they call to signal completion with structured metadata. The system prompt includes a `<completion_protocol>` section instructing them to always call this tool instead of simply stopping.
+
+When a sub-agent calls `task_complete`, the ReAct loop stops immediately and the `CompletionResult` is stored on the agent. Delegation tools (`delegate_to_agent`, `spawn_agents`) check for this structured result:
+
+- **`delegate_to_agent`**: returns the `CompletionResult` as JSON if present, otherwise falls back to `reply.TextContent()`.
+- **`spawn_agents`**: includes a `completion` field in each `spawnResult` if the child set a `CompletionResult`.
+
+```go
+type CompletionResult struct {
+    Status        string   `json:"status"`                    // "completed" or "failed"
+    Summary       string   `json:"summary"`                   // What was done or why it failed.
+    FilesModified []string `json:"files_modified,omitempty"`   // Files changed.
+    TestsRun      []string `json:"tests_run,omitempty"`       // Tests executed.
+    Caveats       string   `json:"caveats,omitempty"`         // Known limitations.
+}
+```
+
+Top-level agents (depth 0) do not get the `task_complete` tool or the completion protocol prompt section.
 
 ### Sub-Agent Event Notifications
 
@@ -133,11 +155,12 @@ When an agent delegates to or spawns a child agent, the child receives a **union
 The system prompt is built by `buildSystemPrompt()` using XML tags for clear section boundaries. Sections are ordered for prompt-cache friendliness (static content first, dynamic content last):
 
 1. `<identity>` — Agent name and description (static, cacheable prefix)
-2. `<instructions>` — Agent-specific instructions (static)
-3. `<project_context>` — Project context loaded at startup (semi-static)
-4. `<skills>` — Inline skill content (semi-static)
-5. `<available_skills>` — On-demand skill descriptions (semi-static)
-6. `<available_agents>` — Agent directory from registry (dynamic, last)
+2. `<completion_protocol>` — Sub-agent completion instructions (static, depth > 0 only)
+3. `<instructions>` — Agent-specific instructions (static)
+4. `<project_context>` — Project context loaded at startup (semi-static)
+5. `<skills>` — Inline skill content (semi-static)
+6. `<available_skills>` — On-demand skill descriptions (semi-static)
+7. `<available_agents>` — Agent directory from registry (dynamic, last)
 
 This ordering ensures LLM provider prompt caching can cache the stable prefix across iterations, and the XML tags help LLMs attend to section boundaries without relying on prose structure.
 

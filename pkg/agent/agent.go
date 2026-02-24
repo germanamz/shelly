@@ -23,6 +23,16 @@ import (
 // without the model producing a final answer.
 var ErrMaxIterations = errors.New("agent: max iterations reached")
 
+// CompletionResult carries structured completion data from a sub-agent.
+// Set by the task_complete tool, read by delegation tools after Run() returns.
+type CompletionResult struct {
+	Status        string   `json:"status"`                   // "completed" or "failed"
+	Summary       string   `json:"summary"`                  // What was done or why it failed.
+	FilesModified []string `json:"files_modified,omitempty"` // Files changed.
+	TestsRun      []string `json:"tests_run,omitempty"`      // Tests executed.
+	Caveats       string   `json:"caveats,omitempty"`        // Known limitations.
+}
+
 // EventNotifier is called by orchestration tools to publish sub-agent
 // lifecycle events (e.g. "agent_start", "agent_end") to the engine's EventBus.
 type EventNotifier func(ctx context.Context, kind string, agentName string, data any)
@@ -42,15 +52,16 @@ type Options struct {
 // Agent is the unified agent type. It runs a ReAct loop, can delegate to other
 // agents via a Registry, and learns procedures from Skills.
 type Agent struct {
-	name         string
-	description  string
-	instructions string
-	completer    modeladapter.Completer
-	chat         *chat.Chat
-	toolboxes    []*toolbox.ToolBox
-	registry     *Registry
-	options      Options
-	depth        int
+	name             string
+	description      string
+	instructions     string
+	completer        modeladapter.Completer
+	chat             *chat.Chat
+	toolboxes        []*toolbox.ToolBox
+	registry         *Registry
+	options          Options
+	depth            int
+	completionResult *CompletionResult
 }
 
 // New creates an Agent with the given configuration.
@@ -92,6 +103,10 @@ func (a *Agent) Chat() *chat.Chat { return a.chat }
 
 // Completer returns the agent's completer.
 func (a *Agent) Completer() modeladapter.Completer { return a.completer }
+
+// CompletionResult returns the structured completion data set by the
+// task_complete tool, or nil if the agent stopped without calling it.
+func (a *Agent) CompletionResult() *CompletionResult { return a.completionResult }
 
 // SetRegistry enables dynamic delegation by setting the agent's registry.
 func (a *Agent) SetRegistry(r *Registry) {
@@ -178,6 +193,10 @@ func (a *Agent) run(ctx context.Context) (message.Message, error) {
 			result := callTool(ctx, toolboxes, tc)
 			a.chat.Append(message.New(a.name, role.Tool, result))
 		}
+
+		if a.completionResult != nil {
+			return reply, nil
+		}
 	}
 
 	return message.Message{}, ErrMaxIterations
@@ -204,6 +223,12 @@ func (a *Agent) allToolBoxes() []*toolbox.ToolBox {
 		tbs = append(tbs, orchestrationToolBox(a))
 	}
 
+	if a.depth > 0 {
+		completionTB := toolbox.New()
+		completionTB.Register(taskCompleteTool(a))
+		tbs = append(tbs, completionTB)
+	}
+
 	return tbs
 }
 
@@ -226,6 +251,18 @@ func (a *Agent) buildSystemPrompt() string {
 		fmt.Fprintf(&b, " %s", a.description)
 	}
 	b.WriteString("\n</identity>\n")
+
+	// Completion protocol (sub-agents only).
+	if a.depth > 0 {
+		b.WriteString("\n<completion_protocol>\n")
+		b.WriteString("You are a sub-agent executing a delegated task. ")
+		b.WriteString("When you finish, you MUST call the task_complete tool with:\n")
+		b.WriteString("- status: \"completed\" or \"failed\"\n")
+		b.WriteString("- summary: concise description of what was done\n")
+		b.WriteString("- files_modified, tests_run, caveats: as applicable\n")
+		b.WriteString("Do NOT simply stop responding — always call task_complete.\n")
+		b.WriteString("</completion_protocol>\n")
+	}
 
 	// Instructions.
 	if a.instructions != "" {

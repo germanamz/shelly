@@ -770,6 +770,117 @@ func TestSpawnAgentsToolboxInheritance(t *testing.T) {
 	assert.Contains(t, spawnResultStr, "got parent tool")
 }
 
+// --- Completion protocol tests ---
+
+func TestTaskCompleteBreaksLoop(t *testing.T) {
+	// Sub-agent (depth=1) calls task_complete, then the loop should stop
+	// even though the reply also has tool calls after task_complete.
+	p := &sequenceCompleter{
+		replies: []message.Message{
+			// First iteration: call task_complete.
+			message.New("", role.Assistant,
+				content.ToolCall{
+					ID:        "c1",
+					Name:      "task_complete",
+					Arguments: `{"status":"completed","summary":"all done"}`,
+				},
+			),
+			// This reply should never be reached.
+			message.NewText("", role.Assistant, "should not reach here"),
+		},
+	}
+
+	a := New("worker", "", "", p, Options{})
+	a.depth = 1 // Sub-agent.
+
+	result, err := a.Run(context.Background())
+
+	require.NoError(t, err)
+	// The reply that contained the task_complete call is returned.
+	assert.Equal(t, 1, p.index) // Only one completion call made.
+
+	cr := a.CompletionResult()
+	require.NotNil(t, cr)
+	assert.Equal(t, "completed", cr.Status)
+	assert.Equal(t, "all done", cr.Summary)
+
+	// The returned message should be the one from the iteration with task_complete.
+	assert.NotEmpty(t, result.Parts)
+}
+
+func TestTaskCompleteNotAvailableAtTopLevel(t *testing.T) {
+	p := &sequenceCompleter{
+		replies: []message.Message{
+			message.New("", role.Assistant,
+				content.ToolCall{
+					ID:        "c1",
+					Name:      "task_complete",
+					Arguments: `{"status":"completed","summary":"done"}`,
+				},
+			),
+			message.NewText("", role.Assistant, "Done."),
+		},
+	}
+
+	a := New("bot", "", "", p, Options{})
+	// depth is 0 (top-level), so task_complete should not be available.
+
+	result, err := a.Run(context.Background())
+
+	require.NoError(t, err)
+	assert.Equal(t, "Done.", result.TextContent())
+
+	// Should have a tool-not-found error in chat for task_complete.
+	var foundError bool
+	a.Chat().Each(func(_ int, m message.Message) bool {
+		if m.Role == role.Tool {
+			for _, p := range m.Parts {
+				if tr, ok := p.(content.ToolResult); ok && tr.IsError {
+					assert.Contains(t, tr.Content, "tool not found: task_complete")
+					foundError = true
+					return false
+				}
+			}
+		}
+		return true
+	})
+	assert.True(t, foundError)
+	assert.Nil(t, a.CompletionResult())
+}
+
+func TestSystemPromptCompletionProtocol(t *testing.T) {
+	p := &sequenceCompleter{
+		replies: []message.Message{
+			message.NewText("", role.Assistant, "Hi"),
+		},
+	}
+	a := New("worker", "", "", p, Options{})
+	a.depth = 1 // Sub-agent.
+
+	_, err := a.Run(context.Background())
+	require.NoError(t, err)
+
+	prompt := a.Chat().SystemPrompt()
+	assert.Contains(t, prompt, "<completion_protocol>")
+	assert.Contains(t, prompt, "task_complete")
+	assert.Contains(t, prompt, "</completion_protocol>")
+}
+
+func TestSystemPromptNoCompletionProtocolAtTopLevel(t *testing.T) {
+	p := &sequenceCompleter{
+		replies: []message.Message{
+			message.NewText("", role.Assistant, "Hi"),
+		},
+	}
+	a := New("bot", "", "", p, Options{})
+
+	_, err := a.Run(context.Background())
+	require.NoError(t, err)
+
+	prompt := a.Chat().SystemPrompt()
+	assert.NotContains(t, prompt, "<completion_protocol>")
+}
+
 func TestAddToolBoxesDeduplicates(t *testing.T) {
 	tb1 := newEchoToolBox()
 	tb2 := toolbox.New()

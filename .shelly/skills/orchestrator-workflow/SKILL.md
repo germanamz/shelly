@@ -20,9 +20,10 @@ description: "Task orchestration protocol: decomposition, delegation, verificati
 
 ## After Delegation
 
-1. Read the result note written by the child agent.
-2. Verify the result against the acceptance criteria from the task spec.
-3. If the result is satisfactory, mark the task as completed on the board.
+1. Check the delegation result. If the child called `task_complete`, the result is structured JSON with `status`, `summary`, `files_modified`, `tests_run`, and `caveats` fields.
+2. Read any result notes written by the child agent for additional detail.
+3. Verify the result against the acceptance criteria from the task spec.
+4. If the result is satisfactory, mark the task as completed on the board.
 
 ## On Failure or Iteration Exhaustion
 

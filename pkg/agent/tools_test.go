@@ -389,6 +389,173 @@ func TestSpawnToolWithContext(t *testing.T) {
 	assert.Equal(t, "task-b", userMsgsB[1].TextContent())
 }
 
+// --- task_complete tool tests ---
+
+func TestTaskCompleteToolSuccess(t *testing.T) {
+	a := &Agent{name: "worker", depth: 1}
+	tool := taskCompleteTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"status":"completed","summary":"Implemented feature X","files_modified":["foo.go","bar.go"],"tests_run":["TestFoo"],"caveats":"needs docs"}`,
+	))
+
+	require.NoError(t, err)
+	assert.Equal(t, "Task marked as completed.", result)
+
+	cr := a.CompletionResult()
+	require.NotNil(t, cr)
+	assert.Equal(t, "completed", cr.Status)
+	assert.Equal(t, "Implemented feature X", cr.Summary)
+	assert.Equal(t, []string{"foo.go", "bar.go"}, cr.FilesModified)
+	assert.Equal(t, []string{"TestFoo"}, cr.TestsRun)
+	assert.Equal(t, "needs docs", cr.Caveats)
+}
+
+func TestTaskCompleteToolFailed(t *testing.T) {
+	a := &Agent{name: "worker", depth: 1}
+	tool := taskCompleteTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"status":"failed","summary":"Could not find the module"}`,
+	))
+
+	require.NoError(t, err)
+	assert.Equal(t, "Task marked as failed.", result)
+
+	cr := a.CompletionResult()
+	require.NotNil(t, cr)
+	assert.Equal(t, "failed", cr.Status)
+	assert.Equal(t, "Could not find the module", cr.Summary)
+}
+
+func TestTaskCompleteToolInvalidStatus(t *testing.T) {
+	a := &Agent{name: "worker", depth: 1}
+	tool := taskCompleteTool(a)
+
+	_, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"status":"unknown","summary":"whatever"}`,
+	))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "status must be")
+}
+
+func TestTaskCompleteToolInvalidInput(t *testing.T) {
+	a := &Agent{name: "worker", depth: 1}
+	tool := taskCompleteTool(a)
+
+	_, err := tool.Handler(context.Background(), json.RawMessage(`not json`))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid input")
+}
+
+func TestDelegateToolWithCompletion(t *testing.T) {
+	// Worker that calls task_complete.
+	reg := NewRegistry()
+	reg.Register("worker", "Does work", func() *Agent {
+		return New("worker", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{
+						ID:        "c1",
+						Name:      "task_complete",
+						Arguments: `{"status":"completed","summary":"did it","files_modified":["a.go"]}`,
+					},
+				),
+			},
+		}, Options{})
+	})
+
+	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"agent":"worker","task":"do the thing","context":"some context"}`,
+	))
+
+	require.NoError(t, err)
+
+	// Result should be structured JSON.
+	var cr CompletionResult
+	require.NoError(t, json.Unmarshal([]byte(result), &cr))
+	assert.Equal(t, "completed", cr.Status)
+	assert.Equal(t, "did it", cr.Summary)
+	assert.Equal(t, []string{"a.go"}, cr.FilesModified)
+}
+
+func TestDelegateToolWithoutCompletion(t *testing.T) {
+	// Worker that stops without calling task_complete (backward compat).
+	reg := NewRegistry()
+	reg.Register("worker", "Does work", func() *Agent {
+		return New("worker", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.NewText("", role.Assistant, "done by worker"),
+			},
+		}, Options{})
+	})
+
+	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"agent":"worker","task":"do the thing","context":"some context"}`,
+	))
+
+	require.NoError(t, err)
+	assert.Equal(t, "done by worker", result)
+}
+
+func TestSpawnToolWithCompletion(t *testing.T) {
+	reg := NewRegistry()
+	// worker-a uses task_complete.
+	reg.Register("a", "Agent A", func() *Agent {
+		return New("a", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{
+						ID:        "c1",
+						Name:      "task_complete",
+						Arguments: `{"status":"completed","summary":"a done","files_modified":["x.go"]}`,
+					},
+				),
+			},
+		}, Options{})
+	})
+	// worker-b stops without task_complete.
+	reg.Register("b", "Agent B", func() *Agent {
+		return New("b", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.NewText("", role.Assistant, "result-b"),
+			},
+		}, Options{})
+	})
+
+	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
+	tool := spawnTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"a","task":"task-a","context":"ctx-a"},{"agent":"b","task":"task-b","context":"ctx-b"}]}`,
+	))
+
+	require.NoError(t, err)
+
+	var results []spawnResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 2)
+
+	// Agent "a" has structured completion.
+	assert.Equal(t, "a", results[0].Agent)
+	require.NotNil(t, results[0].Completion)
+	assert.Equal(t, "completed", results[0].Completion.Status)
+	assert.Equal(t, "a done", results[0].Completion.Summary)
+
+	// Agent "b" has no completion (backward compat).
+	assert.Equal(t, "b", results[1].Agent)
+	assert.Nil(t, results[1].Completion)
+	assert.Equal(t, "result-b", results[1].Result)
+}
+
 func TestDelegateToolToolboxInheritance(t *testing.T) {
 	parentTB := toolbox.New()
 	parentTB.Register(toolbox.Tool{

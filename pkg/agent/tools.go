@@ -109,6 +109,14 @@ func delegateTool(a *Agent) toolbox.Tool {
 				return "", fmt.Errorf("delegate_to_agent: agent %q: %w", di.Agent, err)
 			}
 
+			if cr := child.CompletionResult(); cr != nil {
+				data, marshalErr := json.Marshal(cr)
+				if marshalErr != nil {
+					return "", fmt.Errorf("delegate_to_agent: marshal completion: %w", marshalErr)
+				}
+				return string(data), nil
+			}
+
 			return reply.TextContent(), nil
 		},
 	}
@@ -127,9 +135,10 @@ type spawnInput struct {
 }
 
 type spawnResult struct {
-	Agent  string `json:"agent"`
-	Result string `json:"result,omitempty"`
-	Error  string `json:"error,omitempty"`
+	Agent      string            `json:"agent"`
+	Result     string            `json:"result,omitempty"`
+	Completion *CompletionResult `json:"completion,omitempty"`
+	Error      string            `json:"error,omitempty"`
 }
 
 func spawnTool(a *Agent) toolbox.Tool {
@@ -200,8 +209,9 @@ func spawnTool(a *Agent) toolbox.Tool {
 					}
 
 					results[i] = spawnResult{
-						Agent:  t.Agent,
-						Result: reply.TextContent(),
+						Agent:      t.Agent,
+						Result:     reply.TextContent(),
+						Completion: child.CompletionResult(),
 					}
 				}()
 			}
@@ -214,6 +224,44 @@ func spawnTool(a *Agent) toolbox.Tool {
 			}
 
 			return string(data), nil
+		},
+	}
+}
+
+// --- task_complete ---
+
+type taskCompleteInput struct {
+	Status        string   `json:"status"`
+	Summary       string   `json:"summary"`
+	FilesModified []string `json:"files_modified"`
+	TestsRun      []string `json:"tests_run"`
+	Caveats       string   `json:"caveats"`
+}
+
+func taskCompleteTool(a *Agent) toolbox.Tool {
+	return toolbox.Tool{
+		Name:        "task_complete",
+		Description: "Signal task completion with structured metadata. Call this when you have finished your delegated task.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"status":{"type":"string","enum":["completed","failed"],"description":"Whether the task was completed successfully or failed"},"summary":{"type":"string","description":"Concise description of what was done or why it failed"},"files_modified":{"type":"array","items":{"type":"string"},"description":"List of files that were modified"},"tests_run":{"type":"array","items":{"type":"string"},"description":"List of tests that were executed"},"caveats":{"type":"string","description":"Known limitations or follow-up work needed"}},"required":["status","summary"]}`),
+		Handler: func(_ context.Context, input json.RawMessage) (string, error) {
+			var tci taskCompleteInput
+			if err := json.Unmarshal(input, &tci); err != nil {
+				return "", fmt.Errorf("task_complete: invalid input: %w", err)
+			}
+
+			if tci.Status != "completed" && tci.Status != "failed" {
+				return "", fmt.Errorf("task_complete: status must be \"completed\" or \"failed\", got %q", tci.Status)
+			}
+
+			a.completionResult = &CompletionResult{
+				Status:        tci.Status,
+				Summary:       tci.Summary,
+				FilesModified: tci.FilesModified,
+				TestsRun:      tci.TestsRun,
+				Caveats:       tci.Caveats,
+			}
+
+			return fmt.Sprintf("Task marked as %s.", tci.Status), nil
 		},
 	}
 }

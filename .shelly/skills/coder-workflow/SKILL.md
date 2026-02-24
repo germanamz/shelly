@@ -16,16 +16,21 @@ description: "Coding protocol: plan consumption, task lifecycle, result reportin
 
 ## Result Reporting
 
-After completing work, write a result note (`write_note`) named descriptively (e.g., `result-add-auth-middleware`) containing:
+After completing work:
 
-- **Files modified**: list of changed files with a brief description of each change
-- **Tests run**: which tests were executed and their results
-- **Caveats**: any known limitations, follow-up work needed, or assumptions made
+1. Write a result note (`write_note`) named descriptively (e.g., `result-add-auth-middleware`) containing details of what was done.
+2. Call `task_complete` with:
+   - **status**: `"completed"` or `"failed"`
+   - **summary**: concise description of what was done
+   - **files_modified**: list of changed files
+   - **tests_run**: which tests were executed
+   - **caveats**: any known limitations or follow-up work needed
 
 ## Task Lifecycle
 
 - Mark your task as completed (`shared_tasks_update` with status `completed`) when done.
 - If you cannot complete the task, mark it as failed with a description of what went wrong.
+- Always call `task_complete` as your final action — do not simply stop responding.
 
 ## Approaching Iteration Limit
 

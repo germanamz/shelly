@@ -16,22 +16,9 @@ Fixed: Both `delegate_to_agent` and `spawn_agents` now have a required `context`
 
 Fixed: Per-agent skill assignment via `skills` field in `AgentConfig`. Each agent gets only the workflow skills relevant to its role (orchestrator-workflow, planner-workflow, coder-workflow). Skills use YAML frontmatter so only the description goes into the system prompt — full content is loaded on-demand via `load_skill`. The skills cover handoff protocols, verification, note/task-board usage, result formats, and failure handling. See `.shelly/skills/` and `pkg/engine/engine.go`.
 
-## Issue 3: No Structured Completion Signal
+## ~~Issue 3: No Structured Completion Signal~~ (FIXED)
 
-**`pkg/agent/agent.go:172-175`**
-
-The ReAct loop terminates whenever the LLM produces a response with no tool calls:
-
-```go
-calls := reply.ToolCalls()
-if len(calls) == 0 {
-    return reply, nil
-}
-```
-
-There is no distinction between "I genuinely completed the task" and "I ran out of ideas." The orchestrator receives only `reply.TextContent()` — a freeform string — with no structured indication of files modified, tests run, or whether the task actually succeeded.
-
-For `spawn_agents`, results are collected as `[]spawnResult{Agent, Result, Error}`. If a coder "gives up" and writes a text reply without completing work, that goes in `Result` indistinguishably from genuine success.
+Fixed: Sub-agents (depth > 0) now receive a `task_complete` tool that signals completion with structured metadata (`status`, `summary`, `files_modified`, `tests_run`, `caveats`). The system prompt includes a `<completion_protocol>` section. When called, the ReAct loop stops immediately and `delegate_to_agent` returns the `CompletionResult` as JSON. `spawn_agents` includes a `completion` field in each result. Backward compatible: agents that stop without calling `task_complete` still return `TextContent()`. See `pkg/agent/tools.go` and `pkg/agent/agent.go`.
 
 ## Issue 4: Compact Effect Is Silently Inert
 
@@ -111,7 +98,7 @@ Each agent overwrites the context's agent name: `ctx = agentctx.WithAgentName(ct
 |---|---------|--------|-------------|
 | ~~1~~ | ~~Bare text handoff~~ | ~~FIXED — `context` field added~~ | `tools.go` |
 | ~~2~~ | ~~Minimal agent instructions~~ | ~~FIXED — per-agent skills with workflow protocols~~ | `config.yaml`, `.shelly/skills/` |
-| 3 | No structured completion | Can't distinguish success from giving up | `agent.go:172-175` |
+| ~~3~~ | ~~No structured completion~~ | ~~FIXED — `task_complete` tool with structured metadata~~ | `tools.go`, `agent.go` |
 | 4 | Compact effect inert | Unbounded context until provider hard limit | `compact.go:76-93`, `config.yaml` |
 | 5 | Task board unused | No lifecycle coordination between agents | `tasks/store.go` |
 | 6 | Notes not enforced | Durable state exists but isn't used reliably | `config.yaml` |
@@ -130,7 +117,7 @@ Each agent overwrites the context's agent name: `ctx = agentctx.WithAgentName(ct
 
 ### Code Changes
 - ~~**Structured handoff**: Pass a structured task spec (not just free text) to child agents, optionally including relevant parent context snippets~~ (DONE)
-- **Structured results**: Return structured data from sub-agents (files modified, tests run, status) instead of just `TextContent()`
+- ~~**Structured results**: Return structured data from sub-agents (files modified, tests run, status) instead of just `TextContent()`~~ (DONE)
 - **File-level locking**: Coordinate concurrent spawned agents to prevent clobbering
-- **Completion protocol**: Add an explicit "task complete" tool that sub-agents must call, distinguishing intentional completion from the loop simply ending
+- ~~**Completion protocol**: Add an explicit "task complete" tool that sub-agents must call, distinguishing intentional completion from the loop simply ending~~ (DONE)
 - ~~**Context propagation**: Optionally forward a summary of the parent's accumulated context to the child at spawn time~~ (DONE)
