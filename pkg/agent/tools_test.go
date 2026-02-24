@@ -299,6 +299,189 @@ func TestSpawnToolToolboxInheritance(t *testing.T) {
 	assert.Empty(t, results[0].Error)
 }
 
+// --- task_id integration tests ---
+
+// mockTaskBoard records ClaimTask and UpdateTaskStatus calls for testing.
+type mockTaskBoard struct {
+	claims  []mockClaim
+	updates []mockStatusUpdate
+}
+
+type mockClaim struct {
+	ID    string
+	Agent string
+}
+
+type mockStatusUpdate struct {
+	ID     string
+	Status string
+}
+
+func (m *mockTaskBoard) ClaimTask(id, agent string) error {
+	m.claims = append(m.claims, mockClaim{ID: id, Agent: agent})
+	return nil
+}
+
+func (m *mockTaskBoard) UpdateTaskStatus(id, status string) error {
+	m.updates = append(m.updates, mockStatusUpdate{ID: id, Status: status})
+	return nil
+}
+
+func TestDelegateToolWithTaskID(t *testing.T) {
+	board := &mockTaskBoard{}
+
+	reg := NewRegistry()
+	reg.Register("worker", "Does work", func() *Agent {
+		return New("worker", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{
+						ID:        "c1",
+						Name:      "task_complete",
+						Arguments: `{"status":"completed","summary":"did it"}`,
+					},
+				),
+			},
+		}, Options{})
+	})
+
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{TaskBoard: board}}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"agent":"worker","task":"do the thing","context":"some context","task_id":"task-1"}`,
+	))
+
+	require.NoError(t, err)
+
+	// Verify task was claimed for the child agent.
+	require.Len(t, board.claims, 1)
+	assert.Equal(t, "task-1", board.claims[0].ID)
+	assert.Equal(t, "worker", board.claims[0].Agent)
+
+	// Verify task status was updated based on completion result.
+	require.Len(t, board.updates, 1)
+	assert.Equal(t, "task-1", board.updates[0].ID)
+	assert.Equal(t, "completed", board.updates[0].Status)
+
+	// Result should still be structured JSON.
+	var cr CompletionResult
+	require.NoError(t, json.Unmarshal([]byte(result), &cr))
+	assert.Equal(t, "completed", cr.Status)
+}
+
+func TestDelegateToolWithTaskIDNoBoard(t *testing.T) {
+	// task_id provided but no TaskBoard set — graceful no-op.
+	reg := NewRegistry()
+	reg.Register("worker", "Does work", func() *Agent {
+		return New("worker", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.NewText("", role.Assistant, "done"),
+			},
+		}, Options{})
+	})
+
+	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"agent":"worker","task":"do","context":"ctx","task_id":"task-1"}`,
+	))
+
+	require.NoError(t, err)
+	assert.Equal(t, "done", result)
+}
+
+func TestDelegateToolWithTaskIDNoCompletion(t *testing.T) {
+	// Child doesn't call task_complete — task stays in_progress (no status update).
+	board := &mockTaskBoard{}
+
+	reg := NewRegistry()
+	reg.Register("worker", "Does work", func() *Agent {
+		return New("worker", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.NewText("", role.Assistant, "done without completion"),
+			},
+		}, Options{})
+	})
+
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{TaskBoard: board}}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"agent":"worker","task":"do","context":"ctx","task_id":"task-1"}`,
+	))
+
+	require.NoError(t, err)
+	assert.Equal(t, "done without completion", result)
+
+	// Task was claimed but status was not updated (no completion result).
+	require.Len(t, board.claims, 1)
+	assert.Empty(t, board.updates)
+}
+
+func TestSpawnToolWithTaskID(t *testing.T) {
+	board := &mockTaskBoard{}
+
+	reg := NewRegistry()
+	reg.Register("a", "Agent A", func() *Agent {
+		return New("a", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{
+						ID:        "c1",
+						Name:      "task_complete",
+						Arguments: `{"status":"completed","summary":"a done"}`,
+					},
+				),
+			},
+		}, Options{})
+	})
+	reg.Register("b", "Agent B", func() *Agent {
+		return New("b", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{
+						ID:        "c1",
+						Name:      "task_complete",
+						Arguments: `{"status":"failed","summary":"b failed"}`,
+					},
+				),
+			},
+		}, Options{})
+	})
+
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{TaskBoard: board}}
+	tool := spawnTool(a)
+
+	_, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"a","task":"task-a","context":"ctx-a","task_id":"task-1"},{"agent":"b","task":"task-b","context":"ctx-b","task_id":"task-2"}]}`,
+	))
+
+	require.NoError(t, err)
+
+	// Both tasks should be claimed.
+	require.Len(t, board.claims, 2)
+
+	// Both tasks should have status updates.
+	require.Len(t, board.updates, 2)
+
+	// Sort for deterministic assertions (concurrent goroutines).
+	claimsByID := make(map[string]string)
+	for _, c := range board.claims {
+		claimsByID[c.ID] = c.Agent
+	}
+	assert.Equal(t, "a", claimsByID["task-1"])
+	assert.Equal(t, "b", claimsByID["task-2"])
+
+	updatesByID := make(map[string]string)
+	for _, u := range board.updates {
+		updatesByID[u.ID] = u.Status
+	}
+	assert.Equal(t, "completed", updatesByID["task-1"])
+	assert.Equal(t, "failed", updatesByID["task-2"])
+}
+
 func TestDelegateToolWithContext(t *testing.T) {
 	var capturedMessages []message.Message
 

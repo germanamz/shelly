@@ -6,7 +6,7 @@ description: "Coding protocol: plan consumption, task lifecycle, result reportin
 ## First Actions
 
 1. Run `list_notes` and read any implementation plan or context notes.
-2. Claim your task on the task board (`shared_tasks_claim`).
+2. If not already auto-claimed via `task_id` delegation, claim your task on the task board (`shared_tasks_claim`).
 
 ## Implementation
 
@@ -28,8 +28,8 @@ After completing work:
 
 ## Task Lifecycle
 
-- Mark your task as completed (`shared_tasks_update` with status `completed`) when done.
-- If you cannot complete the task, mark it as failed with a description of what went wrong.
+- When delegated with a `task_id`, the task board is managed automatically — claiming and status updates happen based on your `task_complete` call. You do not need to call `shared_tasks_claim` or `shared_tasks_update` manually.
+- If not delegated with a `task_id`, mark your task as completed (`shared_tasks_update` with status `completed`) when done.
 - Always call `task_complete` as your final action — do not simply stop responding.
 
 ## Approaching Iteration Limit

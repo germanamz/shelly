@@ -24,17 +24,9 @@ Fixed: Sub-agents (depth > 0) now receive a `task_complete` tool that signals co
 
 Fixed: `ProviderConfig.ContextWindow` is now `*int` to distinguish "not set" (nil) from "explicitly disabled" (0). Known provider kinds have built-in default context windows (anthropic: 200k, openai: 128k, grok: 131k). When `context_window` is omitted in YAML, `resolveContextWindow()` in `pkg/engine/provider.go` returns the per-kind default, so compaction works out of the box. Setting `context_window: 0` explicitly disables compaction.
 
-## Issue 5: Task Board Exists But Isn't Wired Into the Workflow
+## ~~Issue 5: Task Board Exists But Isn't Wired Into the Workflow~~ (FIXED)
 
-**`pkg/tasks/store.go`**
-
-A full task lifecycle (`pending → in_progress → completed/failed`) and tools (`shared_tasks_*`) are available to both orchestrator and coder. But no agent instructions require using them:
-
-- The orchestrator doesn't create tasks before delegating
-- The coder doesn't claim or mark tasks complete
-- The orchestrator doesn't watch tasks for completion status
-
-The task board is a coordination mechanism that goes unused.
+FIXED — delegation tools (`delegate_to_agent`, `spawn_agents`) accept an optional `task_id` parameter for automatic claim/status-update. When provided, the task is auto-claimed for the child agent before it runs, and its status is auto-updated based on the child's `task_complete` result. Skills updated to document the `task_id` workflow. See `pkg/agent/tools.go` and `pkg/agent/agent.go`.
 
 ## Issue 6: Notes Are the Only Durable Cross-Agent State, But Their Use Isn't Enforced
 
@@ -88,7 +80,7 @@ Each agent overwrites the context's agent name: `ctx = agentctx.WithAgentName(ct
 | ~~2~~ | ~~Minimal agent instructions~~ | ~~FIXED — per-agent skills with workflow protocols~~ | `config.yaml`, `.shelly/skills/` |
 | ~~3~~ | ~~No structured completion~~ | ~~FIXED — `task_complete` tool with structured metadata~~ | `tools.go`, `agent.go` |
 | ~~4~~ | ~~Compact effect inert~~ | ~~FIXED — per-kind default context windows~~ | `provider.go`, `config.go` |
-| 5 | Task board unused | No lifecycle coordination between agents | `tasks/store.go` |
+| ~~5~~ | ~~Task board unused~~ | ~~FIXED — `task_id` param on delegation tools for auto lifecycle~~ | `tools.go`, `agent.go` |
 | 6 | Notes not enforced | Durable state exists but isn't used reliably | `config.yaml` |
 | 7 | No iteration exhaustion recovery | Orchestrator can't handle coder failure | `tools.go:106-110` |
 | 8 | Concurrent file clobbering | Spawned coders overwrite each other | `tools.go:162-205` |

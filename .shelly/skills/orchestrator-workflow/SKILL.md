@@ -17,13 +17,14 @@ description: "Task orchestration protocol: decomposition, delegation, verificati
 
 - Use `delegate_to_agent` for sequential tasks or `spawn_agents` for independent parallel work.
 - Always provide rich `context` — include prior decisions, relevant file contents, and the note name.
+- Pass `task_id` to `delegate_to_agent` or each task in `spawn_agents` to automatically claim the task for the child agent and update its status based on the child's `task_complete` result.
 
 ## After Delegation
 
 1. Check the delegation result. If the child called `task_complete`, the result is structured JSON with `status`, `summary`, `files_modified`, `tests_run`, and `caveats` fields.
 2. Read any result notes written by the child agent for additional detail.
 3. Verify the result against the acceptance criteria from the task spec.
-4. If the result is satisfactory, mark the task as completed on the board.
+4. If `task_id` was provided during delegation, the task board is auto-updated based on the child's `task_complete` result. Otherwise, manually mark the task as completed on the board.
 
 ## On Failure or Iteration Exhaustion
 

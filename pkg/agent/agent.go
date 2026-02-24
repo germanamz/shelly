@@ -37,6 +37,13 @@ type CompletionResult struct {
 // lifecycle events (e.g. "agent_start", "agent_end") to the engine's EventBus.
 type EventNotifier func(ctx context.Context, kind string, agentName string, data any)
 
+// TaskBoard abstracts the shared task board so orchestration tools can
+// manage task lifecycle during delegation without importing pkg/tasks.
+type TaskBoard interface {
+	ClaimTask(id, agent string) error
+	UpdateTaskStatus(id, status string) error
+}
+
 // Options configures an Agent.
 type Options struct {
 	MaxIterations      int           // ReAct loop limit (0 = unlimited).
@@ -47,6 +54,7 @@ type Options struct {
 	Context            string        // Project context injected into the system prompt.
 	EventNotifier      EventNotifier // Publishes sub-agent lifecycle events.
 	Prefix             string        // Display prefix (emoji + label) for the TUI.
+	TaskBoard          TaskBoard     // Optional task board for automatic task lifecycle during delegation.
 }
 
 // Agent is the unified agent type. It runs a ReAct loop, can delegate to other

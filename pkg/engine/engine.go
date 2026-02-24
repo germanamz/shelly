@@ -292,6 +292,20 @@ func (e *Engine) Close() error {
 	return firstErr
 }
 
+// taskBoardAdapter implements agent.TaskBoard using a *tasks.Store.
+type taskBoardAdapter struct {
+	store *tasks.Store
+}
+
+func (a *taskBoardAdapter) ClaimTask(id, agentName string) error {
+	return a.store.Claim(id, agentName)
+}
+
+func (a *taskBoardAdapter) UpdateTaskStatus(id, status string) error {
+	s := tasks.Status(status)
+	return a.store.Update(id, tasks.Update{Status: &s})
+}
+
 // builtinToolboxNames are toolbox names managed by the engine itself (not MCP).
 var builtinToolboxNames = map[string]struct{}{
 	"state":      {},
@@ -462,6 +476,12 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 	desc := ac.Description
 	instr := ac.Instructions
 	prefix := ac.Prefix
+	// Wire task board adapter if the task store is available.
+	var taskBoard agent.TaskBoard
+	if e.taskStore != nil {
+		taskBoard = &taskBoardAdapter{store: e.taskStore}
+	}
+
 	opts := agent.Options{
 		MaxIterations:      ac.Options.MaxIterations,
 		MaxDelegationDepth: ac.Options.MaxDelegationDepth,
@@ -470,6 +490,7 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 		Context:            ctxStr,
 		EventNotifier:      eventNotifier,
 		Prefix:             prefix,
+		TaskBoard:          taskBoard,
 	}
 
 	e.registry.Register(name, desc, func() *agent.Agent {

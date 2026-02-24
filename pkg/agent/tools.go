@@ -63,13 +63,14 @@ type delegateInput struct {
 	Agent   string `json:"agent"`
 	Task    string `json:"task"`
 	Context string `json:"context"`
+	TaskID  string `json:"task_id"`
 }
 
 func delegateTool(a *Agent) toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "delegate_to_agent",
-		Description: "Delegate a task to another agent and get its response. Use the context field to pass relevant background information so the agent does not need to re-explore.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"agent":{"type":"string","description":"Name of the agent to delegate to"},"task":{"type":"string","description":"The task to delegate"},"context":{"type":"string","description":"Background context for the agent: relevant file contents, decisions, constraints, or any info the agent needs to complete the task without re-exploring."}},"required":["agent","task","context"]}`),
+		Description: "Delegate a task to another agent and get its response. Use the context field to pass relevant background information so the agent does not need to re-explore. Pass task_id to automatically claim the task and update its status based on the child's completion result.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"agent":{"type":"string","description":"Name of the agent to delegate to"},"task":{"type":"string","description":"The task to delegate"},"context":{"type":"string","description":"Background context for the agent: relevant file contents, decisions, constraints, or any info the agent needs to complete the task without re-exploring."},"task_id":{"type":"string","description":"Optional task board ID. When provided, the task is auto-claimed for the child agent and its status is updated based on the completion result."}},"required":["agent","task","context"]}`),
 		Handler: func(ctx context.Context, input json.RawMessage) (string, error) {
 			var di delegateInput
 			if err := json.Unmarshal(input, &di); err != nil {
@@ -95,6 +96,11 @@ func delegateTool(a *Agent) toolbox.Tool {
 			prependContext(child, di.Context)
 			child.chat.Append(message.NewText("user", role.User, di.Task))
 
+			// Auto-claim task if task_id is provided and TaskBoard is available.
+			if di.TaskID != "" && a.options.TaskBoard != nil {
+				_ = a.options.TaskBoard.ClaimTask(di.TaskID, child.name)
+			}
+
 			if a.options.EventNotifier != nil {
 				a.options.EventNotifier(ctx, "agent_start", child.name, AgentEventData{Prefix: child.Prefix()})
 			}
@@ -107,6 +113,13 @@ func delegateTool(a *Agent) toolbox.Tool {
 
 			if err != nil {
 				return "", fmt.Errorf("delegate_to_agent: agent %q: %w", di.Agent, err)
+			}
+
+			// Auto-update task status based on completion result.
+			if di.TaskID != "" && a.options.TaskBoard != nil {
+				if cr := child.CompletionResult(); cr != nil {
+					_ = a.options.TaskBoard.UpdateTaskStatus(di.TaskID, cr.Status)
+				}
 			}
 
 			if cr := child.CompletionResult(); cr != nil {
@@ -128,6 +141,7 @@ type spawnTask struct {
 	Agent   string `json:"agent"`
 	Task    string `json:"task"`
 	Context string `json:"context"`
+	TaskID  string `json:"task_id"`
 }
 
 type spawnInput struct {
@@ -144,8 +158,8 @@ type spawnResult struct {
 func spawnTool(a *Agent) toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "spawn_agents",
-		Description: "Spawn multiple agents concurrently and collect their results. Use the context field on each task to pass relevant background information so agents do not need to re-explore.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"tasks":{"type":"array","items":{"type":"object","properties":{"agent":{"type":"string","description":"Name of the agent"},"task":{"type":"string","description":"The task to delegate"},"context":{"type":"string","description":"Background context for the agent: relevant file contents, decisions, constraints, or any info the agent needs to complete the task without re-exploring."}},"required":["agent","task","context"]},"description":"List of agent tasks to run concurrently"}},"required":["tasks"]}`),
+		Description: "Spawn multiple agents concurrently and collect their results. Use the context field on each task to pass relevant background information so agents do not need to re-explore. Pass task_id on each task to automatically claim and update task board entries.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"tasks":{"type":"array","items":{"type":"object","properties":{"agent":{"type":"string","description":"Name of the agent"},"task":{"type":"string","description":"The task to delegate"},"context":{"type":"string","description":"Background context for the agent: relevant file contents, decisions, constraints, or any info the agent needs to complete the task without re-exploring."},"task_id":{"type":"string","description":"Optional task board ID. When provided, the task is auto-claimed for the child agent and its status is updated based on the completion result."}},"required":["agent","task","context"]},"description":"List of agent tasks to run concurrently"}},"required":["tasks"]}`),
 		Handler: func(ctx context.Context, input json.RawMessage) (string, error) {
 			var si spawnInput
 			if err := json.Unmarshal(input, &si); err != nil {
@@ -190,6 +204,11 @@ func spawnTool(a *Agent) toolbox.Tool {
 					prependContext(child, t.Context)
 					child.chat.Append(message.NewText("user", role.User, t.Task))
 
+					// Auto-claim task if task_id is provided and TaskBoard is available.
+					if t.TaskID != "" && a.options.TaskBoard != nil {
+						_ = a.options.TaskBoard.ClaimTask(t.TaskID, child.name)
+					}
+
 					if a.options.EventNotifier != nil {
 						a.options.EventNotifier(ctx, "agent_start", child.name, AgentEventData{Prefix: child.Prefix()})
 					}
@@ -206,6 +225,13 @@ func spawnTool(a *Agent) toolbox.Tool {
 							Error: err.Error(),
 						}
 						return
+					}
+
+					// Auto-update task status based on completion result.
+					if t.TaskID != "" && a.options.TaskBoard != nil {
+						if cr := child.CompletionResult(); cr != nil {
+							_ = a.options.TaskBoard.UpdateTaskStatus(t.TaskID, cr.Status)
+						}
 					}
 
 					results[i] = spawnResult{

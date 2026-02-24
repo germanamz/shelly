@@ -79,13 +79,14 @@ description: "Task orchestration protocol: decomposition, delegation, verificati
 
 - Use ` + "`delegate_to_agent`" + ` for sequential tasks or ` + "`spawn_agents`" + ` for independent parallel work.
 - Always provide rich ` + "`context`" + ` — include prior decisions, relevant file contents, and the note name.
+- Pass ` + "`task_id`" + ` to ` + "`delegate_to_agent`" + ` or each task in ` + "`spawn_agents`" + ` to automatically claim the task for the child agent and update its status based on the child's ` + "`task_complete`" + ` result.
 
 ## After Delegation
 
 1. Check the delegation result. If the child called ` + "`task_complete`" + `, the result is structured JSON with ` + "`status`" + `, ` + "`summary`" + `, ` + "`files_modified`" + `, ` + "`tests_run`" + `, and ` + "`caveats`" + ` fields.
 2. Read any result notes written by the child agent for additional detail.
 3. Verify the result against the acceptance criteria from the task spec.
-4. If the result is satisfactory, mark the task as completed on the board.
+4. If ` + "`task_id`" + ` was provided during delegation, the task board is auto-updated based on the child's ` + "`task_complete`" + ` result. Otherwise, manually mark the task as completed on the board.
 
 ## On Failure or Iteration Exhaustion
 
@@ -141,7 +142,7 @@ description: "Coding protocol: plan consumption, task lifecycle, result reportin
 ## First Actions
 
 1. Run ` + "`list_notes`" + ` and read any implementation plan or context notes.
-2. Claim your task on the task board (` + "`shared_tasks_claim`" + `).
+2. If not already auto-claimed via ` + "`task_id`" + ` delegation, claim your task on the task board (` + "`shared_tasks_claim`" + `).
 
 ## Implementation
 
@@ -163,8 +164,8 @@ After completing work:
 
 ## Task Lifecycle
 
-- Mark your task as completed (` + "`shared_tasks_update`" + ` with status ` + "`completed`" + `) when done.
-- If you cannot complete the task, mark it as failed with a description of what went wrong.
+- When delegated with a ` + "`task_id`" + `, the task board is managed automatically — claiming and status updates happen based on your ` + "`task_complete`" + ` call. You do not need to call ` + "`shared_tasks_claim`" + ` or ` + "`shared_tasks_update`" + ` manually.
+- If not delegated with a ` + "`task_id`" + `, mark your task as completed (` + "`shared_tasks_update`" + ` with status ` + "`completed`" + `) when done.
 - Always call ` + "`task_complete`" + ` as your final action — do not simply stop responding.
 
 ## Approaching Iteration Limit

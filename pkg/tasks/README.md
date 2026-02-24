@@ -64,6 +64,20 @@ Tool handlers read agent identity via `agentctx.AgentNameFromContext(ctx)` for `
 
 ## Typical Workflow
 
+### Automatic (with `task_id` delegation)
+
+```
+1. Orchestrator creates tasks via shared_tasks_create
+2. Orchestrator delegates via delegate_to_agent or spawn_agents with task_id
+3. Task is auto-claimed for the child agent before it runs
+4. Child completes work and calls task_complete
+5. Task status is auto-updated based on the completion result
+6. Blocked tasks auto-unblock when dependencies complete
+7. Orchestrator receives structured completion result
+```
+
+### Manual (without `task_id`)
+
 ```
 1. Orchestrator creates tasks via shared_tasks_create
 2. Orchestrator spawns workers via spawn_agents

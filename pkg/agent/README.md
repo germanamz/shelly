@@ -14,6 +14,17 @@ This package replaces the previous `pkg/agents/` and `pkg/reactor/` hierarchies 
 
 ## Types
 
+### TaskBoard
+
+Interface for optional task lifecycle management during delegation. When set on `Options.TaskBoard`, delegation tools (`delegate_to_agent`, `spawn_agents`) automatically claim tasks and update their status based on the child's `CompletionResult`.
+
+```go
+type TaskBoard interface {
+    ClaimTask(id, agent string) error
+    UpdateTaskStatus(id, status string) error
+}
+```
+
 ### Agent
 
 The core type. Created via `New(name, description, instructions, completer, opts)`.
@@ -47,13 +58,22 @@ When a `Registry` is set, three tools are automatically injected:
 | Tool | Description |
 |------|-------------|
 | `list_agents` | Lists all available agents (excluding self) |
-| `delegate_to_agent` | Delegates a task to another agent, returns its response. Requires `agent`, `task`, and `context` fields. |
-| `spawn_agents` | Runs multiple agents concurrently, returns collected results. Each task requires `agent`, `task`, and `context` fields. |
+| `delegate_to_agent` | Delegates a task to another agent, returns its response. Requires `agent`, `task`, and `context` fields. Optional `task_id` for automatic task lifecycle. |
+| `spawn_agents` | Runs multiple agents concurrently, returns collected results. Each task requires `agent`, `task`, and `context` fields. Optional `task_id` per task for automatic task lifecycle. |
 | `task_complete` | **(sub-agents only)** Signals task completion with structured metadata (status, summary, files modified, tests run, caveats). |
 
 Both `delegate_to_agent` and `spawn_agents` require a `context` field — background information (file contents, decisions, constraints) that the child agent needs. The context is prepended as a `<delegation_context>`-tagged user message before the task message, so the child sees: system prompt -> context -> task.
 
 Safety guards: self-delegation rejected, `MaxDelegationDepth` enforced, concurrent spawn uses cancel-on-first-error.
+
+### Automatic Task Lifecycle
+
+When `Options.TaskBoard` is set, delegation tools support an optional `task_id` parameter:
+
+1. **Before `child.Run()`**: if `task_id` is provided, `TaskBoard.ClaimTask(taskID, childName)` is called automatically. Claim errors are silently ignored (the task may already be claimed).
+2. **After `child.Run()`**: if the child produced a `CompletionResult`, `TaskBoard.UpdateTaskStatus(taskID, cr.Status)` is called automatically.
+
+This eliminates 2-3 manual tool calls per delegation that the LLM would otherwise need to make (`shared_tasks_claim`, `shared_tasks_update`), making task lifecycle management reliable without relying on LLM compliance.
 
 ### Structured Completion Protocol
 
