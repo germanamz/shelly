@@ -60,15 +60,16 @@ func listAgentsTool(a *Agent) toolbox.Tool {
 // --- delegate_to_agent ---
 
 type delegateInput struct {
-	Agent string `json:"agent"`
-	Task  string `json:"task"`
+	Agent   string `json:"agent"`
+	Task    string `json:"task"`
+	Context string `json:"context"`
 }
 
 func delegateTool(a *Agent) toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "delegate_to_agent",
-		Description: "Delegate a task to another agent and get its response",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"agent":{"type":"string","description":"Name of the agent to delegate to"},"task":{"type":"string","description":"The task to delegate"}},"required":["agent","task"]}`),
+		Description: "Delegate a task to another agent and get its response. Use the context field to pass relevant background information so the agent does not need to re-explore.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"agent":{"type":"string","description":"Name of the agent to delegate to"},"task":{"type":"string","description":"The task to delegate"},"context":{"type":"string","description":"Background context for the agent: relevant file contents, decisions, constraints, or any info the agent needs to complete the task without re-exploring."}},"required":["agent","task","context"]}`),
 		Handler: func(ctx context.Context, input json.RawMessage) (string, error) {
 			var di delegateInput
 			if err := json.Unmarshal(input, &di); err != nil {
@@ -91,6 +92,7 @@ func delegateTool(a *Agent) toolbox.Tool {
 			child.registry = a.registry
 			child.options.EventNotifier = a.options.EventNotifier
 			child.AddToolBoxes(a.toolboxes...)
+			prependContext(child, di.Context)
 			child.chat.Append(message.NewText("user", role.User, di.Task))
 
 			if a.options.EventNotifier != nil {
@@ -115,8 +117,9 @@ func delegateTool(a *Agent) toolbox.Tool {
 // --- spawn_agents ---
 
 type spawnTask struct {
-	Agent string `json:"agent"`
-	Task  string `json:"task"`
+	Agent   string `json:"agent"`
+	Task    string `json:"task"`
+	Context string `json:"context"`
 }
 
 type spawnInput struct {
@@ -132,8 +135,8 @@ type spawnResult struct {
 func spawnTool(a *Agent) toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "spawn_agents",
-		Description: "Spawn multiple agents concurrently and collect their results",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"tasks":{"type":"array","items":{"type":"object","properties":{"agent":{"type":"string","description":"Name of the agent"},"task":{"type":"string","description":"The task to delegate"}},"required":["agent","task"]},"description":"List of agent tasks to run concurrently"}},"required":["tasks"]}`),
+		Description: "Spawn multiple agents concurrently and collect their results. Use the context field on each task to pass relevant background information so agents do not need to re-explore.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"tasks":{"type":"array","items":{"type":"object","properties":{"agent":{"type":"string","description":"Name of the agent"},"task":{"type":"string","description":"The task to delegate"},"context":{"type":"string","description":"Background context for the agent: relevant file contents, decisions, constraints, or any info the agent needs to complete the task without re-exploring."}},"required":["agent","task","context"]},"description":"List of agent tasks to run concurrently"}},"required":["tasks"]}`),
 		Handler: func(ctx context.Context, input json.RawMessage) (string, error) {
 			var si spawnInput
 			if err := json.Unmarshal(input, &si); err != nil {
@@ -175,6 +178,7 @@ func spawnTool(a *Agent) toolbox.Tool {
 					child.registry = a.registry
 					child.options.EventNotifier = a.options.EventNotifier
 					child.AddToolBoxes(a.toolboxes...)
+					prependContext(child, t.Context)
 					child.chat.Append(message.NewText("user", role.User, t.Task))
 
 					if a.options.EventNotifier != nil {
@@ -212,4 +216,11 @@ func spawnTool(a *Agent) toolbox.Tool {
 			return string(data), nil
 		},
 	}
+}
+
+// prependContext adds a context message before the task message
+// in a child agent's chat. The context is wrapped in <delegation_context> tags.
+func prependContext(child *Agent, ctx string) {
+	child.chat.Append(message.NewText("user", role.User,
+		"<delegation_context>\n"+ctx+"\n</delegation_context>"))
 }

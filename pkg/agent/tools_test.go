@@ -47,7 +47,7 @@ func TestDelegateToolSelfDelegation(t *testing.T) {
 	a := &Agent{name: "orch", registry: NewRegistry()}
 	tool := delegateTool(a)
 
-	_, err := tool.Handler(context.Background(), json.RawMessage(`{"agent":"orch","task":"loop"}`))
+	_, err := tool.Handler(context.Background(), json.RawMessage(`{"agent":"orch","task":"loop","context":""}`))
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "self-delegation")
@@ -62,7 +62,7 @@ func TestDelegateToolMaxDepth(t *testing.T) {
 	}
 	tool := delegateTool(a)
 
-	_, err := tool.Handler(context.Background(), json.RawMessage(`{"agent":"worker","task":"do"}`))
+	_, err := tool.Handler(context.Background(), json.RawMessage(`{"agent":"worker","task":"do","context":""}`))
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "max delegation depth")
@@ -72,7 +72,7 @@ func TestDelegateToolAgentNotFound(t *testing.T) {
 	a := &Agent{name: "orch", registry: NewRegistry()}
 	tool := delegateTool(a)
 
-	_, err := tool.Handler(context.Background(), json.RawMessage(`{"agent":"missing","task":"do"}`))
+	_, err := tool.Handler(context.Background(), json.RawMessage(`{"agent":"missing","task":"do","context":""}`))
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
@@ -91,7 +91,7 @@ func TestDelegateToolSuccess(t *testing.T) {
 	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
 	tool := delegateTool(a)
 
-	result, err := tool.Handler(context.Background(), json.RawMessage(`{"agent":"worker","task":"do the thing"}`))
+	result, err := tool.Handler(context.Background(), json.RawMessage(`{"agent":"worker","task":"do the thing","context":"some context"}`))
 
 	require.NoError(t, err)
 	assert.Equal(t, "done by worker", result)
@@ -111,7 +111,7 @@ func TestSpawnToolSelfDelegation(t *testing.T) {
 	a := &Agent{name: "orch", registry: NewRegistry()}
 	tool := spawnTool(a)
 
-	_, err := tool.Handler(context.Background(), json.RawMessage(`{"tasks":[{"agent":"orch","task":"loop"}]}`))
+	_, err := tool.Handler(context.Background(), json.RawMessage(`{"tasks":[{"agent":"orch","task":"loop","context":""}]}`))
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "self-delegation")
@@ -138,7 +138,7 @@ func TestSpawnToolSuccess(t *testing.T) {
 	tool := spawnTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
-		`{"tasks":[{"agent":"a","task":"task-a"},{"agent":"b","task":"task-b"}]}`,
+		`{"tasks":[{"agent":"a","task":"task-a","context":"ctx-a"},{"agent":"b","task":"task-b","context":"ctx-b"}]}`,
 	))
 
 	require.NoError(t, err)
@@ -159,7 +159,7 @@ func TestSpawnToolAgentNotFound(t *testing.T) {
 	tool := spawnTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
-		`{"tasks":[{"agent":"missing","task":"do"}]}`,
+		`{"tasks":[{"agent":"missing","task":"do","context":""}]}`,
 	))
 
 	require.NoError(t, err)
@@ -210,7 +210,7 @@ func TestDelegateToolChildGetsRegistry(t *testing.T) {
 	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
 	tool := delegateTool(a)
 
-	result, err := tool.Handler(context.Background(), json.RawMessage(`{"agent":"worker","task":"list them"}`))
+	result, err := tool.Handler(context.Background(), json.RawMessage(`{"agent":"worker","task":"list them","context":"some context"}`))
 
 	require.NoError(t, err)
 	assert.Equal(t, "listed", result)
@@ -235,7 +235,7 @@ func TestSpawnToolResilientErrors(t *testing.T) {
 	tool := spawnTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
-		`{"tasks":[{"agent":"ok","task":"go"},{"agent":"fail","task":"go"},{"agent":"missing","task":"go"}]}`,
+		`{"tasks":[{"agent":"ok","task":"go","context":""},{"agent":"fail","task":"go","context":""},{"agent":"missing","task":"go","context":""}]}`,
 	))
 
 	require.NoError(t, err)
@@ -286,7 +286,7 @@ func TestSpawnToolToolboxInheritance(t *testing.T) {
 	tool := spawnTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
-		`{"tasks":[{"agent":"worker","task":"use inherited tool"}]}`,
+		`{"tasks":[{"agent":"worker","task":"use inherited tool","context":"inherited context"}]}`,
 	))
 
 	require.NoError(t, err)
@@ -297,6 +297,96 @@ func TestSpawnToolToolboxInheritance(t *testing.T) {
 	assert.Equal(t, "worker", results[0].Agent)
 	assert.Equal(t, "done with inherited", results[0].Result)
 	assert.Empty(t, results[0].Error)
+}
+
+func TestDelegateToolWithContext(t *testing.T) {
+	var capturedMessages []message.Message
+
+	reg := NewRegistry()
+	reg.Register("worker", "Does work", func() *Agent {
+		return New("worker", "", "", &capturingCompleter{
+			capture: &capturedMessages,
+			reply:   message.NewText("", role.Assistant, "done"),
+		}, Options{})
+	})
+
+	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"agent":"worker","task":"do the thing","context":"file.go contains X\nconstraint: no breaking changes"}`,
+	))
+
+	require.NoError(t, err)
+	assert.Equal(t, "done", result)
+
+	// Child should have 2 user messages: context then task.
+	var userMsgs []message.Message
+	for _, m := range capturedMessages {
+		if m.Role == role.User {
+			userMsgs = append(userMsgs, m)
+		}
+	}
+	require.Len(t, userMsgs, 2)
+	assert.Contains(t, userMsgs[0].TextContent(), "<delegation_context>")
+	assert.Contains(t, userMsgs[0].TextContent(), "file.go contains X")
+	assert.Equal(t, "do the thing", userMsgs[1].TextContent())
+}
+
+func TestSpawnToolWithContext(t *testing.T) {
+	var capturedA []message.Message
+	var capturedB []message.Message
+
+	reg := NewRegistry()
+	reg.Register("a", "Agent A", func() *Agent {
+		return New("a", "", "", &capturingCompleter{
+			capture: &capturedA,
+			reply:   message.NewText("", role.Assistant, "result-a"),
+		}, Options{})
+	})
+	reg.Register("b", "Agent B", func() *Agent {
+		return New("b", "", "", &capturingCompleter{
+			capture: &capturedB,
+			reply:   message.NewText("", role.Assistant, "result-b"),
+		}, Options{})
+	})
+
+	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
+	tool := spawnTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"a","task":"task-a","context":"background for a"},{"agent":"b","task":"task-b","context":"background for b"}]}`,
+	))
+
+	require.NoError(t, err)
+
+	var results []spawnResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 2)
+
+	// Agent "a": context then task.
+	var userMsgsA []message.Message
+	for _, m := range capturedA {
+		if m.Role == role.User {
+			userMsgsA = append(userMsgsA, m)
+		}
+	}
+	require.Len(t, userMsgsA, 2)
+	assert.Contains(t, userMsgsA[0].TextContent(), "<delegation_context>")
+	assert.Contains(t, userMsgsA[0].TextContent(), "background for a")
+	assert.Equal(t, "task-a", userMsgsA[1].TextContent())
+
+	// Agent "b": context then task.
+	var userMsgsB []message.Message
+	for _, m := range capturedB {
+		if m.Role == role.User {
+			userMsgsB = append(userMsgsB, m)
+		}
+	}
+	require.Len(t, userMsgsB, 2)
+	assert.Contains(t, userMsgsB[0].TextContent(), "<delegation_context>")
+	assert.Contains(t, userMsgsB[0].TextContent(), "background for b")
+	assert.Equal(t, "task-b", userMsgsB[1].TextContent())
 }
 
 func TestDelegateToolToolboxInheritance(t *testing.T) {
@@ -327,7 +417,7 @@ func TestDelegateToolToolboxInheritance(t *testing.T) {
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
-		`{"agent":"worker","task":"use inherited tool"}`,
+		`{"agent":"worker","task":"use inherited tool","context":"inherited context"}`,
 	))
 
 	require.NoError(t, err)

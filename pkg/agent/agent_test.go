@@ -42,6 +42,25 @@ func (p *errorCompleter) Complete(_ context.Context, _ *chat.Chat, _ []toolbox.T
 	return message.Message{}, p.err
 }
 
+// capturingCompleter captures the chat messages on first Complete call,
+// then returns a fixed reply.
+type capturingCompleter struct {
+	capture  *[]message.Message
+	reply    message.Message
+	captured bool
+}
+
+func (c *capturingCompleter) Complete(_ context.Context, ch *chat.Chat, _ []toolbox.Tool) (message.Message, error) {
+	if !c.captured {
+		msgs := ch.Messages()
+		copied := make([]message.Message, len(msgs))
+		copy(copied, msgs)
+		*c.capture = copied
+		c.captured = true
+	}
+	return c.reply, nil
+}
+
 func newEchoToolBox() *toolbox.ToolBox {
 	tb := toolbox.New()
 	tb.Register(toolbox.Tool{

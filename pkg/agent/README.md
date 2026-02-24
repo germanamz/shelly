@@ -47,8 +47,10 @@ When a `Registry` is set, three tools are automatically injected:
 | Tool | Description |
 |------|-------------|
 | `list_agents` | Lists all available agents (excluding self) |
-| `delegate_to_agent` | Delegates a task to another agent, returns its response |
-| `spawn_agents` | Runs multiple agents concurrently, returns collected results |
+| `delegate_to_agent` | Delegates a task to another agent, returns its response. Requires `agent`, `task`, and `context` fields. |
+| `spawn_agents` | Runs multiple agents concurrently, returns collected results. Each task requires `agent`, `task`, and `context` fields. |
+
+Both `delegate_to_agent` and `spawn_agents` require a `context` field — background information (file contents, decisions, constraints) that the child agent needs. The context is prepended as a `<delegation_context>`-tagged user message before the task message, so the child sees: system prompt -> context -> task.
 
 Safety guards: self-delegation rejected, `MaxDelegationDepth` enforced, concurrent spawn uses cancel-on-first-error.
 
