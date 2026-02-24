@@ -109,9 +109,10 @@ agents:
 
 See `pkg/agent/effects/` for available implementations:
 
-| Effect | Kind | Description |
-|--------|------|-------------|
-| `CompactEffect` | `compact` | Summarises the conversation when token usage approaches the context window limit |
+| Effect | Kind | Phase | Description |
+|--------|------|-------|-------------|
+| `CompactEffect` | `compact` | BeforeComplete | Graduated context compaction: first trims old tool results (lightweight), then falls back to full summarisation when approaching context window limit |
+| `TrimToolResultsEffect` | `trim_tool_results` | AfterComplete | Trims old tool result content to a configurable length, preserving the most recent N tool messages |
 
 ### Toolbox Inheritance
 
@@ -124,6 +125,19 @@ When an agent delegates to or spawns a child agent, the child receives a **union
 `AddToolBoxes` deduplicates by pointer equality — if the parent and child share the same `*ToolBox` (e.g., both configured with `filesystem`), it will not be added twice. This prevents duplicate tool declarations from being sent to the LLM.
 
 **Implication**: a child agent may end up with tools beyond what its YAML config specifies. For example, if `code_reviewer` is configured with `[filesystem, search, git]` but is delegated from an `assistant` with `[filesystem, exec, search, git, http, state, tasks]`, the child will also have access to `exec`, `http`, `state`, and `tasks` via inheritance — but shared toolboxes like `filesystem`, `search`, and `git` will not be duplicated.
+
+## System Prompt Structure
+
+The system prompt is built by `buildSystemPrompt()` using XML tags for clear section boundaries. Sections are ordered for prompt-cache friendliness (static content first, dynamic content last):
+
+1. `<identity>` — Agent name and description (static, cacheable prefix)
+2. `<instructions>` — Agent-specific instructions (static)
+3. `<project_context>` — Project context loaded at startup (semi-static)
+4. `<skills>` — Inline skill content (semi-static)
+5. `<available_skills>` — On-demand skill descriptions (semi-static)
+6. `<available_agents>` — Agent directory from registry (dynamic, last)
+
+This ordering ensures LLM provider prompt caching can cache the stable prefix across iterations, and the XML tags help LLMs attend to section boundaries without relying on prose structure.
 
 ## Architecture
 

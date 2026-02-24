@@ -25,6 +25,14 @@ const summarizationPrompt = `You are a conversation summarizer. Create a concise
 const (
 	maxToolArgs   = 200
 	maxToolResult = 500
+
+	// trimmedToolResult is the max length for tool results during lightweight
+	// compaction (Phase 1 of graduated compaction).
+	trimmedToolResult = 200
+
+	// preserveRecentMessages is the number of recent messages to keep untouched
+	// during lightweight tool-result trimming.
+	preserveRecentMessages = 6
 )
 
 // CompactConfig holds parameters for the CompactEffect.
@@ -84,8 +92,29 @@ func (e *CompactEffect) shouldCompact(completer modeladapter.Completer) bool {
 	return last.InputTokens >= limit
 }
 
-// compact summarizes the conversation and replaces the chat with the summary.
+// compact uses a graduated approach: first tries lightweight tool-result
+// trimming, then escalates to full summarization if still over threshold.
 func (e *CompactEffect) compact(ctx context.Context, ic agent.IterationContext) error {
+	// Phase 1: Lightweight — trim old tool results in place.
+	if e.trimToolResults(ic.Chat) {
+		if e.cfg.NotifyFunc != nil {
+			e.cfg.NotifyFunc(ctx, "Tool results trimmed to save context")
+		}
+
+		// Re-check: if a subsequent shouldCompact check would still trigger,
+		// fall through to full summarization. Otherwise we're done.
+		if !e.shouldCompact(ic.Completer) {
+			return nil
+		}
+	}
+
+	// Phase 2: Full summarization.
+	return e.summarize(ctx, ic)
+}
+
+// summarize performs full conversation summarization, keeping the system prompt
+// and a compacted summary.
+func (e *CompactEffect) summarize(ctx context.Context, ic agent.IterationContext) error {
 	transcript := renderConversation(ic.Chat)
 
 	tempChat := chat.New(
@@ -110,6 +139,56 @@ func (e *CompactEffect) compact(ctx context.Context, ic agent.IterationContext) 
 	}
 
 	return nil
+}
+
+// trimToolResults replaces long tool-result content with truncated versions,
+// preserving the most recent messages. Returns true if any trimming occurred.
+func (e *CompactEffect) trimToolResults(c *chat.Chat) bool {
+	msgs := c.Messages()
+	if len(msgs) <= preserveRecentMessages {
+		return false
+	}
+
+	trimmed := false
+	boundary := len(msgs) - preserveRecentMessages
+
+	for i := range boundary {
+		if msgs[i].Role != role.Tool {
+			continue
+		}
+
+		// Skip already-trimmed messages.
+		if _, ok := msgs[i].GetMeta("tool_result_trimmed"); ok {
+			continue
+		}
+
+		newParts := make([]content.Part, len(msgs[i].Parts))
+		partTrimmed := false
+
+		for j, p := range msgs[i].Parts {
+			tr, ok := p.(content.ToolResult)
+			if !ok || tr.IsError || len(tr.Content) <= trimmedToolResult {
+				newParts[j] = p
+				continue
+			}
+
+			tr.Content = tr.Content[:trimmedToolResult] + "… [trimmed]"
+			newParts[j] = tr
+			partTrimmed = true
+		}
+
+		if partTrimmed {
+			msgs[i].Parts = newParts
+			msgs[i].SetMeta("tool_result_trimmed", true)
+			trimmed = true
+		}
+	}
+
+	if trimmed {
+		c.Replace(msgs...)
+	}
+
+	return trimmed
 }
 
 // handleCompactError asks the user what to do on compaction failure if AskFunc

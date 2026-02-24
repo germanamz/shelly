@@ -209,31 +209,41 @@ func (a *Agent) allToolBoxes() []*toolbox.ToolBox {
 
 // buildSystemPrompt constructs the system prompt from identity, instructions,
 // skills, and registry.
+//
+// Sections are ordered for prompt-cache friendliness: static content first
+// (identity, instructions), semi-static content next (project context, skills),
+// and dynamic content last (agent directory). Each section uses XML tags so
+// LLMs can attend to boundaries without relying on prose structure.
 func (a *Agent) buildSystemPrompt() string {
 	var b strings.Builder
 
+	// --- Static content (rarely changes, cacheable prefix) ---
+
 	// Identity.
+	b.WriteString("<identity>\n")
 	fmt.Fprintf(&b, "You are %s.", a.name)
 	if a.description != "" {
 		fmt.Fprintf(&b, " %s", a.description)
 	}
-	b.WriteString("\n")
+	b.WriteString("\n</identity>\n")
 
 	// Instructions.
 	if a.instructions != "" {
-		b.WriteString("\n## Instructions\n\n")
+		b.WriteString("\n<instructions>\n")
 		b.WriteString(a.instructions)
-		b.WriteString("\n")
+		b.WriteString("\n</instructions>\n")
 	}
+
+	// --- Semi-static content (loaded once at startup) ---
 
 	// Project context.
 	if a.options.Context != "" {
-		b.WriteString("\n## Project Context\n\n")
+		b.WriteString("\n<project_context>\n")
 		b.WriteString("The following is context about the project you are working in. ")
 		b.WriteString("Treat this as your own knowledge — do not say you lack context about the project. ")
 		b.WriteString("Use this information to guide your responses and actions.\n\n")
 		b.WriteString(a.options.Context)
-		b.WriteString("\n")
+		b.WriteString("\n</project_context>\n")
 	}
 
 	// Skills — split into inline (no description) and on-demand (has description).
@@ -247,18 +257,23 @@ func (a *Agent) buildSystemPrompt() string {
 	}
 
 	if len(inline) > 0 {
-		b.WriteString("\n## Skills\n")
+		b.WriteString("\n<skills>\n")
 		for _, s := range inline {
 			fmt.Fprintf(&b, "\n### %s\n\n%s\n", s.Name, s.Content)
 		}
+		b.WriteString("</skills>\n")
 	}
 
 	if len(onDemand) > 0 {
-		b.WriteString("\n## Available Skills\n\nUse the load_skill tool to retrieve the full content of a skill when needed.\n")
+		b.WriteString("\n<available_skills>\n")
+		b.WriteString("Use the load_skill tool to retrieve the full content of a skill when needed.\n")
 		for _, s := range onDemand {
 			fmt.Fprintf(&b, "- **%s**: %s\n", s.Name, s.Description)
 		}
+		b.WriteString("</available_skills>\n")
 	}
+
+	// --- Dynamic content (changes per session, not cacheable) ---
 
 	// Agent directory from registry.
 	if a.registry != nil {
@@ -271,10 +286,11 @@ func (a *Agent) buildSystemPrompt() string {
 		}
 
 		if len(others) > 0 {
-			b.WriteString("\n## Available Agents\n\n")
+			b.WriteString("\n<available_agents>\n")
 			for _, e := range others {
 				fmt.Fprintf(&b, "- **%s**: %s\n", e.Name, e.Description)
 			}
+			b.WriteString("</available_agents>\n")
 		}
 	}
 

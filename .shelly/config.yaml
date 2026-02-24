@@ -24,7 +24,7 @@ agents:
     - name: orchestrator
       description: Delegates tasks to planner and coder
       instructions: You are a task orchestrator. Break down user requests into planning and coding tasks, then delegate to the appropriate agent.
-      provider: anthropic
+      provider: grok
       toolboxes:
         - state
         - tasks
@@ -34,13 +34,14 @@ agents:
     - name: planner
       description: Analyzes code and creates implementation plans
       instructions: You are a code planner. Analyze the codebase, understand the architecture, and create detailed implementation plans.
-      provider: anthropic
+      provider: grok
       toolboxes:
         - filesystem
         - search
         - git
         - state
         - tasks
+        - notes
       options:
         max_iterations: 10
         max_delegation_depth: 0
@@ -56,7 +57,9 @@ agents:
         - http
         - state
         - tasks
+        - notes
       effects:
+        - kind: trim_tool_results
         - kind: compact
           params:
             threshold: 0.8

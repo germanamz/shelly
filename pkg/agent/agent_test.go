@@ -257,7 +257,7 @@ func TestSystemPromptSkillsWithDescription(t *testing.T) {
 	require.NoError(t, err)
 
 	prompt := a.Chat().SystemPrompt()
-	assert.Contains(t, prompt, "## Available Skills")
+	assert.Contains(t, prompt, "<available_skills>")
 	assert.Contains(t, prompt, "load_skill")
 	assert.Contains(t, prompt, "**code-review**: Teaches code review best practices")
 	// Full content should NOT be in the prompt.
@@ -282,11 +282,11 @@ func TestSystemPromptMixedSkills(t *testing.T) {
 
 	prompt := a.Chat().SystemPrompt()
 	// Inline skill section.
-	assert.Contains(t, prompt, "## Skills")
+	assert.Contains(t, prompt, "<skills>")
 	assert.Contains(t, prompt, "### review")
 	assert.Contains(t, prompt, "1. Check tests")
 	// On-demand skill section.
-	assert.Contains(t, prompt, "## Available Skills")
+	assert.Contains(t, prompt, "<available_skills>")
 	assert.Contains(t, prompt, "**deploy**: Deployment procedures")
 	// On-demand skill content should NOT be in prompt.
 	assert.NotContains(t, prompt, "1. Build")
@@ -308,9 +308,9 @@ func TestSystemPromptNoDescriptionSkillsOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	prompt := a.Chat().SystemPrompt()
-	assert.Contains(t, prompt, "## Skills")
+	assert.Contains(t, prompt, "<skills>")
 	assert.Contains(t, prompt, "### review")
-	assert.NotContains(t, prompt, "## Available Skills")
+	assert.NotContains(t, prompt, "<available_skills>")
 }
 
 func TestSystemPromptContext(t *testing.T) {
@@ -327,16 +327,11 @@ func TestSystemPromptContext(t *testing.T) {
 	require.NoError(t, err)
 
 	prompt := a.Chat().SystemPrompt()
-	assert.Contains(t, prompt, "## Project Context")
+	assert.Contains(t, prompt, "<project_context>")
 	assert.Contains(t, prompt, "Treat this as your own knowledge")
 	assert.Contains(t, prompt, "This is a Go project using module github.com/example/foo.")
-	// Context should appear after instructions.
-	instrIdx := len("## Instructions")
-	ctxIdx := len("## Project Context")
-	_ = instrIdx
-	_ = ctxIdx
 	// Just verify ordering by checking both sections exist.
-	assert.Contains(t, prompt, "## Instructions")
+	assert.Contains(t, prompt, "<instructions>")
 }
 
 func TestSystemPromptContextEmpty(t *testing.T) {

@@ -49,7 +49,7 @@ var simpleAssistantTemplate = configTemplate{
 			ProviderSlot:       "primary",
 			MaxIterations:      10,
 			MaxDelegationDepth: 2,
-			Toolboxes:          []string{"filesystem", "exec", "search", "git", "http", "state", "tasks"},
+			Toolboxes:          []string{"filesystem", "exec", "search", "git", "http", "state", "tasks", "notes"},
 		},
 	},
 	EntryAgent: "assistant",
@@ -79,7 +79,7 @@ var devTeamTemplate = configTemplate{
 			ProviderSlot:       "primary",
 			MaxIterations:      10,
 			MaxDelegationDepth: 0,
-			Toolboxes:          []string{"filesystem", "search", "git", "state", "tasks"},
+			Toolboxes:          []string{"filesystem", "search", "git", "state", "tasks", "notes"},
 		},
 		{
 			Name:               "coder",
@@ -88,8 +88,9 @@ var devTeamTemplate = configTemplate{
 			ProviderSlot:       "fast",
 			MaxIterations:      20,
 			MaxDelegationDepth: 0,
-			Toolboxes:          []string{"filesystem", "exec", "search", "git", "http", "state", "tasks"},
+			Toolboxes:          []string{"filesystem", "exec", "search", "git", "http", "state", "tasks", "notes"},
 			Effects: []templateEffect{
+				{Kind: "trim_tool_results"},
 				{Kind: "compact", Params: map[string]any{"threshold": 0.8}},
 			},
 		},

@@ -23,7 +23,8 @@ type EffectFactory func(params map[string]any, wctx EffectWiringContext) (agent.
 
 // effectFactories maps effect kind strings to their constructors.
 var effectFactories = map[string]EffectFactory{
-	"compact": buildCompactEffect,
+	"compact":           buildCompactEffect,
+	"trim_tool_results": buildTrimToolResultsEffect,
 }
 
 // buildEffects constructs all effects for an agent from its config.
@@ -70,4 +71,33 @@ func buildCompactEffect(params map[string]any, wctx EffectWiringContext) (agent.
 		AskFunc:       wctx.AskFunc,
 		NotifyFunc:    wctx.NotifyFunc,
 	}), nil
+}
+
+// buildTrimToolResultsEffect creates a TrimToolResultsEffect from YAML params.
+func buildTrimToolResultsEffect(params map[string]any, _ EffectWiringContext) (agent.Effect, error) {
+	cfg := effects.TrimToolResultsConfig{}
+
+	if v, ok := params["max_result_length"]; ok {
+		switch t := v.(type) {
+		case float64:
+			cfg.MaxResultLength = int(t)
+		case int:
+			cfg.MaxResultLength = t
+		default:
+			return nil, fmt.Errorf("max_result_length must be a number, got %T", v)
+		}
+	}
+
+	if v, ok := params["preserve_recent"]; ok {
+		switch t := v.(type) {
+		case float64:
+			cfg.PreserveRecent = int(t)
+		case int:
+			cfg.PreserveRecent = t
+		default:
+			return nil, fmt.Errorf("preserve_recent must be a number, got %T", v)
+		}
+	}
+
+	return effects.NewTrimToolResultsEffect(cfg), nil
 }

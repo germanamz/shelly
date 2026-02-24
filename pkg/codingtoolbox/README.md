@@ -12,6 +12,7 @@ codingtoolbox/
 ├── search/        search_content, search_files — permission-gated content/file search
 ├── git/           git_status, git_diff, git_log, git_commit — permission-gated git ops
 ├── http/          http_fetch — permission-gated HTTP requests
+├── notes/         write_note, read_note, list_notes — persistent notes surviving context compaction
 ├── permissions/   Shared permissions store (approved dirs, trusted commands, trusted domains)
 └── defaults/      Default toolbox builder — merges built-in toolboxes into one
 ```
@@ -43,6 +44,10 @@ Permission-gated tools for git status, diff, log, and commit. Uses command trust
 ### `http` — HTTP Requests
 
 Permission-gated tool for making HTTP requests. Uses domain trust from the shared permissions store. Response bodies are capped at 1MB.
+
+### `notes` — Persistent Notes
+
+Persistent note-taking tools (`write_note`, `read_note`, `list_notes`) that store Markdown files in `.shelly/notes/`. Notes survive context compaction, allowing agents to save important decisions, progress, and context that can be re-read after a context reset. Note names are sanitized to prevent path traversal.
 
 ### `permissions` — Shared Store
 

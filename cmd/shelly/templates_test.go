@@ -74,10 +74,11 @@ func TestApplyTemplate_DevTeam(t *testing.T) {
 	assert.Equal(t, "claude", agentByName["planner"].Provider)
 	assert.Equal(t, "gpt", agentByName["coder"].Provider)
 
-	// Verify coder has compact effect.
-	assert.Len(t, agentByName["coder"].Effects, 1)
-	assert.Equal(t, "compact", agentByName["coder"].Effects[0].Kind)
-	assert.InDelta(t, 0.8, agentByName["coder"].Effects[0].Params["threshold"], 0.001)
+	// Verify coder has trim_tool_results + compact effects.
+	assert.Len(t, agentByName["coder"].Effects, 2)
+	assert.Equal(t, "trim_tool_results", agentByName["coder"].Effects[0].Kind)
+	assert.Equal(t, "compact", agentByName["coder"].Effects[1].Kind)
+	assert.InDelta(t, 0.8, agentByName["coder"].Effects[1].Params["threshold"], 0.001)
 }
 
 //nolint:gosec // env var references in test data, not secrets
@@ -112,9 +113,10 @@ func TestApplyTemplate_EffectsCarryThrough(t *testing.T) {
 	}
 
 	assert.NotNil(t, coderAgent, "coder agent should exist in YAML output")
-	assert.Len(t, coderAgent.Effects, 1)
-	assert.Equal(t, "compact", coderAgent.Effects[0].Kind)
-	assert.InDelta(t, 0.8, coderAgent.Effects[0].Params["threshold"], 0.001)
+	assert.Len(t, coderAgent.Effects, 2)
+	assert.Equal(t, "trim_tool_results", coderAgent.Effects[0].Kind)
+	assert.Equal(t, "compact", coderAgent.Effects[1].Kind)
+	assert.InDelta(t, 0.8, coderAgent.Effects[1].Params["threshold"], 0.001)
 
 	// Verify agents without effects have no effects key.
 	for _, a := range parsed.Agents {

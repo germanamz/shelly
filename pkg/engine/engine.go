@@ -14,6 +14,7 @@ import (
 	"github.com/germanamz/shelly/pkg/codingtoolbox/filesystem"
 	shellygit "github.com/germanamz/shelly/pkg/codingtoolbox/git"
 	shellyhttp "github.com/germanamz/shelly/pkg/codingtoolbox/http"
+	"github.com/germanamz/shelly/pkg/codingtoolbox/notes"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/search"
 	"github.com/germanamz/shelly/pkg/modeladapter"
@@ -148,6 +149,13 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 	if _, ok := refs["tasks"]; ok {
 		e.taskStore = &tasks.Store{}
 		e.toolboxes["tasks"] = e.taskStore.Tools("shared")
+	}
+
+	// Create notes store if referenced. Notes persist in .shelly/notes/.
+	if _, ok := refs["notes"]; ok {
+		notesDir := filepath.Join(dir.Root(), "notes")
+		notesStore := notes.New(notesDir)
+		e.toolboxes["notes"] = notesStore.Tools()
 	}
 
 	// Resolve permissions file path: prefer shellydir, fall back to config.
@@ -294,6 +302,7 @@ var builtinToolboxNames = map[string]struct{}{
 	"search":     {},
 	"git":        {},
 	"http":       {},
+	"notes":      {},
 }
 
 // referencedBuiltins returns the set of built-in toolbox names that appear in
@@ -394,11 +403,12 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 	// Build effects from explicit config or auto-generate from legacy options.
 	effectConfigs := ac.Effects
 	if len(effectConfigs) == 0 && contextWindow > 0 {
-		// Backward compat: auto-generate a compact effect from context_threshold.
-		effectConfigs = []EffectConfig{{
-			Kind:   "compact",
-			Params: map[string]any{"threshold": contextThreshold},
-		}}
+		// Auto-generate default effects: trim tool results (lightweight, runs
+		// after each completion) + compact (full summarization as fallback).
+		effectConfigs = []EffectConfig{
+			{Kind: "trim_tool_results"},
+			{Kind: "compact", Params: map[string]any{"threshold": contextThreshold}},
+		}
 	}
 
 	wctx := EffectWiringContext{

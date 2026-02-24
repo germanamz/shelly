@@ -91,8 +91,12 @@ agents:
     instructions: You are a coding expert.
     provider: default
     prefix: "🦾"  # display prefix for TUI (default: "🤖")
-    toolboxes: [filesystem, exec, search, git, http, state, tasks]
+    toolboxes: [filesystem, exec, search, git, http, state, tasks, notes]
     effects:
+      - kind: trim_tool_results
+        params:
+          max_result_length: 500  # trim old tool results to 500 chars
+          preserve_recent: 4      # keep last 4 tool messages untrimmed
       - kind: compact
         params:
           threshold: 0.8  # compact at 80% of context window
@@ -126,9 +130,9 @@ git:
 
 Agents support pluggable **effects** — per-iteration hooks that run inside the ReAct loop. Effects are configured per-agent in YAML via the `effects:` list, or auto-generated from legacy options for backward compatibility.
 
-When a provider declares `context_window` and no explicit effects are configured, the engine auto-generates a `compact` effect with the agent's `context_threshold` (default 0.8). This preserves backward compatibility with existing configs.
+When a provider declares `context_window` and no explicit effects are configured, the engine auto-generates both a `trim_tool_results` effect (lightweight, runs after each completion) and a `compact` effect with the agent's `context_threshold` (default 0.8). This graduated approach trims tool results first, then falls back to full summarisation only when needed.
 
-Available effect kinds: `compact`. See `pkg/agent/effects/` for details.
+Available effect kinds: `compact`, `trim_tool_results`. See `pkg/agent/effects/` for details.
 
 ### Agent Display Prefix
 

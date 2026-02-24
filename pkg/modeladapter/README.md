@@ -6,9 +6,10 @@ An abstraction layer for LLM completion adapters. The modeladapter package defin
 
 ```
 modeladapter/
-├── modeladapter.go   Completer interface + embeddable ModelAdapter base struct with HTTP/WebSocket helpers
-├── toolaware.go      ToolAware interface for providers that accept tool declarations
-└── usage/            Thread-safe token usage tracker
+├── modeladapter.go      Completer interface + embeddable ModelAdapter base struct with HTTP/WebSocket helpers
+├── tokenestimator.go    Pre-call token estimation using character-to-token heuristics
+├── toolaware.go         ToolAware interface for providers that accept tool declarations
+└── usage/               Thread-safe token usage tracker
 ```
 
 ### `ModelAdapter` — Completer Interface & ModelAdapter Base
@@ -53,6 +54,26 @@ type ToolAware interface {
 ```
 
 The engine calls `SetTools` before creating agents so the provider knows which tools to declare in API requests. Both the `anthropic.Adapter` and `openai.Adapter` implement this interface. Providers that don't support tools (or manage them differently) can simply not implement it — the engine checks with a type assertion.
+
+### `TokenEstimator` — Pre-Call Token Estimation
+
+`TokenEstimator` estimates token counts for chat messages and tool definitions before sending a request. It uses a character-to-token heuristic (approximately 1 token per 4 characters for English text) with per-message and per-tool structural overhead.
+
+| Method | Description |
+|--------|-------------|
+| `EstimateChat(c)` | Estimates input tokens for a chat conversation |
+| `EstimateTools(tools)` | Estimates token cost of tool definitions |
+| `EstimateTotal(c, tools)` | Combined estimate (chat + tools) |
+
+The estimator is intentionally simple — accuracy within ~20% is sufficient for threshold-based decisions like compaction triggers. The zero value is ready to use.
+
+```go
+estimator := &modeladapter.TokenEstimator{}
+tokens := estimator.EstimateTotal(chat, tools)
+if tokens > contextWindow * 0.8 {
+    // trigger compaction
+}
+```
 
 ### `usage` — Token Usage Tracker
 

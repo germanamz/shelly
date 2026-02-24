@@ -103,7 +103,8 @@ func LoadConfig(path string) (Config, error) {
 
 // knownEffectKinds lists all recognised effect kind strings.
 var knownEffectKinds = map[string]struct{}{
-	"compact": {},
+	"compact":           {},
+	"trim_tool_results": {},
 }
 
 // Validate checks that the configuration is internally consistent.
