@@ -28,6 +28,9 @@ agents:
       toolboxes:
         - state
         - tasks
+        - notes
+      skills:
+        - orchestrator-workflow
       options:
         max_iterations: 15
         max_delegation_depth: 3
@@ -42,6 +45,8 @@ agents:
         - state
         - tasks
         - notes
+      skills:
+        - planner-workflow
       options:
         max_iterations: 10
         max_delegation_depth: 0
@@ -58,6 +63,8 @@ agents:
         - state
         - tasks
         - notes
+      skills:
+        - coder-workflow
       effects:
         - kind: trim_tool_results
         - kind: compact

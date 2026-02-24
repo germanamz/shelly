@@ -85,6 +85,18 @@ When you receive a complex task:
 4. Synthesize the results into a final answer
 ```
 
+## Per-Agent Skill Assignment
+
+Agents can declare a `skills` list in their YAML config to receive only a subset of the engine-level skills:
+
+```yaml
+agents:
+  - name: coder
+    skills: [coder-workflow]
+```
+
+When `skills` is non-empty, the engine filters the loaded skills to only those matching the listed names. When empty or omitted, the agent receives all engine-level skills (backward compatible). This lets each agent see only the workflow skills relevant to its role, keeping system prompts focused.
+
 ## Dependencies
 
 - `pkg/tools/toolbox` — for the `Store.Tools()` method (same pattern as `state.Store` and `tasks.Store`).

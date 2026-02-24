@@ -34,13 +34,27 @@ type wizardAgent struct {
 	MaxIterations      int
 	MaxDelegationDepth int
 	Toolboxes          []string
+	Skills             []string
 	Effects            []wizardEffect
+}
+
+// skillFile describes a skill to create on disk during init.
+type skillFile struct {
+	Name    string // Folder name (e.g. "orchestrator-workflow").
+	Content string // Full SKILL.md content (frontmatter + body).
 }
 
 type wizardConfig struct {
 	Providers  []wizardProvider
 	Agents     []wizardAgent
 	EntryAgent string
+	SkillFiles []skillFile
+}
+
+// wizardResult is the output of a wizard run: config YAML + optional skill files.
+type wizardResult struct {
+	ConfigYAML []byte
+	SkillFiles []skillFile
 }
 
 type providerDefault struct {
@@ -55,22 +69,27 @@ var providerDefaults = map[string]providerDefault{
 	"grok":      {APIKey: "${GROK_API_KEY}", Model: "grok-3-mini-fast-beta"},
 }
 
-func runWizard() ([]byte, error) {
+func runWizard() (wizardResult, error) {
 	var cfg wizardConfig
 
 	if err := wizardProviders(&cfg); err != nil {
-		return nil, err
+		return wizardResult{}, err
 	}
 
 	if err := wizardAgents(&cfg); err != nil {
-		return nil, err
+		return wizardResult{}, err
 	}
 
 	if err := wizardEntryAgent(&cfg); err != nil {
-		return nil, err
+		return wizardResult{}, err
 	}
 
-	return marshalWizardConfig(cfg)
+	data, err := marshalWizardConfig(cfg)
+	if err != nil {
+		return wizardResult{}, err
+	}
+
+	return wizardResult{ConfigYAML: data}, nil
 }
 
 func wizardProviders(cfg *wizardConfig) error {
@@ -315,6 +334,7 @@ type agentYAML struct {
 	Instructions string        `yaml:"instructions"`
 	Provider     string        `yaml:"provider"`
 	Toolboxes    []string      `yaml:"toolboxes,omitempty"`
+	Skills       []string      `yaml:"skills,omitempty"`
 	Effects      []effectYAML  `yaml:"effects,omitempty"`
 	Options      agentOptsYAML `yaml:"options"`
 }
@@ -362,6 +382,7 @@ func marshalWizardConfig(cfg wizardConfig) ([]byte, error) {
 			Instructions: a.Instructions,
 			Provider:     a.Provider,
 			Toolboxes:    a.Toolboxes,
+			Skills:       a.Skills,
 			Options: agentOptsYAML{
 				MaxIterations:      a.MaxIterations,
 				MaxDelegationDepth: a.MaxDelegationDepth,

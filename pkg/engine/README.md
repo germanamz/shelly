@@ -92,6 +92,7 @@ agents:
     provider: default
     prefix: "🦾"  # display prefix for TUI (default: "🤖")
     toolboxes: [filesystem, exec, search, git, http, state, tasks, notes]
+    skills: [coder-workflow]  # per-agent skill filter (empty = all engine-level skills)
     effects:
       - kind: trim_tool_results
         params:
@@ -152,6 +153,25 @@ The prefix is passed through `agent.Options.Prefix` and included in `EventAgentS
 ### Sub-Agent Event Publishing
 
 The engine wires an `EventNotifier` into every registered agent. When an agent delegates to or spawns child agents, the orchestration tools automatically publish `EventAgentStart` / `EventAgentEnd` events to the `EventBus`. This allows frontends to display sub-agent activity in real time (e.g., windowed containers in the TUI). The notifier is propagated recursively to children, so arbitrarily nested delegation chains are observable.
+
+### Per-Agent Skills
+
+Agents can declare a `skills` list to receive only a subset of the engine-level skills loaded from `.shelly/skills/`:
+
+```yaml
+agents:
+  - name: orchestrator
+    skills: [orchestrator-workflow]
+  - name: planner
+    skills: [planner-workflow]
+  - name: coder
+    skills: [coder-workflow]
+  - name: assistant  # omitted = receives all engine-level skills
+```
+
+When `skills` is non-empty, the engine filters the loaded skills to only those matching the listed names. When empty or omitted, the agent receives all engine-level skills (backward compatible). This keeps each agent's system prompt focused on the workflow skills relevant to its role. Skills with descriptions are available on-demand via the `load_skill` tool; skills without descriptions are inlined into the system prompt.
+
+The `dev-team` config template pre-assigns workflow skills to each agent (orchestrator-workflow, planner-workflow, coder-workflow). See `pkg/skill/README.md` for skill authoring details.
 
 ### Toolbox Assignment and Inheritance
 

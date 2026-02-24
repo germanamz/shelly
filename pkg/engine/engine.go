@@ -353,8 +353,21 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 		tbs = append(tbs, tb)
 	}
 
-	// Use engine-level skills loaded from .shelly/skills/.
+	// Use engine-level skills, optionally filtered by per-agent config.
 	skills := e.skills
+	if len(ac.Skills) > 0 {
+		allowed := make(map[string]struct{}, len(ac.Skills))
+		for _, name := range ac.Skills {
+			allowed[name] = struct{}{}
+		}
+		filtered := make([]skill.Skill, 0, len(ac.Skills))
+		for _, s := range e.skills {
+			if _, ok := allowed[s.Name]; ok {
+				filtered = append(filtered, s)
+			}
+		}
+		skills = filtered
+	}
 
 	// If any loaded skills have descriptions, create a Store and add its
 	// load_skill toolbox so the agent can retrieve full content on demand.

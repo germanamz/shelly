@@ -196,6 +196,8 @@ Skip the full wizard by bootstrapping from a pre-built template:
 
 Templates define provider **slots** (e.g. "primary", "fast") that you map to your providers during setup. Only provider configuration is interactive — agent structure comes from the template.
 
+The `dev-team` template includes per-agent **skills** that define workflow protocols (task handoff, planning, coding). Skills are loaded from `.shelly/skills/` and each agent receives only the skills relevant to its role.
+
 ## Development
 
 ### Available tasks

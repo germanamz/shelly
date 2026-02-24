@@ -141,6 +141,8 @@ The system prompt is built by `buildSystemPrompt()` using XML tags for clear sec
 
 This ordering ensures LLM provider prompt caching can cache the stable prefix across iterations, and the XML tags help LLMs attend to section boundaries without relying on prose structure.
 
+The `Skills` slice in `Options` controls which skills appear in sections 4 and 5. The engine can filter engine-level skills per agent via the `skills` config field — see `pkg/engine/README.md` for details.
+
 ## Architecture
 
 ```

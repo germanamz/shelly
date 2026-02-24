@@ -24,6 +24,7 @@ type templateAgent struct {
 	MaxIterations      int
 	MaxDelegationDepth int
 	Toolboxes          []string
+	Skills             []string
 	Effects            []templateEffect
 }
 
@@ -33,6 +34,7 @@ type configTemplate struct {
 	Slots       []templateProviderSlot
 	Agents      []templateAgent
 	EntryAgent  string
+	SkillFiles  []skillFile // Skill files to create during init.
 }
 
 var simpleAssistantTemplate = configTemplate{
@@ -55,6 +57,120 @@ var simpleAssistantTemplate = configTemplate{
 	EntryAgent: "assistant",
 }
 
+var devTeamSkillFiles = []skillFile{
+	{
+		Name: "orchestrator-workflow",
+		Content: `---
+description: "Task orchestration protocol: decomposition, delegation, verification, failure recovery"
+---
+# Orchestrator Workflow
+
+## Before Delegating
+
+1. Create a task on the shared task board (` + "`shared_tasks_create`" + `) for each unit of work.
+2. Write a structured task spec as a note (` + "`write_note`" + `) containing:
+   - **Objective**: one-sentence goal
+   - **Relevant files**: paths the agent should read first
+   - **Constraints**: style, performance, or compatibility requirements
+   - **Acceptance criteria**: concrete conditions that define "done"
+3. Include the note name in the delegation context so the child agent knows where to find it.
+
+## Delegation
+
+- Use ` + "`delegate_to_agent`" + ` for sequential tasks or ` + "`spawn_agents`" + ` for independent parallel work.
+- Always provide rich ` + "`context`" + ` — include prior decisions, relevant file contents, and the note name.
+
+## After Delegation
+
+1. Read the result note written by the child agent.
+2. Verify the result against the acceptance criteria from the task spec.
+3. If the result is satisfactory, mark the task as completed on the board.
+
+## On Failure or Iteration Exhaustion
+
+1. Read any progress notes the child may have written.
+2. Diagnose the failure: was the task spec unclear? Was the scope too large?
+3. Refine the task spec, split into smaller tasks if needed, and re-delegate.
+4. If repeated failures occur, report the blocker to the user with details.
+
+## State Persistence
+
+- Use notes (` + "`write_note`" + `, ` + "`read_note`" + `, ` + "`list_notes`" + `) to persist cross-delegation state.
+- Use the task board to track overall progress across multiple delegations.
+`,
+	},
+	{
+		Name: "planner-workflow",
+		Content: `---
+description: "Planning protocol: analysis, structured plans, note-based handoff"
+---
+# Planner Workflow
+
+## First Actions
+
+1. Run ` + "`list_notes`" + ` to check for existing context, prior plans, or constraints.
+2. Read any relevant notes before starting analysis.
+
+## Creating a Plan
+
+Write the implementation plan as a note (` + "`write_note`" + `) with a descriptive name (e.g., ` + "`plan-add-auth-middleware`" + `). Structure the note as:
+
+- **Goal**: what the change achieves
+- **Files to modify**: specific paths and what changes in each
+- **Steps**: ordered implementation steps, each concrete and actionable
+- **Edge cases**: potential issues, error scenarios, backward compatibility concerns
+- **Testing**: what tests to write or run to verify the change
+
+## Complex Multi-Step Plans
+
+For large tasks, create entries on the task board (` + "`shared_tasks_create`" + `) for each major step. This lets the orchestrator track progress and delegate steps independently.
+
+## Handoff
+
+The plan note is the primary handoff artifact. Ensure it contains enough detail that a coder agent can implement without further clarification.
+`,
+	},
+	{
+		Name: "coder-workflow",
+		Content: `---
+description: "Coding protocol: plan consumption, task lifecycle, result reporting"
+---
+# Coder Workflow
+
+## First Actions
+
+1. Run ` + "`list_notes`" + ` and read any implementation plan or context notes.
+2. Claim your task on the task board (` + "`shared_tasks_claim`" + `).
+
+## Implementation
+
+- Follow the plan from the notes. If the plan is missing or unclear, write a note explaining the gap before proceeding.
+- Make focused, incremental changes. Verify each step works before moving on.
+- Run tests after making changes to catch regressions early.
+
+## Result Reporting
+
+After completing work, write a result note (` + "`write_note`" + `) named descriptively (e.g., ` + "`result-add-auth-middleware`" + `) containing:
+
+- **Files modified**: list of changed files with a brief description of each change
+- **Tests run**: which tests were executed and their results
+- **Caveats**: any known limitations, follow-up work needed, or assumptions made
+
+## Task Lifecycle
+
+- Mark your task as completed (` + "`shared_tasks_update`" + ` with status ` + "`completed`" + `) when done.
+- If you cannot complete the task, mark it as failed with a description of what went wrong.
+
+## Approaching Iteration Limit
+
+If you are running low on iterations and cannot finish:
+
+1. Write a progress note documenting what was completed and what remains.
+2. Mark the task as failed on the task board with details about remaining work.
+`,
+	},
+}
+
 var devTeamTemplate = configTemplate{
 	Name:        "dev-team",
 	Description: "Orchestrator + planner + coder — multi-agent dev workflow",
@@ -70,7 +186,8 @@ var devTeamTemplate = configTemplate{
 			ProviderSlot:       "primary",
 			MaxIterations:      15,
 			MaxDelegationDepth: 3,
-			Toolboxes:          []string{"state", "tasks"},
+			Toolboxes:          []string{"state", "tasks", "notes"},
+			Skills:             []string{"orchestrator-workflow"},
 		},
 		{
 			Name:               "planner",
@@ -80,6 +197,7 @@ var devTeamTemplate = configTemplate{
 			MaxIterations:      10,
 			MaxDelegationDepth: 0,
 			Toolboxes:          []string{"filesystem", "search", "git", "state", "tasks", "notes"},
+			Skills:             []string{"planner-workflow"},
 		},
 		{
 			Name:               "coder",
@@ -89,6 +207,7 @@ var devTeamTemplate = configTemplate{
 			MaxIterations:      20,
 			MaxDelegationDepth: 0,
 			Toolboxes:          []string{"filesystem", "exec", "search", "git", "http", "state", "tasks", "notes"},
+			Skills:             []string{"coder-workflow"},
 			Effects: []templateEffect{
 				{Kind: "trim_tool_results"},
 				{Kind: "compact", Params: map[string]any{"threshold": 0.8}},
@@ -96,6 +215,7 @@ var devTeamTemplate = configTemplate{
 		},
 	},
 	EntryAgent: "orchestrator",
+	SkillFiles: devTeamSkillFiles,
 }
 
 var templates = []configTemplate{simpleAssistantTemplate, devTeamTemplate}
@@ -182,6 +302,7 @@ func applyTemplate(tmpl *configTemplate, providers []wizardProvider, slotMapping
 	cfg := wizardConfig{
 		Providers:  providers,
 		EntryAgent: tmpl.EntryAgent,
+		SkillFiles: tmpl.SkillFiles,
 	}
 
 	for _, ta := range tmpl.Agents {
@@ -193,6 +314,7 @@ func applyTemplate(tmpl *configTemplate, providers []wizardProvider, slotMapping
 			MaxIterations:      ta.MaxIterations,
 			MaxDelegationDepth: ta.MaxDelegationDepth,
 			Toolboxes:          ta.Toolboxes,
+			Skills:             ta.Skills,
 		}
 
 		for _, te := range ta.Effects {
@@ -205,11 +327,11 @@ func applyTemplate(tmpl *configTemplate, providers []wizardProvider, slotMapping
 	return cfg
 }
 
-func runTemplateWizard(tmpl *configTemplate) ([]byte, error) {
+func runTemplateWizard(tmpl *configTemplate) (wizardResult, error) {
 	var cfg wizardConfig
 
 	if err := wizardProviders(&cfg); err != nil {
-		return nil, err
+		return wizardResult{}, err
 	}
 
 	providerNames := make([]string, len(cfg.Providers))
@@ -219,10 +341,18 @@ func runTemplateWizard(tmpl *configTemplate) ([]byte, error) {
 
 	slotMapping, err := wizardSlotMapping(tmpl.Slots, providerNames)
 	if err != nil {
-		return nil, err
+		return wizardResult{}, err
 	}
 
-	result := applyTemplate(tmpl, cfg.Providers, slotMapping)
+	applied := applyTemplate(tmpl, cfg.Providers, slotMapping)
 
-	return marshalWizardConfig(result)
+	data, err := marshalWizardConfig(applied)
+	if err != nil {
+		return wizardResult{}, err
+	}
+
+	return wizardResult{
+		ConfigYAML: data,
+		SkillFiles: applied.SkillFiles,
+	}, nil
 }

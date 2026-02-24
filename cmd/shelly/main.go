@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -83,8 +84,8 @@ func runInit(dirPath, templateName string) error {
 	}
 
 	var (
-		configYAML []byte
-		err        error
+		result wizardResult
+		err    error
 	)
 
 	if templateName != "" {
@@ -93,9 +94,9 @@ func runInit(dirPath, templateName string) error {
 			return fmt.Errorf("unknown template %q (use --template list to see available templates)", templateName)
 		}
 
-		configYAML, err = runTemplateWizard(tmpl)
+		result, err = runTemplateWizard(tmpl)
 	} else {
-		configYAML, err = runWizard()
+		result, err = runWizard()
 	}
 
 	if err != nil {
@@ -104,11 +105,40 @@ func runInit(dirPath, templateName string) error {
 
 	d := shellydir.New(dirPath)
 
-	if err := shellydir.BootstrapWithConfig(d, configYAML); err != nil {
+	if err := shellydir.BootstrapWithConfig(d, result.ConfigYAML); err != nil {
+		return err
+	}
+
+	if err := writeSkillFiles(d, result.SkillFiles); err != nil {
 		return err
 	}
 
 	fmt.Printf("Initialized %s\n", d.Root())
+
+	return nil
+}
+
+// writeSkillFiles creates skill folders and SKILL.md files in the skills directory.
+// Existing files are not overwritten.
+func writeSkillFiles(d shellydir.Dir, files []skillFile) error {
+	for _, sf := range files {
+		skillDir := filepath.Join(d.SkillsDir(), sf.Name)
+
+		if err := os.MkdirAll(skillDir, 0o750); err != nil {
+			return fmt.Errorf("create skill dir %q: %w", sf.Name, err)
+		}
+
+		skillPath := filepath.Join(skillDir, "SKILL.md")
+
+		// Do not overwrite existing skill files.
+		if _, err := os.Stat(skillPath); err == nil {
+			continue
+		}
+
+		if err := os.WriteFile(skillPath, []byte(sf.Content), 0o600); err != nil {
+			return fmt.Errorf("write skill %q: %w", sf.Name, err)
+		}
+	}
 
 	return nil
 }

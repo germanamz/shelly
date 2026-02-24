@@ -12,18 +12,9 @@ The issues compound: minimal orchestrator instructions lead to underspecified ta
 
 Fixed: Both `delegate_to_agent` and `spawn_agents` now have a required `context` field. The parent LLM provides background information (file contents, decisions, constraints) which is prepended as a `<delegation_context>` user message before the task message. See `pkg/agent/tools.go`.
 
-## Issue 2: Orchestrator and Coder Instructions Are Too Minimal
+## ~~Issue 2: Orchestrator and Coder Instructions Are Too Minimal~~ (FIXED)
 
-**`.shelly/config.yaml`**
-
-The orchestrator instruction is just *"Break down user requests into planning and coding tasks, then delegate."* The coder instruction is just *"Implement changes based on plans, write clean code, and run tests."*
-
-Neither instructs agents on:
-- What information must be included in a task handoff
-- How to verify coder completion
-- What the coder should read/check before starting (notes, task board)
-- What format the coder should report results in
-- How to handle delegation failure or iteration exhaustion
+Fixed: Per-agent skill assignment via `skills` field in `AgentConfig`. Each agent gets only the workflow skills relevant to its role (orchestrator-workflow, planner-workflow, coder-workflow). Skills use YAML frontmatter so only the description goes into the system prompt — full content is loaded on-demand via `load_skill`. The skills cover handoff protocols, verification, note/task-board usage, result formats, and failure handling. See `.shelly/skills/` and `pkg/engine/engine.go`.
 
 ## Issue 3: No Structured Completion Signal
 
@@ -119,7 +110,7 @@ Each agent overwrites the context's agent name: `ctx = agentctx.WithAgentName(ct
 | # | Problem | Impact | Key Location |
 |---|---------|--------|-------------|
 | ~~1~~ | ~~Bare text handoff~~ | ~~FIXED — `context` field added~~ | `tools.go` |
-| 2 | Minimal agent instructions | No handoff protocol or verification | `config.yaml` |
+| ~~2~~ | ~~Minimal agent instructions~~ | ~~FIXED — per-agent skills with workflow protocols~~ | `config.yaml`, `.shelly/skills/` |
 | 3 | No structured completion | Can't distinguish success from giving up | `agent.go:172-175` |
 | 4 | Compact effect inert | Unbounded context until provider hard limit | `compact.go:76-93`, `config.yaml` |
 | 5 | Task board unused | No lifecycle coordination between agents | `tasks/store.go` |

@@ -68,6 +68,7 @@ type AgentConfig struct {
 	Instructions string         `yaml:"instructions"`
 	Provider     string         `yaml:"provider"`
 	Toolboxes    []string       `yaml:"toolboxes"`
+	Skills       []string       `yaml:"skills"` // Skill names to assign to this agent. Empty means all engine-level skills.
 	Effects      []EffectConfig `yaml:"effects"`
 	Options      AgentOptions   `yaml:"options"`
 	Prefix       string         `yaml:"prefix"` // Display prefix (e.g. "🤖", "📝"). Default: "🤖".

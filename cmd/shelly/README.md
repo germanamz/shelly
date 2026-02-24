@@ -48,6 +48,8 @@ shelly init --template dev-team
 
 Templates define **provider slots** (e.g. "primary", "fast") that you map to your configured providers during setup. This lets the same template work with any combination of providers.
 
+The `dev-team` template assigns per-agent **skills** (`orchestrator-workflow`, `planner-workflow`, `coder-workflow`) that define workflow protocols for task handoff, planning, and coding. These skills are loaded from `.shelly/skills/` and available on-demand via the `load_skill` tool.
+
 ## Commands
 
 | Command | Description |
