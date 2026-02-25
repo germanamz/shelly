@@ -39,7 +39,7 @@ tools/
 `MCPClient` communicates with an external MCP server process using the official MCP Go SDK:
 
 - `New(ctx, command, ...args) (*MCPClient, error)` — spawns a server process and connects via stdio (initialization is automatic)
-- `NewSSE(ctx, url) (*MCPClient, error)` — connects to an SSE-based MCP server at the given URL
+- `NewHTTP(ctx, url) (*MCPClient, error)` — connects to a Streamable HTTP MCP server at the given URL
 - `ListTools(ctx) ([]toolbox.Tool, error)` — fetches tools (handlers call back through the client)
 - `CallTool(ctx, name, arguments) (string, error)` — calls a tool on the server
 - `Close() error` — terminates the session
@@ -92,11 +92,11 @@ tc := content.ToolCall{ID: "1", Name: "read_file", Arguments: `{"path":"/tmp/dat
 result := tb.Call(ctx, tc)
 ```
 
-### Using SSE-Based MCP Tools
+### Using HTTP-Based MCP Tools
 
 ```go
-// Connect to an SSE-based MCP server
-client, _ := mcpclient.NewSSE(ctx, "https://mcp.example.com/mcp?token=xxx")
+// Connect to a Streamable HTTP MCP server
+client, _ := mcpclient.NewHTTP(ctx, "https://mcp.example.com/mcp?token=xxx")
 defer client.Close()
 
 // Same API as command-based clients

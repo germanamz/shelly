@@ -27,9 +27,9 @@ func New(ctx context.Context, command string, args ...string) (*MCPClient, error
 	return newFromTransport(ctx, transport)
 }
 
-// NewSSE connects to an SSE-based MCP server at the given URL.
-func NewSSE(ctx context.Context, url string) (*MCPClient, error) {
-	transport := &mcp.SSEClientTransport{Endpoint: url}
+// NewHTTP connects to a Streamable HTTP MCP server at the given URL.
+func NewHTTP(ctx context.Context, url string) (*MCPClient, error) {
+	transport := &mcp.StreamableClientTransport{Endpoint: url}
 
 	return newFromTransport(ctx, transport)
 }

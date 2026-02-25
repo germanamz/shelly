@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/huh"
@@ -40,6 +41,13 @@ type wizardAgent struct {
 	Effects            []wizardEffect
 }
 
+type wizardMCP struct {
+	Name    string
+	Command string
+	Args    string // space-separated
+	URL     string
+}
+
 // skillFile describes a skill to create on disk during init.
 type skillFile struct {
 	Name    string // Folder name (e.g. "orchestrator-workflow").
@@ -48,6 +56,7 @@ type skillFile struct {
 
 type wizardConfig struct {
 	Providers             []wizardProvider
+	MCPServers            []wizardMCP
 	Agents                []wizardAgent
 	EntryAgent            string
 	SkillFiles            []skillFile
@@ -76,6 +85,10 @@ func runWizard() (wizardResult, error) {
 	var cfg wizardConfig
 
 	if err := wizardProviders(&cfg); err != nil {
+		return wizardResult{}, err
+	}
+
+	if err := wizardMCPServers(&cfg); err != nil {
 		return wizardResult{}, err
 	}
 
@@ -180,14 +193,67 @@ func wizardPromptProvider() (wizardProvider, error) {
 	return p, nil
 }
 
+func wizardMCPServers(cfg *wizardConfig) error {
+	var add bool
+	if err := huh.NewForm(huh.NewGroup(
+		huh.NewConfirm().Title("Add an MCP server?").Value(&add),
+	)).Run(); err != nil {
+		return err
+	}
+
+	if !add {
+		return nil
+	}
+
+	for {
+		m, err := wizardPromptMCP()
+		if err != nil {
+			return err
+		}
+
+		cfg.MCPServers = append(cfg.MCPServers, m)
+
+		var more bool
+		if err := huh.NewForm(huh.NewGroup(
+			huh.NewConfirm().Title("Add another MCP server?").Value(&more),
+		)).Run(); err != nil {
+			return err
+		}
+
+		if !more {
+			return nil
+		}
+	}
+}
+
+func wizardPromptMCP() (wizardMCP, error) {
+	var m wizardMCP
+
+	if err := huh.NewForm(huh.NewGroup(
+		huh.NewInput().Title("Server name").Value(&m.Name),
+		huh.NewInput().Title("Command (leave empty for SSE)").Value(&m.Command),
+		huh.NewInput().Title("Arguments (space-separated)").Value(&m.Args),
+		huh.NewInput().Title("SSE URL (leave empty for command)").Value(&m.URL),
+	)).Run(); err != nil {
+		return m, err
+	}
+
+	return m, nil
+}
+
 func wizardAgents(cfg *wizardConfig) error {
 	providerNames := make([]string, len(cfg.Providers))
 	for i, p := range cfg.Providers {
 		providerNames[i] = p.Name
 	}
 
+	mcpNames := make([]string, len(cfg.MCPServers))
+	for i, m := range cfg.MCPServers {
+		mcpNames[i] = m.Name
+	}
+
 	for {
-		a, err := wizardPromptAgent(providerNames)
+		a, err := wizardPromptAgent(providerNames, mcpNames)
 		if err != nil {
 			return err
 		}
@@ -207,7 +273,7 @@ func wizardAgents(cfg *wizardConfig) error {
 	}
 }
 
-func wizardPromptAgent(providerNames []string) (wizardAgent, error) {
+func wizardPromptAgent(providerNames, mcpNames []string) (wizardAgent, error) {
 	a := wizardAgent{
 		Name:               "assistant",
 		Description:        "A helpful assistant",
@@ -229,6 +295,21 @@ func wizardPromptAgent(providerNames []string) (wizardAgent, error) {
 	maxIter := strconv.Itoa(a.MaxIterations)
 	maxDepth := strconv.Itoa(a.MaxDelegationDepth)
 
+	toolboxOpts := []huh.Option[string]{
+		huh.NewOption("Filesystem", "filesystem").Selected(true),
+		huh.NewOption("Exec", "exec").Selected(true),
+		huh.NewOption("Search", "search").Selected(true),
+		huh.NewOption("Git", "git").Selected(true),
+		huh.NewOption("HTTP", "http").Selected(true),
+		huh.NewOption("State", "state").Selected(true),
+		huh.NewOption("Tasks", "tasks").Selected(true),
+		huh.NewOption("Notes", "notes").Selected(true),
+	}
+
+	for _, name := range mcpNames {
+		toolboxOpts = append(toolboxOpts, huh.NewOption(fmt.Sprintf("mcp: %s", name), name))
+	}
+
 	err := huh.NewForm(huh.NewGroup(
 		huh.NewInput().Title("Agent name").Value(&a.Name),
 		huh.NewInput().Title("Description").Value(&a.Description),
@@ -238,16 +319,7 @@ func wizardPromptAgent(providerNames []string) (wizardAgent, error) {
 		huh.NewInput().Title("Max delegation depth").Value(&maxDepth).Validate(validateNonNegativeInt),
 		huh.NewMultiSelect[string]().
 			Title("Toolboxes").
-			Options(
-				huh.NewOption("Filesystem", "filesystem").Selected(true),
-				huh.NewOption("Exec", "exec").Selected(true),
-				huh.NewOption("Search", "search").Selected(true),
-				huh.NewOption("Git", "git").Selected(true),
-				huh.NewOption("HTTP", "http").Selected(true),
-				huh.NewOption("State", "state").Selected(true),
-				huh.NewOption("Tasks", "tasks").Selected(true),
-				huh.NewOption("Notes", "notes").Selected(true),
-			).
+			Options(toolboxOpts...).
 			Value(&a.Toolboxes),
 	)).Run()
 	if err != nil {
@@ -313,6 +385,7 @@ func validateDuration(s string) error {
 
 type configYAML struct {
 	Providers             []providerYAML `yaml:"providers"`
+	MCPServers            []mcpYAML      `yaml:"mcp_servers,omitempty"`
 	Agents                []agentYAML    `yaml:"agents"`
 	EntryAgent            string         `yaml:"entry_agent"`
 	DefaultContextWindows map[string]int `yaml:"default_context_windows,omitempty"`
@@ -391,6 +464,15 @@ func marshalWizardConfig(cfg wizardConfig) ([]byte, error) {
 		}
 
 		yc.Providers = append(yc.Providers, py)
+	}
+
+	for _, m := range cfg.MCPServers {
+		yc.MCPServers = append(yc.MCPServers, mcpYAML{
+			Name:    m.Name,
+			Command: m.Command,
+			Args:    strings.Fields(m.Args),
+			URL:     m.URL,
+		})
 	}
 
 	for _, a := range cfg.Agents {

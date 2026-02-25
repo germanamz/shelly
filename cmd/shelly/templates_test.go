@@ -34,7 +34,7 @@ func TestApplyTemplate_SimpleAssistant(t *testing.T) {
 	}
 	slotMapping := map[string]string{"primary": "anthropic"}
 
-	cfg := applyTemplate(tmpl, providers, slotMapping)
+	cfg := applyTemplate(tmpl, providers, nil, slotMapping)
 
 	assert.Len(t, cfg.Agents, 1)
 	assert.Equal(t, "assistant", cfg.Agents[0].Name)
@@ -60,7 +60,7 @@ func TestApplyTemplate_DevTeam(t *testing.T) {
 		"fast":    "gpt",
 	}
 
-	cfg := applyTemplate(tmpl, providers, slotMapping)
+	cfg := applyTemplate(tmpl, providers, nil, slotMapping)
 
 	assert.Len(t, cfg.Agents, 3)
 	assert.Equal(t, "orchestrator", cfg.EntryAgent)
@@ -101,7 +101,7 @@ func TestApplyTemplate_EffectsCarryThrough(t *testing.T) {
 		"fast":    "gpt",
 	}
 
-	cfg := applyTemplate(tmpl, providers, slotMapping)
+	cfg := applyTemplate(tmpl, providers, nil, slotMapping)
 	data, err := marshalWizardConfig(cfg)
 	assert.NoError(t, err)
 
@@ -154,7 +154,7 @@ func TestApplyTemplate_DevTeamSkillFiles(t *testing.T) {
 		"fast":    "claude",
 	}
 
-	cfg := applyTemplate(tmpl, providers, slotMapping)
+	cfg := applyTemplate(tmpl, providers, nil, slotMapping)
 
 	// Verify skill files are carried through.
 	assert.Len(t, cfg.SkillFiles, 3)
@@ -183,7 +183,7 @@ func TestApplyTemplate_SimpleAssistantNoSkillFiles(t *testing.T) {
 	}
 	slotMapping := map[string]string{"primary": "anthropic"}
 
-	cfg := applyTemplate(tmpl, providers, slotMapping)
+	cfg := applyTemplate(tmpl, providers, nil, slotMapping)
 	assert.Empty(t, cfg.SkillFiles, "simple-assistant should not produce skill files")
 }
 

@@ -307,9 +307,10 @@ func wizardSlotMapping(slots []templateProviderSlot, providerNames []string) (ma
 	return mapping, nil
 }
 
-func applyTemplate(tmpl *configTemplate, providers []wizardProvider, slotMapping map[string]string) wizardConfig {
+func applyTemplate(tmpl *configTemplate, providers []wizardProvider, mcpServers []wizardMCP, slotMapping map[string]string) wizardConfig {
 	cfg := wizardConfig{
 		Providers:  providers,
+		MCPServers: mcpServers,
 		EntryAgent: tmpl.EntryAgent,
 		SkillFiles: tmpl.SkillFiles,
 	}
@@ -343,6 +344,10 @@ func runTemplateWizard(tmpl *configTemplate) (wizardResult, error) {
 		return wizardResult{}, err
 	}
 
+	if err := wizardMCPServers(&cfg); err != nil {
+		return wizardResult{}, err
+	}
+
 	providerNames := make([]string, len(cfg.Providers))
 	for i, p := range cfg.Providers {
 		providerNames[i] = p.Name
@@ -353,7 +358,7 @@ func runTemplateWizard(tmpl *configTemplate) (wizardResult, error) {
 		return wizardResult{}, err
 	}
 
-	applied := applyTemplate(tmpl, cfg.Providers, slotMapping)
+	applied := applyTemplate(tmpl, cfg.Providers, cfg.MCPServers, slotMapping)
 
 	data, err := marshalWizardConfig(applied)
 	if err != nil {

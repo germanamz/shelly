@@ -303,7 +303,7 @@ func (e *Engine) connectMCPClients(ctx context.Context, servers []MCPConfig) err
 		var client *mcpclient.MCPClient
 		var err error
 		if mc.URL != "" {
-			client, err = mcpclient.NewSSE(ctx, mc.URL)
+			client, err = mcpclient.NewHTTP(ctx, mc.URL)
 		} else {
 			client, err = mcpclient.New(ctx, mc.Command, mc.Args...)
 		}

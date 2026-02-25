@@ -195,12 +195,12 @@ func TestListToolsHandlerRoundTrip(t *testing.T) {
 	assert.Equal(t, "hello world", result)
 }
 
-func TestNewSSE_InvalidEndpoint(t *testing.T) {
+func TestNewHTTP_InvalidEndpoint(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	_, err := NewSSE(ctx, "http://127.0.0.1:1/invalid")
-	assert.Error(t, err, "NewSSE should fail for unreachable endpoint")
+	_, err := NewHTTP(ctx, "http://127.0.0.1:1/invalid")
+	assert.Error(t, err, "NewHTTP should fail for unreachable endpoint")
 }
 
 func TestClose(t *testing.T) {
