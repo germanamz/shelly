@@ -221,6 +221,13 @@ func (m *inputModel) enable() tea.Cmd {
 	return m.textarea.Focus()
 }
 
+func (m *inputModel) Reset() {
+	m.textarea.Reset()
+	m.textarea.SetHeight(inputMinHeight)
+	m.enabled = true
+	m.filePicker.dismiss()
+}
+
 func (m *inputModel) disable() {
 	m.enabled = false
 	m.textarea.Blur()

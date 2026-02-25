@@ -578,3 +578,13 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 
 	return nil
 }
+
+// ClearState clears the shared state store if enabled.
+func (e *Engine) ClearState() {
+	// TODO v2: if e.store != nil { /* clear */ }
+}
+
+// ClearTasks clears the shared task store if enabled.
+func (e *Engine) ClearTasks() {
+	// TODO v2: if e.taskStore != nil { /* clear */ }
+}

@@ -168,7 +168,7 @@ func run(configPath, shellyDirPath, agentName string, verbose bool) error {
 		return err
 	}
 
-	model := newAppModel(ctx, sess, eng.Events(), verbose)
+	model := newAppModel(ctx, sess, eng, verbose)
 
 	p := tea.NewProgram(model)
 

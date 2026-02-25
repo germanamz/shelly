@@ -11,6 +11,7 @@ import (
 type statusBarModel struct {
 	completer modeladapter.Completer
 	duration  time.Duration
+	message   string
 }
 
 func newStatusBar(completer modeladapter.Completer) statusBarModel {
@@ -18,6 +19,10 @@ func newStatusBar(completer modeladapter.Completer) statusBarModel {
 }
 
 func (m statusBarModel) View() string {
+	if m.message != "" {
+		return statusStyle.Render(m.message)
+	}
+
 	ur, ok := m.completer.(modeladapter.UsageReporter)
 	if !ok {
 		if m.duration > 0 {
@@ -46,4 +51,8 @@ func (m statusBarModel) View() string {
 	}
 
 	return statusStyle.Render(line)
+}
+
+func (m *statusBarModel) SetMessage(msg string) {
+	m.message = msg
 }

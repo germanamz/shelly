@@ -257,3 +257,12 @@ func (m *chatViewModel) advanceSpinners() {
 func (m *chatViewModel) hasActiveChains() bool {
 	return len(m.agents) > 0
 }
+
+func (m *chatViewModel) Clear() {
+	m.agents = make(map[string]*agentContainer)
+	m.subAgents = make(map[string]*subAgentMessage)
+	m.agentOrder = nil
+	m.processing = false
+	m.spinnerIdx = 0
+	m.processingMsg = ""
+}

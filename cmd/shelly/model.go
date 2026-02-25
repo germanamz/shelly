@@ -22,7 +22,9 @@ const (
 type appModel struct {
 	ctx          context.Context
 	sess         *engine.Session
+	eng          *engine.Engine
 	events       *engine.EventBus
+	program      *tea.Program
 	verbose      bool
 	chatView     chatViewModel
 	inputBox     inputModel
@@ -36,12 +38,14 @@ type appModel struct {
 	sendStart    time.Time
 }
 
-func newAppModel(ctx context.Context, sess *engine.Session, events *engine.EventBus, verbose bool) appModel {
+func newAppModel(ctx context.Context, sess *engine.Session, eng *engine.Engine, verbose bool) appModel {
 	return appModel{
 		ctx:       ctx,
 		sess:      sess,
-		events:    events,
+		eng:       eng,
+		events:    eng.Events(),
 		verbose:   verbose,
+		program:   nil,
 		chatView:  newChatView(verbose),
 		inputBox:  newInput(),
 		statusBar: newStatusBar(sess.Completer()),
@@ -70,7 +74,8 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case programReadyMsg:
-		m.cancelBridge = startBridge(m.ctx, msg.program, m.sess.Chat(), m.events)
+		m.program = msg.program
+		m.cancelBridge = startBridge(m.ctx, msg.program, m.sess.Chat(), m.eng.Events())
 		return m, nil
 
 	case filePickerEntriesMsg:
@@ -218,6 +223,24 @@ func (m *appModel) handleSubmit(msg inputSubmitMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Println(helpText())
 	}
 
+	if text == "/clear" {
+		m.cancelBridge()
+		m.eng.RemoveSession(m.sess.ID())
+		newSess, err := m.eng.NewSession("")
+		if err != nil {
+			return m, tea.Println(errorBlockStyle.Render("Error: " + err.Error()))
+		}
+		m.sess = newSess
+		m.chatView.Clear()
+		m.inputBox.Reset()
+		m.statusBar.SetMessage("New session started")
+		m.cancelBridge = startBridge(m.ctx, m.program, m.sess.Chat(), m.eng.Events())
+		// TODO v2: m.eng.ClearState()
+		// TODO v2: m.eng.ClearTasks()
+		m.state = stateIdle
+		return m, nil
+	}
+
 	// Print user message to terminal scrollback with a leading blank line.
 	userLine := "\n" + renderUserMessage(text)
 	printCmd := tea.Println(userLine)
@@ -311,6 +334,7 @@ func helpText() string {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(
 		"Commands:\n" +
 			"  /help          Show this help message\n" +
+			"  /clear         Clear the chat and start a new session\n" +
 			"  /quit          Exit the chat\n\n" +
 			"Shortcuts:\n" +
 			"  Enter          Submit message\n" +
