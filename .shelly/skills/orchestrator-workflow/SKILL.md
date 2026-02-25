@@ -15,9 +15,9 @@ description: "Task orchestration protocol: decomposition, delegation, verificati
 
 ## Delegation
 
-- Use `delegate_to_agent` for sequential tasks or `spawn_agents` for independent parallel work.
+- Use `delegate` with one or more tasks. All tasks run concurrently. For a single sequential delegation, pass one task; for parallel work, pass multiple.
 - Always provide rich `context` — include prior decisions, relevant file contents, and the note name.
-- Pass `task_id` to `delegate_to_agent` or each task in `spawn_agents` to automatically claim the task for the child agent and update its status based on the child's `task_complete` result.
+- Pass `task_id` on each task to automatically claim the task for the child agent and update its status based on the child's `task_complete` result.
 
 ## After Delegation
 

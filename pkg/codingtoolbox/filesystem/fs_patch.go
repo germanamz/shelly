@@ -53,6 +53,9 @@ func (f *FS) handlePatch(ctx context.Context, input json.RawMessage) (string, er
 		return "", fmt.Errorf("fs_patch: %w", err)
 	}
 
+	f.locker.Lock(abs)
+	defer f.locker.Unlock(abs)
+
 	data, err := os.ReadFile(abs) //nolint:gosec // path is approved by user
 	if err != nil {
 		return "", fmt.Errorf("fs_patch: %w", err)

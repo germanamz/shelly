@@ -58,6 +58,9 @@ func (f *FS) handleCopy(ctx context.Context, input json.RawMessage) (string, err
 		return "", fmt.Errorf("fs_copy: %w", err)
 	}
 
+	f.locker.LockPair(absSrc, absDst)
+	defer f.locker.UnlockPair(absSrc, absDst)
+
 	info, err := os.Stat(absSrc)
 	if err != nil {
 		return "", fmt.Errorf("fs_copy: %w", err)

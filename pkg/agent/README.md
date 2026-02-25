@@ -16,7 +16,7 @@ This package replaces the previous `pkg/agents/` and `pkg/reactor/` hierarchies 
 
 ### TaskBoard
 
-Interface for optional task lifecycle management during delegation. When set on `Options.TaskBoard`, delegation tools (`delegate_to_agent`, `spawn_agents`) automatically claim tasks and update their status based on the child's `CompletionResult`.
+Interface for optional task lifecycle management during delegation. When set on `Options.TaskBoard`, the `delegate` tool automatically claims tasks and updates their status based on the child's `CompletionResult`.
 
 ```go
 type TaskBoard interface {
@@ -53,22 +53,21 @@ Composable wrappers around the agent's `Run` method.
 
 ## Built-in Orchestration Tools
 
-When a `Registry` is set, three tools are automatically injected:
+When a `Registry` is set, two tools are automatically injected:
 
 | Tool | Description |
 |------|-------------|
 | `list_agents` | Lists all available agents (excluding self) |
-| `delegate_to_agent` | Delegates a task to another agent, returns its response. Requires `agent`, `task`, and `context` fields. Optional `task_id` for automatic task lifecycle. |
-| `spawn_agents` | Runs multiple agents concurrently, returns collected results. Each task requires `agent`, `task`, and `context` fields. Optional `task_id` per task for automatic task lifecycle. |
+| `delegate` | Delegates one or more tasks to other agents. All tasks run concurrently. Each task requires `agent`, `task`, and `context` fields. Optional `task_id` per task for automatic task lifecycle. |
 | `task_complete` | **(sub-agents only)** Signals task completion with structured metadata (status, summary, files modified, tests run, caveats). |
 
-Both `delegate_to_agent` and `spawn_agents` require a `context` field — background information (file contents, decisions, constraints) that the child agent needs. The context is prepended as a `<delegation_context>`-tagged user message before the task message, so the child sees: system prompt -> context -> task.
+The `delegate` tool requires a `context` field per task — background information (file contents, decisions, constraints) that the child agent needs. The context is prepended as a `<delegation_context>`-tagged user message before the task message, so the child sees: system prompt -> context -> task.
 
-Safety guards: self-delegation rejected, `MaxDelegationDepth` enforced, concurrent spawn uses cancel-on-first-error.
+Safety guards: self-delegation rejected, `MaxDelegationDepth` enforced.
 
 ### Automatic Task Lifecycle
 
-When `Options.TaskBoard` is set, delegation tools support an optional `task_id` parameter:
+When `Options.TaskBoard` is set, the `delegate` tool supports an optional `task_id` parameter per task:
 
 1. **Before `child.Run()`**: if `task_id` is provided, `TaskBoard.ClaimTask(taskID, childName)` is called automatically. Claim errors are silently ignored (the task may already be claimed).
 2. **After `child.Run()`**: if the child produced a `CompletionResult`, `TaskBoard.UpdateTaskStatus(taskID, cr.Status)` is called automatically.
@@ -79,10 +78,7 @@ This eliminates 2-3 manual tool calls per delegation that the LLM would otherwis
 
 Sub-agents (depth > 0) receive a `task_complete` tool that they call to signal completion with structured metadata. The system prompt includes a `<completion_protocol>` section instructing them to always call this tool instead of simply stopping.
 
-When a sub-agent calls `task_complete`, the ReAct loop stops immediately and the `CompletionResult` is stored on the agent. Delegation tools (`delegate_to_agent`, `spawn_agents`) check for this structured result:
-
-- **`delegate_to_agent`**: returns the `CompletionResult` as JSON if present, otherwise falls back to `reply.TextContent()`.
-- **`spawn_agents`**: includes a `completion` field in each `spawnResult` if the child set a `CompletionResult`.
+When a sub-agent calls `task_complete`, the ReAct loop stops immediately and the `CompletionResult` is stored on the agent. The `delegate` tool checks for this structured result and includes a `completion` field in each `delegateResult` if the child set a `CompletionResult`. If no `CompletionResult` was set, the result falls back to `reply.TextContent()`.
 
 ```go
 type CompletionResult struct {
@@ -109,7 +105,7 @@ The protocol does **not** preload any notes content — it simply ensures agents
 
 ### Sub-Agent Event Notifications
 
-When `Options.EventNotifier` is set, orchestration tools publish lifecycle events for child agents:
+When `Options.EventNotifier` is set, the `delegate` tool publishes lifecycle events for child agents:
 
 - `agent_start` — emitted before `child.Run(ctx)` with `AgentEventData{Prefix}`.
 - `agent_end` — emitted after `child.Run(ctx)` completes (success or error).

@@ -540,7 +540,7 @@ description: Orchestration procedures for complex tasks
 When you receive a complex task:
 1. Break it into subtasks
 2. Check available agents with list_agents
-3. Delegate subtasks to appropriate agents using delegate_to_agent
+3. Delegate subtasks to appropriate agents using delegate
 4. Synthesize the results into a final answer
 ```
 
@@ -602,7 +602,7 @@ Run(ctx):
         - Agent directory from registry (## Available Agents, names + descriptions)
      b. Collect all toolboxes:
         - User-provided toolboxes
-        - Orchestration toolbox (if registry is set): list_agents, delegate_to_agent, spawn_agents
+        - Orchestration toolbox (if registry is set): list_agents, delegate
      c. ReAct loop:
         for i := 0; maxIterations == 0 || i < maxIterations; i++ {
           - completer.Complete(ctx, chat) -> reply
@@ -669,48 +669,48 @@ type Registry struct {
 
 ### 10.4 Built-in Orchestration Tools
 
-Three tools are auto-injected when a Registry is set on the agent:
+Two tools are auto-injected when a Registry is set on the agent:
 
 | Tool | Input | Behavior |
 |------|-------|----------|
 | `list_agents` | `{}` | Returns JSON array of `{name, description}` for all agents except self |
-| `delegate_to_agent` | `{agent, task}` | Spawns fresh agent, injects task as user message, runs it, returns final text |
-| `spawn_agents` | `{tasks: [{agent, task}, ...]}` | Spawns multiple agents concurrently, waits for all, returns JSON results array |
+| `delegate` | `{tasks: [{agent, task, context}, ...]}` | Spawns agents concurrently (one per task), waits for all, returns JSON results array |
 
 **Safety guards:**
 - Self-delegation rejected (prevents A calling A)
 - `MaxDelegationDepth` enforced (depth increments per delegation level, prevents infinite A->B->A chains)
-- Concurrent spawn uses `context.WithCancel` (cancel others on first error)
 - Each spawned agent receives the parent's registry (enabling nested delegation)
 
 ```
-  Delegation Flow
-  ───────────────
-  ┌─────────────────────┐      delegate_to_agent    ┌──────────────────────┐
-  │  Orchestrator Agent  │      {"agent":"worker",   │   Worker Agent        │
-  │  (ReAct loop)        │       "task":"do X"}      │   (fresh instance)    │
+  Delegation Flow (single task)
+  ─────────────────────────────
+  ┌─────────────────────┐      delegate               ┌──────────────────────┐
+  │  Orchestrator Agent  │      {tasks:[{agent:"worker",│   Worker Agent        │
+  │  (ReAct loop)        │       task:"do X",          │   (fresh instance)    │
+  │                      │       context:"..."}]}      │                       │
   │                      │─────────────────────────►│                       │
   │  Has registry with   │                           │  Clean chat:          │
   │  "worker" registered │                           │  ├─ system: prompt    │
+  │                      │                           │  ├─ user: context     │
   │                      │                           │  ├─ user: "do X"      │
   │                      │◄─────────────────────────│  ├─ assistant: ...     │
   │                      │      Tool result          │  ├─ tool: ...         │
-  │                      │      (text reply)         │  └─ assistant: answer │
+  │                      │      (JSON results array) │  └─ assistant: answer │
   └─────────────────────┘                           └──────────────────────┘
 
   Key: Each delegation spawns a fresh agent via the Factory.
-       Only the final text reply crosses the boundary.
+       Results are returned as a JSON array of delegateResult objects.
        All intermediate reasoning stays in the child's private chat.
        The child agent is discarded after returning.
 ```
 
 ```
-  Concurrent Spawn Flow
-  ─────────────────────
-  ┌─────────────────────┐    spawn_agents
+  Concurrent Delegation Flow (multiple tasks)
+  ────────────────────────────────────────────
+  ┌─────────────────────┐    delegate
   │  Orchestrator Agent  │    {tasks: [
-  │                      │      {agent:"a", task:"..."},
-  │                      │      {agent:"b", task:"..."}
+  │                      │      {agent:"a", task:"...", context:"..."},
+  │                      │      {agent:"b", task:"...", context:"..."}
   │                      │    ]}
   │                      │─────────────┬─────────────────┐
   │                      │             │                  │
@@ -884,9 +884,10 @@ stateTools := store.Tools("team")
 ```
   Orchestrator Agent               Worker Agent (spawned fresh)
   ──────────────────               ─────────────────────────────
-  │ LLM: delegate_to_agent         │
-  │      {"agent":"worker",        │
-  │       "task":"find X"}         │
+  │ LLM: delegate                  │
+  │      {tasks:[{agent:"worker", │
+  │       task:"find X",           │
+  │       context:"..."}]}        │
   │────────────────────────────── ►│
   │                                │ System prompt auto-generated
   │                                │ User message: "find X" injected
@@ -899,15 +900,17 @@ stateTools := store.Tools("team")
   │ -> "Summary: ..."             │
 ```
 
-### 12.3 Concurrent Delegation (spawn_agents)
+### 12.3 Concurrent Delegation (multiple tasks)
 
 ```
   Orchestrator Agent           Worker A (goroutine)    Worker B (goroutine)
   ──────────────────           ────────────────────    ────────────────────
-  │ LLM: spawn_agents           │                       │
+  │ LLM: delegate                │                       │
   │ {tasks:[                     │                       │
-  │   {agent:"a", task:"..."},   │                       │
-  │   {agent:"b", task:"..."}    │                       │
+  │   {agent:"a", task:"...",    │                       │
+  │    context:"..."},           │                       │
+  │   {agent:"b", task:"...",    │                       │
+  │    context:"..."}            │                       │
   │ ]}                           │                       │
   │──────────────────────────── ►│                       │
   │──────────────────────────────────────────────────── ►│
@@ -936,14 +939,14 @@ stateTools := store.Tools("team")
 | `Registry` | Yes | `sync.RWMutex` |
 | `ToolBox` | No (read-only after setup) | Register before use, then read-only |
 
-### 13.2 Spawn Concurrent Execution
+### 13.2 Delegate Concurrent Execution
 
 ```go
-// Inside spawn_agents tool handler:
+// Inside delegate tool handler:
 ctx, cancel := context.WithCancel(ctx)
 defer cancel()
 
-results := make([]spawnResult, len(tasks))
+results := make([]delegateResult, len(tasks))
 
 var wg sync.WaitGroup
 wg.Add(len(tasks))
@@ -1104,7 +1107,7 @@ orch := agent.New("orchestrator", "Coordinates research and writing",
 orch.SetRegistry(reg)
 
 // The orchestrator's ReAct loop will dynamically call list_agents,
-// delegate_to_agent, or spawn_agents as needed
+// delegate as needed
 orch.Chat().Append(message.NewText("user", role.User,
     "Write a summary of recent AI developments"))
 
@@ -1134,16 +1137,16 @@ a.SetRegistry(reg)
 // teaching the agent how to orchestrate, review code, etc.
 ```
 
-### 14.4 Concurrent Work with spawn_agents
+### 14.4 Concurrent Work with delegate
 
 ```go
-// The orchestrator can spawn multiple agents concurrently
-// by calling the spawn_agents tool. The LLM decides when to use it:
+// The orchestrator can delegate to multiple agents concurrently
+// by passing multiple tasks. The LLM decides when to use it:
 //
 // LLM: "I need to research US and Europe in parallel."
-// LLM calls: spawn_agents({tasks: [
-//   {agent: "researcher", task: "Research AI developments in the US"},
-//   {agent: "researcher", task: "Research AI developments in Europe"}
+// LLM calls: delegate({tasks: [
+//   {agent: "researcher", task: "Research AI developments in the US", context: "..."},
+//   {agent: "researcher", task: "Research AI developments in Europe", context: "..."}
 // ]})
 //
 // Both researchers run concurrently, results collected into JSON array.

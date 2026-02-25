@@ -68,7 +68,7 @@ Tool handlers read agent identity via `agentctx.AgentNameFromContext(ctx)` for `
 
 ```
 1. Orchestrator creates tasks via shared_tasks_create
-2. Orchestrator delegates via delegate_to_agent or spawn_agents with task_id
+2. Orchestrator delegates via delegate with task_id on each task
 3. Task is auto-claimed for the child agent before it runs
 4. Child completes work and calls task_complete
 5. Task status is auto-updated based on the completion result
@@ -80,7 +80,7 @@ Tool handlers read agent identity via `agentctx.AgentNameFromContext(ctx)` for `
 
 ```
 1. Orchestrator creates tasks via shared_tasks_create
-2. Orchestrator spawns workers via spawn_agents
+2. Orchestrator delegates to workers via delegate
 3. Workers discover work via shared_tasks_list({status:"pending", blocked:false})
 4. Worker claims a task via shared_tasks_claim (atomic, race-safe)
 5. Worker completes via shared_tasks_update({id, status:"completed"})

@@ -443,14 +443,14 @@ func TestDelegateToAgent(t *testing.T) {
 		return New("worker", "Does work", "", workerCompleter, Options{})
 	})
 
-	// Orchestrator calls delegate_to_agent.
+	// Orchestrator calls delegate.
 	orchCompleter := &sequenceCompleter{
 		replies: []message.Message{
 			message.New("", role.Assistant,
 				content.ToolCall{
 					ID:        "c1",
-					Name:      "delegate_to_agent",
-					Arguments: `{"agent":"worker","task":"do the thing"}`,
+					Name:      "delegate",
+					Arguments: `{"tasks":[{"agent":"worker","task":"do the thing","context":""}]}`,
 				},
 			),
 			message.NewText("", role.Assistant, "Got worker's result."),
@@ -474,8 +474,8 @@ func TestDelegateSelfRejected(t *testing.T) {
 			message.New("", role.Assistant,
 				content.ToolCall{
 					ID:        "c1",
-					Name:      "delegate_to_agent",
-					Arguments: `{"agent":"self","task":"loop"}`,
+					Name:      "delegate",
+					Arguments: `{"tasks":[{"agent":"self","task":"loop","context":""}]}`,
 				},
 			),
 			message.NewText("", role.Assistant, "Done."),
@@ -499,8 +499,8 @@ func TestDelegateMaxDepth(t *testing.T) {
 			message.New("", role.Assistant,
 				content.ToolCall{
 					ID:        "c1",
-					Name:      "delegate_to_agent",
-					Arguments: `{"agent":"worker","task":"do"}`,
+					Name:      "delegate",
+					Arguments: `{"tasks":[{"agent":"worker","task":"do","context":""}]}`,
 				},
 			),
 			message.NewText("", role.Assistant, "Done."),
@@ -588,8 +588,8 @@ func TestSpawnAgents(t *testing.T) {
 			message.New("", role.Assistant,
 				content.ToolCall{
 					ID:        "c1",
-					Name:      "spawn_agents",
-					Arguments: `{"tasks":[{"agent":"worker-a","task":"task-a"},{"agent":"worker-b","task":"task-b"}]}`,
+					Name:      "delegate",
+					Arguments: `{"tasks":[{"agent":"worker-a","task":"task-a","context":""},{"agent":"worker-b","task":"task-b","context":""}]}`,
 				},
 			),
 			message.NewText("", role.Assistant, "All done."),
@@ -630,8 +630,8 @@ func TestSpawnAgentsSelfRejected(t *testing.T) {
 			message.New("", role.Assistant,
 				content.ToolCall{
 					ID:        "c1",
-					Name:      "spawn_agents",
-					Arguments: `{"tasks":[{"agent":"orch","task":"loop"}]}`,
+					Name:      "delegate",
+					Arguments: `{"tasks":[{"agent":"orch","task":"loop","context":""}]}`,
 				},
 			),
 			message.NewText("", role.Assistant, "Done."),
@@ -671,8 +671,8 @@ func TestSpawnAgentsResilientErrors(t *testing.T) {
 			message.New("", role.Assistant,
 				content.ToolCall{
 					ID:        "c1",
-					Name:      "spawn_agents",
-					Arguments: `{"tasks":[{"agent":"worker-a","task":"task-a"},{"agent":"worker-b","task":"task-b"}]}`,
+					Name:      "delegate",
+					Arguments: `{"tasks":[{"agent":"worker-a","task":"task-a","context":""},{"agent":"worker-b","task":"task-b","context":""}]}`,
 				},
 			),
 			message.NewText("", role.Assistant, "Collected."),
@@ -736,8 +736,8 @@ func TestSpawnAgentsToolboxInheritance(t *testing.T) {
 			message.New("", role.Assistant,
 				content.ToolCall{
 					ID:        "c1",
-					Name:      "spawn_agents",
-					Arguments: `{"tasks":[{"agent":"worker","task":"use parent tool"}]}`,
+					Name:      "delegate",
+					Arguments: `{"tasks":[{"agent":"worker","task":"use parent tool","context":""}]}`,
 				},
 			),
 			message.NewText("", role.Assistant, "Done."),
@@ -1001,8 +1001,8 @@ func TestDelegateToolboxInheritance(t *testing.T) {
 			message.New("", role.Assistant,
 				content.ToolCall{
 					ID:        "c1",
-					Name:      "delegate_to_agent",
-					Arguments: `{"agent":"worker","task":"use parent tool"}`,
+					Name:      "delegate",
+					Arguments: `{"tasks":[{"agent":"worker","task":"use parent tool","context":""}]}`,
 				},
 			),
 			message.NewText("", role.Assistant, "Done."),

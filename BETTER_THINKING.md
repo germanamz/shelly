@@ -36,23 +36,9 @@ Fixed: When an agent has notes tools (detected by `list_notes` in its toolboxes)
 
 Fixed: Delegation tools (`delegate_to_agent`, `spawn_agents`) now synthesize a structured `CompletionResult{Status: "failed"}` on iteration exhaustion instead of propagating an opaque error. The task board is auto-updated to "failed" when `task_id` is provided. The completion protocol in the system prompt instructs sub-agents to proactively call `task_complete` with `status: "failed"` when running low on iterations. Orchestrator and coder workflow skills updated with recovery guidance. See `pkg/agent/tools.go` and `pkg/agent/agent.go`.
 
-## Issue 8: Concurrent Spawns Can Clobber Each Other
+## ~~Issue 8: Concurrent Spawns Can Clobber Each Other~~ (FIXED)
 
-**`pkg/agent/tools.go:162-205`**
-
-`spawn_agents` runs children concurrently with shared `*toolbox.ToolBox` pointers:
-
-```go
-for i, t := range si.Tasks {
-    go func() {
-        child.AddToolBoxes(a.toolboxes...)
-        child.chat.Append(message.NewText("user", role.User, t.Task))
-        reply, err := child.Run(ctx)
-    }()
-}
-```
-
-Two coders writing to the same files have no file-level coordination. The shared `permissions.Store` pointer means permission grants by one concurrent agent propagate immediately to siblings.
+Fixed: Added `FileLocker` (per-path `sync.Mutex`) to the `FS` struct. All file-modifying handlers (`fs_write`, `fs_edit`, `fs_patch`, `fs_delete`, `fs_move`, `fs_copy`, `fs_mkdir`) acquire the lock before their read-modify-write cycle. Two-path operations lock in sorted order to avoid deadlocks. Read-only tools don't lock. Additionally, `delegate_to_agent` and `spawn_agents` were unified into a single `delegate` tool that accepts an array of tasks and runs them concurrently. See `pkg/codingtoolbox/filesystem/filelocker.go` and `pkg/agent/tools.go`.
 
 ## Issue 9: `agentctx` Name Mismatch With Task Board
 
@@ -73,7 +59,7 @@ Each agent overwrites the context's agent name: `ctx = agentctx.WithAgentName(ct
 | ~~5~~ | ~~Task board unused~~ | ~~FIXED — `task_id` param on delegation tools for auto lifecycle~~ | `tools.go`, `agent.go` |
 | ~~6~~ | ~~Notes not enforced~~ | ~~FIXED — `<notes_protocol>` in system prompt when notes tools present~~ | `agent.go` |
 | ~~7~~ | ~~No iteration exhaustion recovery~~ | ~~FIXED — structured `CompletionResult` on exhaustion~~ | `tools.go`, `agent.go` |
-| 8 | Concurrent file clobbering | Spawned coders overwrite each other | `tools.go:162-205` |
+| ~~8~~ | ~~Concurrent file clobbering~~ | ~~FIXED — FileLocker + unified `delegate` tool~~ | `filelocker.go`, `tools.go` |
 | 9 | Agent name mismatch in tasks | Task assignee doesn't match executor | `agent.go:132` |
 
 ---
@@ -88,6 +74,6 @@ Each agent overwrites the context's agent name: `ctx = agentctx.WithAgentName(ct
 ### Code Changes
 - ~~**Structured handoff**: Pass a structured task spec (not just free text) to child agents, optionally including relevant parent context snippets~~ (DONE)
 - ~~**Structured results**: Return structured data from sub-agents (files modified, tests run, status) instead of just `TextContent()`~~ (DONE)
-- **File-level locking**: Coordinate concurrent spawned agents to prevent clobbering
+- ~~**File-level locking**: Coordinate concurrent spawned agents to prevent clobbering~~ (DONE)
 - ~~**Completion protocol**: Add an explicit "task complete" tool that sub-agents must call, distinguishing intentional completion from the loop simply ending~~ (DONE)
 - ~~**Context propagation**: Optionally forward a summary of the parent's accumulated context to the child at spawn time~~ (DONE)

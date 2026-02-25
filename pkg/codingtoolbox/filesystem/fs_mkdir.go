@@ -38,6 +38,9 @@ func (f *FS) handleMkdir(ctx context.Context, input json.RawMessage) (string, er
 		return "", fmt.Errorf("fs_mkdir: %w", err)
 	}
 
+	f.locker.Lock(abs)
+	defer f.locker.Unlock(abs)
+
 	if err := os.MkdirAll(abs, 0o750); err != nil {
 		return "", fmt.Errorf("fs_mkdir: %w", err)
 	}

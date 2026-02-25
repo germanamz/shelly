@@ -100,10 +100,7 @@ var toolFormatters = map[string]toolFormatter{
 
 	// Agent orchestration
 	"list_agents": func(_ func(string) string, _ map[string]any) string { return "Listing agents" },
-	"delegate_to_agent": func(s func(string) string, _ map[string]any) string {
-		return fmt.Sprintf("Delegating to %q", s("agent"))
-	},
-	"spawn_agents": func(_ func(string) string, _ map[string]any) string { return "Spawning agents" },
+	"delegate":    func(_ func(string) string, _ map[string]any) string { return "Delegating" },
 
 	// Skills
 	"load_skill": func(s func(string) string, _ map[string]any) string {

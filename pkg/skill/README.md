@@ -81,7 +81,7 @@ description: Orchestration procedures for complex tasks
 When you receive a complex task:
 1. Break it into subtasks
 2. Check available agents with list_agents
-3. Delegate subtasks to appropriate agents using delegate_to_agent
+3. Delegate subtasks to appropriate agents using delegate
 4. Synthesize the results into a final answer
 ```
 

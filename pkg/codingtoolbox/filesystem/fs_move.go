@@ -56,6 +56,9 @@ func (f *FS) handleMove(ctx context.Context, input json.RawMessage) (string, err
 		return "", fmt.Errorf("fs_move: %w", err)
 	}
 
+	f.locker.LockPair(absSrc, absDst)
+	defer f.locker.UnlockPair(absSrc, absDst)
+
 	if err := os.MkdirAll(filepath.Dir(absDst), 0o750); err != nil {
 		return "", fmt.Errorf("fs_move: create dirs: %w", err)
 	}

@@ -43,6 +43,9 @@ func (f *FS) handleDelete(ctx context.Context, input json.RawMessage) (string, e
 		return "", fmt.Errorf("fs_delete: %w", err)
 	}
 
+	f.locker.Lock(abs)
+	defer f.locker.Unlock(abs)
+
 	if in.Recursive {
 		if err := os.RemoveAll(abs); err != nil {
 			return "", fmt.Errorf("fs_delete: %w", err)

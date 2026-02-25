@@ -47,7 +47,7 @@ func TestDelegateToolSelfDelegation(t *testing.T) {
 	a := &Agent{name: "orch", registry: NewRegistry()}
 	tool := delegateTool(a)
 
-	_, err := tool.Handler(context.Background(), json.RawMessage(`{"agent":"orch","task":"loop","context":""}`))
+	_, err := tool.Handler(context.Background(), json.RawMessage(`{"tasks":[{"agent":"orch","task":"loop","context":""}]}`))
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "self-delegation")
@@ -62,20 +62,28 @@ func TestDelegateToolMaxDepth(t *testing.T) {
 	}
 	tool := delegateTool(a)
 
-	_, err := tool.Handler(context.Background(), json.RawMessage(`{"agent":"worker","task":"do","context":""}`))
+	_, err := tool.Handler(context.Background(), json.RawMessage(`{"tasks":[{"agent":"worker","task":"do","context":""}]}`))
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "max delegation depth")
 }
 
 func TestDelegateToolAgentNotFound(t *testing.T) {
-	a := &Agent{name: "orch", registry: NewRegistry()}
+	reg := NewRegistry()
+
+	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
 	tool := delegateTool(a)
 
-	_, err := tool.Handler(context.Background(), json.RawMessage(`{"agent":"missing","task":"do","context":""}`))
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"missing","task":"do","context":""}]}`,
+	))
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
+	require.NoError(t, err)
+
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	assert.Contains(t, results[0].Error, "not found")
 }
 
 func TestDelegateToolSuccess(t *testing.T) {
@@ -91,15 +99,22 @@ func TestDelegateToolSuccess(t *testing.T) {
 	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
 	tool := delegateTool(a)
 
-	result, err := tool.Handler(context.Background(), json.RawMessage(`{"agent":"worker","task":"do the thing","context":"some context"}`))
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"worker","task":"do the thing","context":"some context"}]}`,
+	))
 
 	require.NoError(t, err)
-	assert.Equal(t, "done by worker", result)
+
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	assert.Equal(t, "worker", results[0].Agent)
+	assert.Equal(t, "done by worker", results[0].Result)
 }
 
-func TestSpawnToolEmptyTasks(t *testing.T) {
+func TestDelegateToolEmptyTasks(t *testing.T) {
 	a := &Agent{name: "orch", registry: NewRegistry()}
-	tool := spawnTool(a)
+	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(`{"tasks":[]}`))
 
@@ -107,17 +122,7 @@ func TestSpawnToolEmptyTasks(t *testing.T) {
 	assert.Equal(t, "[]", result)
 }
 
-func TestSpawnToolSelfDelegation(t *testing.T) {
-	a := &Agent{name: "orch", registry: NewRegistry()}
-	tool := spawnTool(a)
-
-	_, err := tool.Handler(context.Background(), json.RawMessage(`{"tasks":[{"agent":"orch","task":"loop","context":""}]}`))
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "self-delegation")
-}
-
-func TestSpawnToolSuccess(t *testing.T) {
+func TestDelegateToolConcurrentSuccess(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register("a", "Agent A", func() *Agent {
 		return New("a", "", "", &sequenceCompleter{
@@ -135,7 +140,7 @@ func TestSpawnToolSuccess(t *testing.T) {
 	})
 
 	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
-	tool := spawnTool(a)
+	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
 		`{"tasks":[{"agent":"a","task":"task-a","context":"ctx-a"},{"agent":"b","task":"task-b","context":"ctx-b"}]}`,
@@ -143,31 +148,13 @@ func TestSpawnToolSuccess(t *testing.T) {
 
 	require.NoError(t, err)
 
-	var results []spawnResult
+	var results []delegateResult
 	require.NoError(t, json.Unmarshal([]byte(result), &results))
 	require.Len(t, results, 2)
 	assert.Equal(t, "a", results[0].Agent)
 	assert.Equal(t, "result-a", results[0].Result)
 	assert.Equal(t, "b", results[1].Agent)
 	assert.Equal(t, "result-b", results[1].Result)
-}
-
-func TestSpawnToolAgentNotFound(t *testing.T) {
-	reg := NewRegistry()
-
-	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
-	tool := spawnTool(a)
-
-	result, err := tool.Handler(context.Background(), json.RawMessage(
-		`{"tasks":[{"agent":"missing","task":"do","context":""}]}`,
-	))
-
-	require.NoError(t, err)
-
-	var results []spawnResult
-	require.NoError(t, json.Unmarshal([]byte(result), &results))
-	require.Len(t, results, 1)
-	assert.Contains(t, results[0].Error, "not found")
 }
 
 func TestOrchestrationToolBoxRegistered(t *testing.T) {
@@ -183,8 +170,7 @@ func TestOrchestrationToolBoxRegistered(t *testing.T) {
 	}
 
 	assert.True(t, names["list_agents"])
-	assert.True(t, names["delegate_to_agent"])
-	assert.True(t, names["spawn_agents"])
+	assert.True(t, names["delegate"])
 }
 
 func TestDelegateToolChildGetsRegistry(t *testing.T) {
@@ -210,13 +196,19 @@ func TestDelegateToolChildGetsRegistry(t *testing.T) {
 	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
 	tool := delegateTool(a)
 
-	result, err := tool.Handler(context.Background(), json.RawMessage(`{"agent":"worker","task":"list them","context":"some context"}`))
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"worker","task":"list them","context":"some context"}]}`,
+	))
 
 	require.NoError(t, err)
-	assert.Equal(t, "listed", result)
+
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	assert.Equal(t, "listed", results[0].Result)
 }
 
-func TestSpawnToolResilientErrors(t *testing.T) {
+func TestDelegateToolResilientErrors(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register("ok", "OK agent", func() *Agent {
 		return New("ok", "", "", &sequenceCompleter{
@@ -232,7 +224,7 @@ func TestSpawnToolResilientErrors(t *testing.T) {
 	})
 
 	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
-	tool := spawnTool(a)
+	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
 		`{"tasks":[{"agent":"ok","task":"go","context":""},{"agent":"fail","task":"go","context":""},{"agent":"missing","task":"go","context":""}]}`,
@@ -240,7 +232,7 @@ func TestSpawnToolResilientErrors(t *testing.T) {
 
 	require.NoError(t, err)
 
-	var results []spawnResult
+	var results []delegateResult
 	require.NoError(t, json.Unmarshal([]byte(result), &results))
 	require.Len(t, results, 3)
 
@@ -258,7 +250,7 @@ func TestSpawnToolResilientErrors(t *testing.T) {
 	assert.Contains(t, results[2].Error, "not found")
 }
 
-func TestSpawnToolToolboxInheritance(t *testing.T) {
+func TestDelegateToolToolboxInheritance(t *testing.T) {
 	parentTB := toolbox.New()
 	parentTB.Register(toolbox.Tool{
 		Name:        "inherited_tool",
@@ -283,7 +275,7 @@ func TestSpawnToolToolboxInheritance(t *testing.T) {
 	})
 
 	a := &Agent{name: "orch", registry: reg, chat: chat.New(), toolboxes: []*toolbox.ToolBox{parentTB}}
-	tool := spawnTool(a)
+	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
 		`{"tasks":[{"agent":"worker","task":"use inherited tool","context":"inherited context"}]}`,
@@ -291,7 +283,7 @@ func TestSpawnToolToolboxInheritance(t *testing.T) {
 
 	require.NoError(t, err)
 
-	var results []spawnResult
+	var results []delegateResult
 	require.NoError(t, json.Unmarshal([]byte(result), &results))
 	require.Len(t, results, 1)
 	assert.Equal(t, "worker", results[0].Agent)
@@ -349,7 +341,7 @@ func TestDelegateToolWithTaskID(t *testing.T) {
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
-		`{"agent":"worker","task":"do the thing","context":"some context","task_id":"task-1"}`,
+		`{"tasks":[{"agent":"worker","task":"do the thing","context":"some context","task_id":"task-1"}]}`,
 	))
 
 	require.NoError(t, err)
@@ -364,10 +356,12 @@ func TestDelegateToolWithTaskID(t *testing.T) {
 	assert.Equal(t, "task-1", board.updates[0].ID)
 	assert.Equal(t, "completed", board.updates[0].Status)
 
-	// Result should still be structured JSON.
-	var cr CompletionResult
-	require.NoError(t, json.Unmarshal([]byte(result), &cr))
-	assert.Equal(t, "completed", cr.Status)
+	// Result should contain structured completion.
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Completion)
+	assert.Equal(t, "completed", results[0].Completion.Status)
 }
 
 func TestDelegateToolWithTaskIDNoBoard(t *testing.T) {
@@ -385,11 +379,15 @@ func TestDelegateToolWithTaskIDNoBoard(t *testing.T) {
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
-		`{"agent":"worker","task":"do","context":"ctx","task_id":"task-1"}`,
+		`{"tasks":[{"agent":"worker","task":"do","context":"ctx","task_id":"task-1"}]}`,
 	))
 
 	require.NoError(t, err)
-	assert.Equal(t, "done", result)
+
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	assert.Equal(t, "done", results[0].Result)
 }
 
 func TestDelegateToolWithTaskIDNoCompletion(t *testing.T) {
@@ -409,18 +407,22 @@ func TestDelegateToolWithTaskIDNoCompletion(t *testing.T) {
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
-		`{"agent":"worker","task":"do","context":"ctx","task_id":"task-1"}`,
+		`{"tasks":[{"agent":"worker","task":"do","context":"ctx","task_id":"task-1"}]}`,
 	))
 
 	require.NoError(t, err)
-	assert.Equal(t, "done without completion", result)
+
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	assert.Equal(t, "done without completion", results[0].Result)
 
 	// Task was claimed but status was not updated (no completion result).
 	require.Len(t, board.claims, 1)
 	assert.Empty(t, board.updates)
 }
 
-func TestSpawnToolWithTaskID(t *testing.T) {
+func TestDelegateToolConcurrentWithTaskID(t *testing.T) {
 	board := &mockTaskBoard{}
 
 	reg := NewRegistry()
@@ -452,7 +454,7 @@ func TestSpawnToolWithTaskID(t *testing.T) {
 	})
 
 	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{TaskBoard: board}}
-	tool := spawnTool(a)
+	tool := delegateTool(a)
 
 	_, err := tool.Handler(context.Background(), json.RawMessage(
 		`{"tasks":[{"agent":"a","task":"task-a","context":"ctx-a","task_id":"task-1"},{"agent":"b","task":"task-b","context":"ctx-b","task_id":"task-2"}]}`,
@@ -497,11 +499,15 @@ func TestDelegateToolWithContext(t *testing.T) {
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
-		`{"agent":"worker","task":"do the thing","context":"file.go contains X\nconstraint: no breaking changes"}`,
+		`{"tasks":[{"agent":"worker","task":"do the thing","context":"file.go contains X\nconstraint: no breaking changes"}]}`,
 	))
 
 	require.NoError(t, err)
-	assert.Equal(t, "done", result)
+
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	assert.Equal(t, "done", results[0].Result)
 
 	// Child should have 2 user messages: context then task.
 	var userMsgs []message.Message
@@ -516,7 +522,7 @@ func TestDelegateToolWithContext(t *testing.T) {
 	assert.Equal(t, "do the thing", userMsgs[1].TextContent())
 }
 
-func TestSpawnToolWithContext(t *testing.T) {
+func TestDelegateToolConcurrentWithContext(t *testing.T) {
 	var capturedA []message.Message
 	var capturedB []message.Message
 
@@ -535,7 +541,7 @@ func TestSpawnToolWithContext(t *testing.T) {
 	})
 
 	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
-	tool := spawnTool(a)
+	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
 		`{"tasks":[{"agent":"a","task":"task-a","context":"background for a"},{"agent":"b","task":"task-b","context":"background for b"}]}`,
@@ -543,7 +549,7 @@ func TestSpawnToolWithContext(t *testing.T) {
 
 	require.NoError(t, err)
 
-	var results []spawnResult
+	var results []delegateResult
 	require.NoError(t, json.Unmarshal([]byte(result), &results))
 	require.Len(t, results, 2)
 
@@ -654,17 +660,19 @@ func TestDelegateToolWithCompletion(t *testing.T) {
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
-		`{"agent":"worker","task":"do the thing","context":"some context"}`,
+		`{"tasks":[{"agent":"worker","task":"do the thing","context":"some context"}]}`,
 	))
 
 	require.NoError(t, err)
 
 	// Result should be structured JSON.
-	var cr CompletionResult
-	require.NoError(t, json.Unmarshal([]byte(result), &cr))
-	assert.Equal(t, "completed", cr.Status)
-	assert.Equal(t, "did it", cr.Summary)
-	assert.Equal(t, []string{"a.go"}, cr.FilesModified)
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Completion)
+	assert.Equal(t, "completed", results[0].Completion.Status)
+	assert.Equal(t, "did it", results[0].Completion.Summary)
+	assert.Equal(t, []string{"a.go"}, results[0].Completion.FilesModified)
 }
 
 func TestDelegateToolWithoutCompletion(t *testing.T) {
@@ -682,14 +690,19 @@ func TestDelegateToolWithoutCompletion(t *testing.T) {
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
-		`{"agent":"worker","task":"do the thing","context":"some context"}`,
+		`{"tasks":[{"agent":"worker","task":"do the thing","context":"some context"}]}`,
 	))
 
 	require.NoError(t, err)
-	assert.Equal(t, "done by worker", result)
+
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	assert.Equal(t, "done by worker", results[0].Result)
+	assert.Nil(t, results[0].Completion)
 }
 
-func TestSpawnToolWithCompletion(t *testing.T) {
+func TestDelegateToolConcurrentWithCompletion(t *testing.T) {
 	reg := NewRegistry()
 	// worker-a uses task_complete.
 	reg.Register("a", "Agent A", func() *Agent {
@@ -715,7 +728,7 @@ func TestSpawnToolWithCompletion(t *testing.T) {
 	})
 
 	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
-	tool := spawnTool(a)
+	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
 		`{"tasks":[{"agent":"a","task":"task-a","context":"ctx-a"},{"agent":"b","task":"task-b","context":"ctx-b"}]}`,
@@ -723,7 +736,7 @@ func TestSpawnToolWithCompletion(t *testing.T) {
 
 	require.NoError(t, err)
 
-	var results []spawnResult
+	var results []delegateResult
 	require.NoError(t, json.Unmarshal([]byte(result), &results))
 	require.Len(t, results, 2)
 
@@ -774,17 +787,19 @@ func TestDelegateToolIterationExhaustion(t *testing.T) {
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
-		`{"agent":"worker","task":"do stuff","context":"some context"}`,
+		`{"tasks":[{"agent":"worker","task":"do stuff","context":"some context"}]}`,
 	))
 
 	// Should NOT return an error — returns structured CompletionResult instead.
 	require.NoError(t, err)
 
-	var cr CompletionResult
-	require.NoError(t, json.Unmarshal([]byte(result), &cr))
-	assert.Equal(t, "failed", cr.Status)
-	assert.Contains(t, cr.Summary, "exhausted")
-	assert.Contains(t, cr.Caveats, "Iteration limit reached")
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Completion)
+	assert.Equal(t, "failed", results[0].Completion.Status)
+	assert.Contains(t, results[0].Completion.Summary, "exhausted")
+	assert.Contains(t, results[0].Completion.Caveats, "Iteration limit reached")
 }
 
 func TestDelegateToolIterationExhaustionWithTaskID(t *testing.T) {
@@ -818,14 +833,16 @@ func TestDelegateToolIterationExhaustionWithTaskID(t *testing.T) {
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
-		`{"agent":"worker","task":"do stuff","context":"some context","task_id":"task-42"}`,
+		`{"tasks":[{"agent":"worker","task":"do stuff","context":"some context","task_id":"task-42"}]}`,
 	))
 
 	require.NoError(t, err)
 
-	var cr CompletionResult
-	require.NoError(t, json.Unmarshal([]byte(result), &cr))
-	assert.Equal(t, "failed", cr.Status)
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Completion)
+	assert.Equal(t, "failed", results[0].Completion.Status)
 
 	// Task was claimed and status was updated to "failed".
 	require.Len(t, board.claims, 1)
@@ -835,7 +852,7 @@ func TestDelegateToolIterationExhaustionWithTaskID(t *testing.T) {
 	assert.Equal(t, "failed", board.updates[0].Status)
 }
 
-func TestSpawnToolIterationExhaustion(t *testing.T) {
+func TestDelegateToolConcurrentIterationExhaustion(t *testing.T) {
 	reg := NewRegistry()
 	// "slow" agent exhausts iterations.
 	reg.Register("slow", "Slow agent", func() *Agent {
@@ -870,7 +887,7 @@ func TestSpawnToolIterationExhaustion(t *testing.T) {
 	})
 
 	a := &Agent{name: "orch", registry: reg, chat: chat.New(), toolboxes: []*toolbox.ToolBox{echoTB}}
-	tool := spawnTool(a)
+	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
 		`{"tasks":[{"agent":"slow","task":"slow task","context":"ctx"},{"agent":"fast","task":"fast task","context":"ctx"}]}`,
@@ -878,7 +895,7 @@ func TestSpawnToolIterationExhaustion(t *testing.T) {
 
 	require.NoError(t, err)
 
-	var results []spawnResult
+	var results []delegateResult
 	require.NoError(t, json.Unmarshal([]byte(result), &results))
 	require.Len(t, results, 2)
 
@@ -895,7 +912,7 @@ func TestSpawnToolIterationExhaustion(t *testing.T) {
 	assert.Empty(t, results[1].Error)
 }
 
-func TestSpawnToolIterationExhaustionWithTaskID(t *testing.T) {
+func TestDelegateToolConcurrentIterationExhaustionWithTaskID(t *testing.T) {
 	board := &mockTaskBoard{}
 
 	reg := NewRegistry()
@@ -923,7 +940,7 @@ func TestSpawnToolIterationExhaustionWithTaskID(t *testing.T) {
 	})
 
 	a := &Agent{name: "orch", registry: reg, chat: chat.New(), toolboxes: []*toolbox.ToolBox{echoTB}, options: Options{TaskBoard: board}}
-	tool := spawnTool(a)
+	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
 		`{"tasks":[{"agent":"slow","task":"slow task","context":"ctx","task_id":"task-99"}]}`,
@@ -931,7 +948,7 @@ func TestSpawnToolIterationExhaustionWithTaskID(t *testing.T) {
 
 	require.NoError(t, err)
 
-	var results []spawnResult
+	var results []delegateResult
 	require.NoError(t, json.Unmarshal([]byte(result), &results))
 	require.Len(t, results, 1)
 
@@ -945,39 +962,4 @@ func TestSpawnToolIterationExhaustionWithTaskID(t *testing.T) {
 	require.Len(t, board.updates, 1)
 	assert.Equal(t, "task-99", board.updates[0].ID)
 	assert.Equal(t, "failed", board.updates[0].Status)
-}
-
-func TestDelegateToolToolboxInheritance(t *testing.T) {
-	parentTB := toolbox.New()
-	parentTB.Register(toolbox.Tool{
-		Name:        "inherited_tool",
-		Description: "Inherited from parent",
-		InputSchema: json.RawMessage(`{"type":"object"}`),
-		Handler: func(_ context.Context, _ json.RawMessage) (string, error) {
-			return "inherited_result", nil
-		},
-	})
-
-	// Worker calls inherited_tool.
-	reg := NewRegistry()
-	reg.Register("worker", "Worker", func() *Agent {
-		return New("worker", "", "", &sequenceCompleter{
-			replies: []message.Message{
-				message.New("", role.Assistant,
-					content.ToolCall{ID: "c1", Name: "inherited_tool", Arguments: `{}`},
-				),
-				message.NewText("", role.Assistant, "done with inherited"),
-			},
-		}, Options{})
-	})
-
-	a := &Agent{name: "orch", registry: reg, chat: chat.New(), toolboxes: []*toolbox.ToolBox{parentTB}}
-	tool := delegateTool(a)
-
-	result, err := tool.Handler(context.Background(), json.RawMessage(
-		`{"agent":"worker","task":"use inherited tool","context":"inherited context"}`,
-	))
-
-	require.NoError(t, err)
-	assert.Equal(t, "done with inherited", result)
 }

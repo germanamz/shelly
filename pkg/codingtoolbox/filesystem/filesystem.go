@@ -25,6 +25,7 @@ type FS struct {
 	store  *permissions.Store
 	ask    AskFunc
 	notify NotifyFunc
+	locker *FileLocker
 }
 
 // New creates an FS backed by the given shared permissions store.
@@ -33,6 +34,7 @@ func New(store *permissions.Store, askFn AskFunc, notifyFn NotifyFunc) *FS {
 		store:  store,
 		ask:    askFn,
 		notify: notifyFn,
+		locker: NewFileLocker(),
 	}
 }
 
@@ -164,6 +166,9 @@ func (f *FS) handleWrite(ctx context.Context, input json.RawMessage) (string, er
 		return "", fmt.Errorf("fs_write: %w", err)
 	}
 
+	f.locker.Lock(abs)
+	defer f.locker.Unlock(abs)
+
 	// Read existing content for diff (empty if file doesn't exist yet).
 	oldContent := ""
 	if data, readErr := os.ReadFile(abs); readErr == nil { //nolint:gosec // path is approved by user
@@ -219,6 +224,9 @@ func (f *FS) handleEdit(ctx context.Context, input json.RawMessage) (string, err
 	if err != nil {
 		return "", fmt.Errorf("fs_edit: %w", err)
 	}
+
+	f.locker.Lock(abs)
+	defer f.locker.Unlock(abs)
 
 	data, err := os.ReadFile(abs) //nolint:gosec // path is approved by user
 	if err != nil {
