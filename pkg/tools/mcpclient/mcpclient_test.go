@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -192,6 +193,14 @@ func TestListToolsHandlerRoundTrip(t *testing.T) {
 	result, err := tools[0].Handler(context.Background(), json.RawMessage(`{}`))
 	require.NoError(t, err)
 	assert.Equal(t, "hello world", result)
+}
+
+func TestNewSSE_InvalidEndpoint(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, err := NewSSE(ctx, "http://127.0.0.1:1/invalid")
+	assert.Error(t, err, "NewSSE should fail for unreachable endpoint")
 }
 
 func TestClose(t *testing.T) {

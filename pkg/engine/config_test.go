@@ -209,13 +209,31 @@ func TestConfig_Validate_MCPNameRequired(t *testing.T) {
 	assert.ErrorContains(t, cfg.Validate(), "mcp server name is required")
 }
 
-func TestConfig_Validate_MCPCommandRequired(t *testing.T) {
+func TestConfig_Validate_MCPCommandOrURLRequired(t *testing.T) {
 	cfg := Config{
 		Providers:  []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
 		MCPServers: []MCPConfig{{Name: "m1"}},
 		Agents:     []AgentConfig{{Name: "a1"}},
 	}
-	assert.ErrorContains(t, cfg.Validate(), "command is required")
+	assert.ErrorContains(t, cfg.Validate(), "command or url is required")
+}
+
+func TestConfig_Validate_MCPURLValid(t *testing.T) {
+	cfg := Config{
+		Providers:  []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
+		MCPServers: []MCPConfig{{Name: "m1", URL: "https://example.com/mcp"}},
+		Agents:     []AgentConfig{{Name: "a1", Toolboxes: []string{"m1"}}},
+	}
+	assert.NoError(t, cfg.Validate())
+}
+
+func TestConfig_Validate_MCPCommandAndURLMutuallyExclusive(t *testing.T) {
+	cfg := Config{
+		Providers:  []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
+		MCPServers: []MCPConfig{{Name: "m1", Command: "cmd", URL: "https://example.com/mcp"}},
+		Agents:     []AgentConfig{{Name: "a1"}},
+	}
+	assert.ErrorContains(t, cfg.Validate(), "command and url are mutually exclusive")
 }
 
 func TestConfig_Validate_FilesystemToolbox(t *testing.T) {

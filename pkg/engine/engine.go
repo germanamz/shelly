@@ -113,23 +113,8 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 	}
 
 	// Connect MCP clients and build toolboxes.
-	for _, mc := range cfg.MCPServers {
-		client, err := mcpclient.New(ctx, mc.Command, mc.Args...)
-		if err != nil {
-			_ = e.Close()
-			return nil, fmt.Errorf("engine: mcp %q: %w", mc.Name, err)
-		}
-		e.mcpClients = append(e.mcpClients, client)
-
-		tools, err := client.ListTools(ctx)
-		if err != nil {
-			_ = e.Close()
-			return nil, fmt.Errorf("engine: mcp %q: list tools: %w", mc.Name, err)
-		}
-
-		tb := toolbox.New()
-		tb.Register(tools...)
-		e.toolboxes[mc.Name] = tb
+	if err := e.connectMCPClients(ctx, cfg.MCPServers); err != nil {
+		return nil, err
 	}
 
 	// Create ask responder (always available).
@@ -310,6 +295,35 @@ func (e *Engine) RemoveSession(id string) bool {
 		delete(e.sessions, id)
 	}
 	return ok
+}
+
+// connectMCPClients connects to all configured MCP servers and populates toolboxes.
+func (e *Engine) connectMCPClients(ctx context.Context, servers []MCPConfig) error {
+	for _, mc := range servers {
+		var client *mcpclient.MCPClient
+		var err error
+		if mc.URL != "" {
+			client, err = mcpclient.NewSSE(ctx, mc.URL)
+		} else {
+			client, err = mcpclient.New(ctx, mc.Command, mc.Args...)
+		}
+		if err != nil {
+			_ = e.Close()
+			return fmt.Errorf("engine: mcp %q: %w", mc.Name, err)
+		}
+		e.mcpClients = append(e.mcpClients, client)
+
+		tools, err := client.ListTools(ctx)
+		if err != nil {
+			_ = e.Close()
+			return fmt.Errorf("engine: mcp %q: list tools: %w", mc.Name, err)
+		}
+
+		tb := toolbox.New()
+		tb.Register(tools...)
+		e.toolboxes[mc.Name] = tb
+	}
+	return nil
 }
 
 // Close cancels the engine context, shuts down MCP clients, and releases

@@ -84,6 +84,8 @@ providers:
 mcp_servers:
   - name: web-search
     command: mcp-search
+  - name: bright-data
+    url: https://mcp.brightdata.com/mcp?token=${BRIGHTDATA_API_KEY}&groups=advanced_scraping
 
 agents:
   - name: coder

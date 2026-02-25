@@ -54,6 +54,7 @@ type MCPConfig struct {
 	Name    string   `yaml:"name"`
 	Command string   `yaml:"command"`
 	Args    []string `yaml:"args"`
+	URL     string   `yaml:"url"` // SSE endpoint URL (mutually exclusive with Command).
 }
 
 // EffectConfig describes a single effect attached to an agent.
@@ -120,76 +121,23 @@ func (c Config) Validate() error {
 		return fmt.Errorf("engine: config: at least one provider is required")
 	}
 
-	providerNames := make(map[string]struct{}, len(c.Providers))
-	for _, p := range c.Providers {
-		if p.Name == "" {
-			return fmt.Errorf("engine: config: provider name is required")
-		}
-		if p.Kind == "" {
-			return fmt.Errorf("engine: config: provider %q: kind is required", p.Name)
-		}
-		if p.ContextWindow != nil && *p.ContextWindow < 0 {
-			return fmt.Errorf("engine: config: provider %q: context_window must be >= 0", p.Name)
-		}
-		if _, dup := providerNames[p.Name]; dup {
-			return fmt.Errorf("engine: config: duplicate provider name %q", p.Name)
-		}
-		providerNames[p.Name] = struct{}{}
+	providerNames, err := validateProviders(c.Providers)
+	if err != nil {
+		return err
 	}
 
-	mcpNames := make(map[string]struct{}, len(c.MCPServers))
-	for _, m := range c.MCPServers {
-		if m.Name == "" {
-			return fmt.Errorf("engine: config: mcp server name is required")
-		}
-		if m.Command == "" {
-			return fmt.Errorf("engine: config: mcp server %q: command is required", m.Name)
-		}
-		if _, dup := mcpNames[m.Name]; dup {
-			return fmt.Errorf("engine: config: duplicate mcp server name %q", m.Name)
-		}
-		mcpNames[m.Name] = struct{}{}
+	mcpNames, err := validateMCPServers(c.MCPServers)
+	if err != nil {
+		return err
 	}
 
 	if len(c.Agents) == 0 {
 		return fmt.Errorf("engine: config: at least one agent is required")
 	}
 
-	agentNames := make(map[string]struct{}, len(c.Agents))
-	for _, a := range c.Agents {
-		if a.Name == "" {
-			return fmt.Errorf("engine: config: agent name is required")
-		}
-		if _, dup := agentNames[a.Name]; dup {
-			return fmt.Errorf("engine: config: duplicate agent name %q", a.Name)
-		}
-		agentNames[a.Name] = struct{}{}
-
-		if a.Options.ContextThreshold != 0 && (a.Options.ContextThreshold < 0 || a.Options.ContextThreshold >= 1) {
-			return fmt.Errorf("engine: config: agent %q: context_threshold must be in (0, 1) or 0 to disable", a.Name)
-		}
-
-		for i, ef := range a.Effects {
-			if ef.Kind == "" {
-				return fmt.Errorf("engine: config: agent %q: effect[%d]: kind is required", a.Name, i)
-			}
-			if _, ok := knownEffectKinds[ef.Kind]; !ok {
-				return fmt.Errorf("engine: config: agent %q: effect[%d]: unknown kind %q", a.Name, i, ef.Kind)
-			}
-		}
-
-		if _, ok := providerNames[a.Provider]; a.Provider != "" && !ok {
-			return fmt.Errorf("engine: config: agent %q: unknown provider %q", a.Name, a.Provider)
-		}
-
-		for _, tb := range a.Toolboxes {
-			if _, builtin := builtinToolboxNames[tb]; builtin {
-				continue
-			}
-			if _, ok := mcpNames[tb]; !ok {
-				return fmt.Errorf("engine: config: agent %q: unknown toolbox %q", a.Name, tb)
-			}
-		}
+	agentNames, err := validateAgents(c.Agents, providerNames, mcpNames)
+	if err != nil {
+		return err
 	}
 
 	if c.EntryAgent != "" {
@@ -199,4 +147,84 @@ func (c Config) Validate() error {
 	}
 
 	return nil
+}
+
+func validateProviders(providers []ProviderConfig) (map[string]struct{}, error) {
+	names := make(map[string]struct{}, len(providers))
+	for _, p := range providers {
+		if p.Name == "" {
+			return nil, fmt.Errorf("engine: config: provider name is required")
+		}
+		if p.Kind == "" {
+			return nil, fmt.Errorf("engine: config: provider %q: kind is required", p.Name)
+		}
+		if p.ContextWindow != nil && *p.ContextWindow < 0 {
+			return nil, fmt.Errorf("engine: config: provider %q: context_window must be >= 0", p.Name)
+		}
+		if _, dup := names[p.Name]; dup {
+			return nil, fmt.Errorf("engine: config: duplicate provider name %q", p.Name)
+		}
+		names[p.Name] = struct{}{}
+	}
+	return names, nil
+}
+
+func validateMCPServers(servers []MCPConfig) (map[string]struct{}, error) {
+	names := make(map[string]struct{}, len(servers))
+	for _, m := range servers {
+		if m.Name == "" {
+			return nil, fmt.Errorf("engine: config: mcp server name is required")
+		}
+		if m.Command == "" && m.URL == "" {
+			return nil, fmt.Errorf("engine: config: mcp server %q: command or url is required", m.Name)
+		}
+		if m.Command != "" && m.URL != "" {
+			return nil, fmt.Errorf("engine: config: mcp server %q: command and url are mutually exclusive", m.Name)
+		}
+		if _, dup := names[m.Name]; dup {
+			return nil, fmt.Errorf("engine: config: duplicate mcp server name %q", m.Name)
+		}
+		names[m.Name] = struct{}{}
+	}
+	return names, nil
+}
+
+func validateAgents(agents []AgentConfig, providerNames, mcpNames map[string]struct{}) (map[string]struct{}, error) {
+	names := make(map[string]struct{}, len(agents))
+	for _, a := range agents {
+		if a.Name == "" {
+			return nil, fmt.Errorf("engine: config: agent name is required")
+		}
+		if _, dup := names[a.Name]; dup {
+			return nil, fmt.Errorf("engine: config: duplicate agent name %q", a.Name)
+		}
+		names[a.Name] = struct{}{}
+
+		if a.Options.ContextThreshold != 0 && (a.Options.ContextThreshold < 0 || a.Options.ContextThreshold >= 1) {
+			return nil, fmt.Errorf("engine: config: agent %q: context_threshold must be in (0, 1) or 0 to disable", a.Name)
+		}
+
+		for i, ef := range a.Effects {
+			if ef.Kind == "" {
+				return nil, fmt.Errorf("engine: config: agent %q: effect[%d]: kind is required", a.Name, i)
+			}
+			if _, ok := knownEffectKinds[ef.Kind]; !ok {
+				return nil, fmt.Errorf("engine: config: agent %q: effect[%d]: unknown kind %q", a.Name, i, ef.Kind)
+			}
+		}
+
+		if _, ok := providerNames[a.Provider]; a.Provider != "" && !ok {
+			return nil, fmt.Errorf("engine: config: agent %q: unknown provider %q", a.Name, a.Provider)
+		}
+
+		for _, tb := range a.Toolboxes {
+			if _, builtin := builtinToolboxNames[tb]; builtin {
+				continue
+			}
+			if _, ok := mcpNames[tb]; !ok {
+				return nil, fmt.Errorf("engine: config: agent %q: unknown toolbox %q", a.Name, tb)
+			}
+		}
+	}
+	return names, nil
 }

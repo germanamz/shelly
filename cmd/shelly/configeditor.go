@@ -32,6 +32,7 @@ type editorMCP struct {
 	Name    string
 	Command string
 	Args    string // space-separated arguments
+	URL     string // SSE endpoint URL (mutually exclusive with Command)
 }
 
 type editorAgent struct {
@@ -95,8 +96,9 @@ type editorGitYAML struct {
 
 type mcpYAML struct {
 	Name    string   `yaml:"name"`
-	Command string   `yaml:"command"`
+	Command string   `yaml:"command,omitempty"`
 	Args    []string `yaml:"args,omitempty"`
+	URL     string   `yaml:"url,omitempty"`
 }
 
 // runConfigEditor is the entry point: load → menu loop → validate → save.
@@ -215,6 +217,7 @@ func configToEditor(cfg engine.Config) editorConfig {
 			Name:    m.Name,
 			Command: m.Command,
 			Args:    strings.Join(m.Args, " "),
+			URL:     m.URL,
 		})
 	}
 
@@ -279,6 +282,7 @@ func editorToEngineConfig(ec editorConfig) engine.Config {
 			Name:    m.Name,
 			Command: m.Command,
 			Args:    strings.Fields(m.Args),
+			URL:     m.URL,
 		})
 	}
 
@@ -350,6 +354,7 @@ func marshalEditorConfig(ec editorConfig) ([]byte, error) {
 			Name:    m.Name,
 			Command: m.Command,
 			Args:    args,
+			URL:     m.URL,
 		})
 	}
 
@@ -793,8 +798,9 @@ func editMCPServers(ec *editorConfig) error {
 func editMCPServerForm(m *editorMCP) error {
 	return huh.NewForm(huh.NewGroup(
 		huh.NewInput().Title("Server name").Value(&m.Name),
-		huh.NewInput().Title("Command").Value(&m.Command),
+		huh.NewInput().Title("Command (leave empty for SSE)").Value(&m.Command),
 		huh.NewInput().Title("Arguments (space-separated)").Value(&m.Args),
+		huh.NewInput().Title("SSE URL (leave empty for command)").Value(&m.URL),
 	)).Run()
 }
 

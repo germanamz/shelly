@@ -27,6 +27,13 @@ func New(ctx context.Context, command string, args ...string) (*MCPClient, error
 	return newFromTransport(ctx, transport)
 }
 
+// NewSSE connects to an SSE-based MCP server at the given URL.
+func NewSSE(ctx context.Context, url string) (*MCPClient, error) {
+	transport := &mcp.SSEClientTransport{Endpoint: url}
+
+	return newFromTransport(ctx, transport)
+}
+
 // newFromTransport creates an MCPClient using the given transport. Used by New
 // and useful for testing with InMemoryTransport.
 func newFromTransport(ctx context.Context, transport mcp.Transport) (*MCPClient, error) {
