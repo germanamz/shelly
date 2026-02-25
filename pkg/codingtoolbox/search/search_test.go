@@ -211,6 +211,49 @@ func TestSearchFiles_Denied(t *testing.T) {
 	assert.Contains(t, tr.Content, "access denied")
 }
 
+func TestSearchFiles_PatternWithDirSeparator(t *testing.T) {
+	s, dir := newTestSearch(t, autoApprove)
+	tb := s.Tools()
+
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "sub"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "sub", "main.go"), []byte("x"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.go"), []byte("x"), 0o600))
+
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:        "tc1",
+		Name:      "search_files",
+		Arguments: mustJSON(t, filesInput{Pattern: "sub/*.go", Directory: dir}),
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+
+	var results []string
+	require.NoError(t, json.Unmarshal([]byte(tr.Content), &results))
+	assert.Equal(t, []string{filepath.Join("sub", "main.go")}, results)
+}
+
+func TestSearchContent_LongLines(t *testing.T) {
+	s, dir := newTestSearch(t, autoApprove)
+	tb := s.Tools()
+
+	// Create a file with a line longer than the default 64KB scanner limit.
+	longLine := strings.Repeat("a", 100_000) + "NEEDLE" + strings.Repeat("b", 100_000)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "long.txt"), []byte(longLine+"\n"), 0o600))
+
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:        "tc1",
+		Name:      "search_content",
+		Arguments: mustJSON(t, contentInput{Pattern: "NEEDLE", Directory: dir}),
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+
+	var matches []contentMatch
+	require.NoError(t, json.Unmarshal([]byte(tr.Content), &matches))
+	assert.Len(t, matches, 1)
+	assert.Contains(t, matches[0].Content, "NEEDLE")
+}
+
 func TestSearchFiles_EmptyPattern(t *testing.T) {
 	s, _ := newTestSearch(t, autoApprove)
 	tb := s.Tools()

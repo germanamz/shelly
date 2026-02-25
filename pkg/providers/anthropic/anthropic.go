@@ -85,6 +85,7 @@ type apiContent struct {
 	Input     json.RawMessage `json:"input,omitempty"`
 	ToolUseID string          `json:"tool_use_id,omitempty"`
 	Content   string          `json:"content,omitempty"`
+	IsError   bool            `json:"is_error,omitempty"`
 }
 
 type apiToolDef struct {
@@ -184,7 +185,7 @@ func partToBlock(p content.Part) *apiContent {
 		}
 		return &apiContent{Type: "tool_use", ID: v.ID, Name: v.Name, Input: input}
 	case content.ToolResult:
-		return &apiContent{Type: "tool_result", ToolUseID: v.ToolCallID, Content: v.Content}
+		return &apiContent{Type: "tool_result", ToolUseID: v.ToolCallID, Content: v.Content, IsError: v.IsError}
 	default:
 		return nil
 	}

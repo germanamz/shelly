@@ -36,7 +36,7 @@ func NewTrimToolResultsEffect(cfg TrimToolResultsConfig) *TrimToolResultsEffect 
 	if cfg.MaxResultLength <= 0 {
 		cfg.MaxResultLength = defaultMaxResultLength
 	}
-	if cfg.PreserveRecent < 0 {
+	if cfg.PreserveRecent <= 0 {
 		cfg.PreserveRecent = defaultPreserveRecent
 	}
 

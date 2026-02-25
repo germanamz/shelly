@@ -327,3 +327,34 @@ func TestConfig_Validate_HTTPToolbox(t *testing.T) {
 	}
 	assert.NoError(t, cfg.Validate())
 }
+
+func TestConfig_Validate_AllEffectKinds(t *testing.T) {
+	allKinds := []string{
+		"compact", "trim_tool_results", "loop_detect",
+		"sliding_window", "observation_mask", "reflection", "progress",
+	}
+
+	for _, kind := range allKinds {
+		t.Run(kind, func(t *testing.T) {
+			cfg := Config{
+				Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
+				Agents: []AgentConfig{{
+					Name:    "a1",
+					Effects: []EffectConfig{{Kind: kind}},
+				}},
+			}
+			assert.NoError(t, cfg.Validate())
+		})
+	}
+}
+
+func TestConfig_Validate_UnknownEffectKind(t *testing.T) {
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
+		Agents: []AgentConfig{{
+			Name:    "a1",
+			Effects: []EffectConfig{{Kind: "nonexistent"}},
+		}},
+	}
+	assert.ErrorContains(t, cfg.Validate(), "unknown kind")
+}

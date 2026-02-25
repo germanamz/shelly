@@ -33,6 +33,15 @@ func (f *fakeCompleter) UsageTracker() *usage.Tracker                   { return
 func (f *fakeCompleter) ModelMaxTokens() int                            { return f.maxTokens }
 func (f *fakeCompleter) LastRateLimitInfo() *modeladapter.RateLimitInfo { return f.rateLimitInfo }
 
+// bareCompleter implements only Completer (no UsageReporter).
+type bareCompleter struct {
+	handler func(ctx context.Context, c *chat.Chat) (message.Message, error)
+}
+
+func (b *bareCompleter) Complete(ctx context.Context, c *chat.Chat, _ []toolbox.Tool) (message.Message, error) {
+	return b.handler(ctx, c)
+}
+
 func okMessage() message.Message {
 	return message.Message{Role: role.Assistant}
 }
@@ -419,6 +428,61 @@ func TestRateLimitedCompleter_AdaptiveThrottle_LowRemaining(t *testing.T) {
 	require.NoError(t, err)
 	// Should sleep until reset time (10 seconds from now).
 	assert.Equal(t, 10*time.Second, sleepDur)
+}
+
+func TestRateLimitedCompleter_FallbackUsageTrackerStable(t *testing.T) {
+	// Use a bare Completer that does NOT implement UsageReporter.
+	bare := &bareCompleter{
+		handler: func(_ context.Context, _ *chat.Chat) (message.Message, error) {
+			return okMessage(), nil
+		},
+	}
+
+	rl := modeladapter.NewRateLimitedCompleter(bare, modeladapter.RateLimitOpts{})
+
+	// The fallback tracker should always return the same pointer.
+	tracker1 := rl.UsageTracker()
+	tracker2 := rl.UsageTracker()
+	assert.Same(t, tracker1, tracker2, "fallback UsageTracker should return the same pointer across calls")
+}
+
+func TestRateLimitedCompleter_BusyLoopPrevention(t *testing.T) {
+	fc := &fakeCompleter{}
+	fc.handler = func(_ context.Context, _ *chat.Chat) (message.Message, error) {
+		fc.tracker.Add(usage.TokenCount{InputTokens: 100, OutputTokens: 10})
+		return okMessage(), nil
+	}
+
+	now := time.Now()
+	currentTime := now
+	var sleepDurations []time.Duration
+
+	rl := modeladapter.NewRateLimitedCompleter(fc, modeladapter.RateLimitOpts{
+		InputTPM:   100,
+		MaxRetries: 1,
+		BaseDelay:  time.Millisecond,
+	})
+	rl.SetNowFunc(func() time.Time { return currentTime })
+	rl.SetSleepFunc(func(_ context.Context, d time.Duration) error {
+		sleepDurations = append(sleepDurations, d)
+		// Advance time past the window to unblock.
+		currentTime = currentTime.Add(time.Minute + time.Second)
+		return nil
+	})
+
+	// First call fills the window.
+	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
+	require.NoError(t, err)
+
+	// Second call triggers throttling. Even if waitDur computes to 0,
+	// the minimum 10ms floor should prevent a busy loop.
+	_, err = rl.Complete(context.Background(), &chat.Chat{}, nil)
+	require.NoError(t, err)
+
+	require.NotEmpty(t, sleepDurations, "should have slept at least once")
+	for _, d := range sleepDurations {
+		assert.GreaterOrEqual(t, d, 10*time.Millisecond, "sleep duration should be at least 10ms minimum wait")
+	}
 }
 
 func TestRateLimitedCompleter_AdaptiveThrottle_NotTriggered(t *testing.T) {

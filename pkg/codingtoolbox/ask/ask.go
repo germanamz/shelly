@@ -45,7 +45,7 @@ func NewResponder(onAsk OnAskFunc) *Responder {
 }
 
 // Respond delivers a user response to a pending question. It returns an error
-// if the question ID is not found.
+// if the question ID is not found or the receiver is no longer listening.
 func (r *Responder) Respond(questionID, response string) error {
 	r.mu.Lock()
 	ch, ok := r.pending[questionID]
@@ -58,9 +58,12 @@ func (r *Responder) Respond(questionID, response string) error {
 		return fmt.Errorf("ask: question %q not found", questionID)
 	}
 
-	ch <- response
-
-	return nil
+	select {
+	case ch <- response:
+		return nil
+	default:
+		return fmt.Errorf("ask: question %q is no longer awaiting a response", questionID)
+	}
 }
 
 // Tools returns a ToolBox containing the ask_user tool.
@@ -113,6 +116,15 @@ func (r *Responder) Ask(ctx context.Context, text string, options []string) (str
 
 	select {
 	case <-ctx.Done():
+		// When both ctx.Done() and ch are ready, Go's select picks
+		// non-deterministically. Drain the channel before giving up so a
+		// response that arrived just before cancellation is not lost.
+		select {
+		case resp := <-ch:
+			return resp, nil
+		default:
+		}
+
 		r.mu.Lock()
 		delete(r.pending, id)
 		r.mu.Unlock()

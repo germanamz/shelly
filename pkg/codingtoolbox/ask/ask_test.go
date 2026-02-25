@@ -144,6 +144,67 @@ func TestResponder_Ask_ContextCancelled(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestResponder_Ask_ContextCancelledWithResponse(t *testing.T) {
+	// When cancellation and a response arrive simultaneously, the response
+	// should not be silently dropped.
+	for range 100 {
+		r := NewResponder(nil)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+
+		var resp string
+		var err error
+
+		go func() {
+			resp, err = r.Ask(ctx, "ping?", nil)
+			close(done)
+		}()
+
+		// Wait for the question to be registered.
+		var qID string
+		for {
+			r.mu.Lock()
+			for id := range r.pending {
+				qID = id
+			}
+			r.mu.Unlock()
+			if qID != "" {
+				break
+			}
+		}
+
+		// Cancel the context and send a response concurrently.
+		cancel()
+		_ = r.Respond(qID, "pong")
+
+		<-done
+
+		if err == nil {
+			assert.Equal(t, "pong", resp)
+		}
+		// If err != nil the context won because the response hadn't arrived
+		// yet — that's acceptable. The bug was when the response *was*
+		// buffered and still got dropped.
+	}
+}
+
+func TestResponder_RespondChannelFull(t *testing.T) {
+	// Manually inject a full channel to verify the select/default guard.
+	r := NewResponder(nil)
+
+	ch := make(chan string, 1)
+	ch <- "already-full"
+
+	r.mu.Lock()
+	r.pending["q-test"] = ch
+	r.mu.Unlock()
+
+	err := r.Respond("q-test", "second")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no longer awaiting")
+}
+
 func TestResponder_UniqueIDs(t *testing.T) {
 	var ids []string
 

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
@@ -169,6 +170,11 @@ func TestFetch_EmptyURL(t *testing.T) {
 
 	assert.True(t, tr.IsError)
 	assert.Contains(t, tr.Content, "url is required")
+}
+
+func TestNew_ClientTimeout(t *testing.T) {
+	h, _ := newTestHTTP(t, autoApprove)
+	assert.Equal(t, 60*time.Second, h.client.Timeout)
 }
 
 func TestFetch_CustomHeaders(t *testing.T) {

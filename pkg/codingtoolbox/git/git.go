@@ -4,7 +4,6 @@
 package git
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,6 +14,30 @@ import (
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
+
+// maxBufferSize is the maximum number of bytes captured from stdout/stderr (1MB).
+const maxBufferSize = 1 << 20
+
+// limitedBuffer is a bytes.Buffer that silently discards writes beyond maxBufferSize.
+type limitedBuffer struct {
+	buf []byte
+}
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	remaining := maxBufferSize - len(b.buf)
+	if remaining > 0 {
+		if len(p) > remaining {
+			b.buf = append(b.buf, p[:remaining]...)
+		} else {
+			b.buf = append(b.buf, p...)
+		}
+	}
+
+	return len(p), nil
+}
+
+func (b *limitedBuffer) Len() int       { return len(b.buf) }
+func (b *limitedBuffer) String() string { return string(b.buf) }
 
 // AskFunc asks the user a question and blocks until a response is received.
 type AskFunc func(ctx context.Context, question string, options []string) (string, error)
@@ -69,7 +92,7 @@ func (g *Git) runGit(ctx context.Context, args ...string) (string, error) {
 		cmd.Dir = g.workDir
 	}
 
-	var stdout, stderr bytes.Buffer
+	var stdout, stderr limitedBuffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
@@ -232,6 +255,10 @@ func (g *Git) handleCommit(ctx context.Context, input json.RawMessage) (string, 
 
 	if in.Message == "" {
 		return "", fmt.Errorf("git_commit: message is required")
+	}
+
+	if len(in.Files) > 0 && in.All {
+		return "", fmt.Errorf("git_commit: cannot use both files and all")
 	}
 
 	if err := g.checkPermission(ctx, "git commit"); err != nil {

@@ -89,6 +89,7 @@ type Agent struct {
 	options          Options
 	depth            int
 	completionResult *CompletionResult
+	completionOnce   sync.Once
 }
 
 // New creates an Agent with the given configuration.
@@ -222,10 +223,10 @@ func (a *Agent) run(ctx context.Context) (message.Message, error) {
 
 		var wg sync.WaitGroup
 
-		for i, tc := range calls {
+		for idx, tc := range calls {
 			wg.Go(func() {
 				a.emitEvent(ctx, "tool_call_start", ToolCallEventData{ToolName: tc.Name, CallID: tc.ID})
-				results[i] = callTool(ctx, toolboxes, tc)
+				results[idx] = callTool(ctx, toolboxes, tc)
 				a.emitEvent(ctx, "tool_call_end", ToolCallEventData{ToolName: tc.Name, CallID: tc.ID})
 			})
 		}

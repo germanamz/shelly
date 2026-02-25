@@ -150,6 +150,30 @@ func TestPatch_InsertAndModify(t *testing.T) {
 	assert.Equal(t, "import (\n\t\"fmt\"\n\t\"os\"\n)\n\nfunc new() {}\n", string(data))
 }
 
+func TestPatch_PreservesPermissions(t *testing.T) {
+	fs, dir := newTestFS(t, autoApprove)
+	tb := fs.Tools()
+
+	filePath := filepath.Join(dir, "script.sh")
+	require.NoError(t, os.WriteFile(filePath, []byte("alpha beta"), 0o600))
+	require.NoError(t, os.Chmod(filePath, 0o755)) //nolint:gosec // test needs 0o755 to verify permission preservation
+
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:   "tc1",
+		Name: "fs_patch",
+		Arguments: mustJSON(t, patchInput{
+			Path:  filePath,
+			Hunks: []hunk{{OldText: "alpha", NewText: "ALPHA"}},
+		}),
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+
+	info, err := os.Stat(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm())
+}
+
 func TestPatch_EmptyHunks(t *testing.T) {
 	fs, dir := newTestFS(t, autoApprove)
 	tb := fs.Tools()

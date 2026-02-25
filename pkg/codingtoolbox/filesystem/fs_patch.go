@@ -88,7 +88,7 @@ func (f *FS) handlePatch(ctx context.Context, input json.RawMessage) (string, er
 		}
 	}
 
-	if err := os.WriteFile(abs, []byte(content), 0o600); err != nil {
+	if err := os.WriteFile(abs, []byte(content), fileMode(abs)); err != nil {
 		return "", fmt.Errorf("fs_patch: %w", err)
 	}
 

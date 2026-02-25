@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -180,6 +181,46 @@ func TestEngine_TasksDisabled(t *testing.T) {
 func TestEngine_InvalidConfig(t *testing.T) {
 	_, err := New(context.Background(), Config{})
 	assert.Error(t, err)
+}
+
+func TestEngine_SkillsLoadError(t *testing.T) {
+	RegisterProvider("mock", func(_ ProviderConfig) (modeladapter.Completer, error) {
+		return &mockCompleter{reply: "ok"}, nil
+	})
+
+	// Create a .shelly dir with a skills dir containing an invalid skill.
+	dir := t.TempDir()
+	shellyDir := dir + "/.shelly"
+	skillsDir := shellyDir + "/skills/bad-skill"
+	require.NoError(t, os.MkdirAll(skillsDir, 0o750))
+	// Write a SKILL.md with invalid frontmatter to trigger a load error.
+	require.NoError(t, os.WriteFile(skillsDir+"/SKILL.md", []byte("---\ninvalid: [broken\n---\n"), 0o600))
+
+	cfg := Config{
+		ShellyDir: shellyDir,
+		Providers: []ProviderConfig{{Name: "p1", Kind: "mock"}},
+		Agents:    []AgentConfig{{Name: "a1", Provider: "p1"}},
+	}
+
+	_, err := New(context.Background(), cfg)
+	assert.ErrorContains(t, err, "engine: skills:")
+}
+
+func TestEngine_SkillsDirMissing(t *testing.T) {
+	RegisterProvider("mock", func(_ ProviderConfig) (modeladapter.Completer, error) {
+		return &mockCompleter{reply: "ok"}, nil
+	})
+
+	// .shelly dir that does not exist at all - no error expected.
+	cfg := Config{
+		ShellyDir: "/tmp/nonexistent-shelly-dir-" + t.Name(),
+		Providers: []ProviderConfig{{Name: "p1", Kind: "mock"}},
+		Agents:    []AgentConfig{{Name: "a1", Provider: "p1"}},
+	}
+
+	eng, err := New(context.Background(), cfg)
+	require.NoError(t, err)
+	defer func() { _ = eng.Close() }()
 }
 
 func TestSession_SendParts(t *testing.T) {

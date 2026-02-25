@@ -124,6 +124,9 @@ func delegateTool(a *Agent) toolbox.Tool {
 
 					child.registry = a.registry
 					child.options.EventNotifier = a.options.EventNotifier
+					child.options.EventFunc = a.options.EventFunc
+					child.options.ReflectionDir = a.options.ReflectionDir
+					child.options.TaskBoard = a.options.TaskBoard
 					child.AddToolBoxes(a.toolboxes...)
 					prependContext(child, t.Context)
 
@@ -223,12 +226,20 @@ func taskCompleteTool(a *Agent) toolbox.Tool {
 				return "", fmt.Errorf("task_complete: status must be \"completed\" or \"failed\", got %q", tci.Status)
 			}
 
-			a.completionResult = &CompletionResult{
-				Status:        tci.Status,
-				Summary:       tci.Summary,
-				FilesModified: tci.FilesModified,
-				TestsRun:      tci.TestsRun,
-				Caveats:       tci.Caveats,
+			alreadySet := true
+			a.completionOnce.Do(func() {
+				alreadySet = false
+				a.completionResult = &CompletionResult{
+					Status:        tci.Status,
+					Summary:       tci.Summary,
+					FilesModified: tci.FilesModified,
+					TestsRun:      tci.TestsRun,
+					Caveats:       tci.Caveats,
+				}
+			})
+
+			if alreadySet {
+				return "Task already marked — duplicate call ignored.", nil
 			}
 
 			return fmt.Sprintf("Task marked as %s.", tci.Status), nil
@@ -270,7 +281,11 @@ func buildDelegateResult(agentName string, reply message.Message, cr *Completion
 
 // prependContext adds a context message before the task message
 // in a child agent's chat. The context is wrapped in <delegation_context> tags.
+// If ctx is empty, no message is appended.
 func prependContext(child *Agent, ctx string) {
+	if ctx == "" {
+		return
+	}
 	child.chat.Append(message.NewText("user", role.User,
 		"<delegation_context>\n"+ctx+"\n</delegation_context>"))
 }
@@ -288,9 +303,10 @@ func writeReflection(dir string, agentName string, task string, cr *CompletionRe
 		return // best-effort
 	}
 
-	timestamp := time.Now().UTC().Format(time.RFC3339)
+	now := time.Now().UTC()
+	timestamp := now.Format(time.RFC3339)
 	// Use a sanitized filename based on agent name and timestamp.
-	safeName := sanitizeFilename(agentName + "-" + time.Now().UTC().Format("20060102-150405"))
+	safeName := sanitizeFilename(agentName + "-" + now.Format("20060102-150405"))
 	path := filepath.Join(dir, safeName+".md")
 
 	var b strings.Builder
@@ -326,6 +342,11 @@ func sanitizeFilename(s string) string {
 	return b.String()
 }
 
+const (
+	maxReflectionFiles = 5
+	maxReflectionBytes = 32 * 1024
+)
+
 // searchReflections searches for relevant reflections before delegating.
 // Returns an empty string if no relevant reflections are found.
 func searchReflections(dir string, task string) string {
@@ -339,9 +360,11 @@ func searchReflections(dir string, task string) string {
 	}
 
 	var reflections []string
+	var totalBytes int
 	taskLower := strings.ToLower(task)
 
-	for _, e := range entries {
+	for i := len(entries) - 1; i >= 0; i-- {
+		e := entries[i]
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
 			continue
 		}
@@ -355,6 +378,10 @@ func searchReflections(dir string, task string) string {
 		// Simple relevance: check if any words from the task appear in the reflection.
 		if containsRelevantKeywords(taskLower, strings.ToLower(content)) {
 			reflections = append(reflections, content)
+			totalBytes += len(data)
+			if len(reflections) >= maxReflectionFiles || totalBytes >= maxReflectionBytes {
+				break
+			}
 		}
 	}
 

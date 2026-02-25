@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,16 @@ import (
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
+
+// fileMode returns the existing file's permission bits, or 0o600 for new files.
+func fileMode(path string) fs.FileMode {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0o600
+	}
+
+	return info.Mode().Perm()
+}
 
 // AskFunc asks the user a question and blocks until a response is received.
 type AskFunc func(ctx context.Context, question string, options []string) (string, error)
@@ -186,7 +197,7 @@ func (f *FS) handleWrite(ctx context.Context, input json.RawMessage) (string, er
 		return "", fmt.Errorf("fs_write: create dirs: %w", err)
 	}
 
-	if err := os.WriteFile(abs, []byte(in.Content), 0o600); err != nil {
+	if err := os.WriteFile(abs, []byte(in.Content), fileMode(abs)); err != nil {
 		return "", fmt.Errorf("fs_write: %w", err)
 	}
 
@@ -253,7 +264,7 @@ func (f *FS) handleEdit(ctx context.Context, input json.RawMessage) (string, err
 		}
 	}
 
-	if err := os.WriteFile(abs, []byte(newContent), 0o600); err != nil {
+	if err := os.WriteFile(abs, []byte(newContent), fileMode(abs)); err != nil {
 		return "", fmt.Errorf("fs_edit: %w", err)
 	}
 

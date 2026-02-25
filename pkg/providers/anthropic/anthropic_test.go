@@ -202,6 +202,101 @@ func TestComplete_ToolCall(t *testing.T) {
 	assert.Equal(t, 20, total.OutputTokens)
 }
 
+func TestComplete_ToolResultIsError(t *testing.T) {
+	_, adapter := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		req := readBody(t, r)
+
+		msgs, ok := req["messages"].([]any)
+		assert.True(t, ok)
+
+		// Find the user message containing the tool_result.
+		var foundIsError bool
+		for _, m := range msgs {
+			msg, _ := m.(map[string]any)
+			parts, _ := msg["content"].([]any)
+			for _, p := range parts {
+				block, _ := p.(map[string]any)
+				if block["type"] == "tool_result" {
+					isErr, exists := block["is_error"]
+					if exists {
+						foundIsError = isErr == true
+					}
+				}
+			}
+		}
+		assert.True(t, foundIsError, "tool_result should include is_error: true")
+
+		writeJSON(t, w, map[string]any{
+			"content":     []map[string]any{{"type": "text", "text": "Error noted."}},
+			"stop_reason": "end_turn",
+			"usage":       map[string]any{"input_tokens": 10, "output_tokens": 5},
+		})
+	})
+
+	c := chat.New(
+		message.NewText("user", role.User, "Do something"),
+		message.New("assistant", role.Assistant, content.ToolCall{
+			ID:        "call_1",
+			Name:      "some_tool",
+			Arguments: `{}`,
+		}),
+		message.New("tool", role.Tool, content.ToolResult{
+			ToolCallID: "call_1",
+			Content:    "something went wrong",
+			IsError:    true,
+		}),
+	)
+
+	msg, err := adapter.Complete(context.Background(), c, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "Error noted.", msg.TextContent())
+}
+
+func TestComplete_ToolResultIsErrorOmittedWhenFalse(t *testing.T) {
+	_, adapter := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		req := readBody(t, r)
+
+		msgs, ok := req["messages"].([]any)
+		assert.True(t, ok)
+
+		// Verify is_error is omitted (not present) when false.
+		for _, m := range msgs {
+			msg, _ := m.(map[string]any)
+			parts, _ := msg["content"].([]any)
+			for _, p := range parts {
+				block, _ := p.(map[string]any)
+				if block["type"] == "tool_result" {
+					_, exists := block["is_error"]
+					assert.False(t, exists, "is_error should be omitted when false (omitempty)")
+				}
+			}
+		}
+
+		writeJSON(t, w, map[string]any{
+			"content":     []map[string]any{{"type": "text", "text": "OK"}},
+			"stop_reason": "end_turn",
+			"usage":       map[string]any{"input_tokens": 10, "output_tokens": 5},
+		})
+	})
+
+	c := chat.New(
+		message.NewText("user", role.User, "Do something"),
+		message.New("assistant", role.Assistant, content.ToolCall{
+			ID:        "call_1",
+			Name:      "some_tool",
+			Arguments: `{}`,
+		}),
+		message.New("tool", role.Tool, content.ToolResult{
+			ToolCallID: "call_1",
+			Content:    "success",
+			IsError:    false,
+		}),
+	)
+
+	_, err := adapter.Complete(context.Background(), c, nil)
+	require.NoError(t, err)
+}
+
 func TestComplete_SystemPromptSkipped(t *testing.T) {
 	_, adapter := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		req := readBody(t, r)

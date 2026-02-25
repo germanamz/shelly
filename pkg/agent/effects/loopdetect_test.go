@@ -179,6 +179,52 @@ func TestLoopDetectEffect_CustomThreshold(t *testing.T) {
 	assert.Contains(t, last.TextContent(), "2 times")
 }
 
+func TestLoopDetectEffect_MultiPartKeyOrder(t *testing.T) {
+	// An assistant message with multiple tool calls: the last part is the most
+	// recent call. After the fix, keys[0] should be the last part, not the first.
+	e := NewLoopDetectEffect(LoopDetectConfig{Threshold: 2})
+
+	c := chat.New(
+		// Message with two calls: first is "exec", last is "fs_read".
+		message.New("bot", role.Assistant,
+			content.ToolCall{ID: "c1", Name: "exec", Arguments: `{"cmd":"ls"}`},
+			content.ToolCall{ID: "c2", Name: "fs_read", Arguments: `{"path":"/foo"}`},
+		),
+		message.New("", role.Tool,
+			content.ToolResult{ToolCallID: "c1", Content: "ok"},
+		),
+		message.New("", role.Tool,
+			content.ToolResult{ToolCallID: "c2", Content: "ok"},
+		),
+		// Second message: only "fs_read" with same args.
+		message.New("bot", role.Assistant,
+			content.ToolCall{ID: "c3", Name: "fs_read", Arguments: `{"path":"/foo"}`},
+		),
+		message.New("", role.Tool,
+			content.ToolResult{ToolCallID: "c3", Content: "ok"},
+		),
+	)
+
+	ic := agent.IterationContext{
+		Phase:     agent.PhaseBeforeComplete,
+		Iteration: 2,
+		Chat:      c,
+	}
+
+	err := e.Eval(context.Background(), ic)
+	require.NoError(t, err)
+
+	// With correct key order, keys[0] is the most recent (fs_read /foo from c3),
+	// keys[1] is fs_read /foo from c2, which makes 2 consecutive identical calls.
+	// Threshold is 2, so an intervention message should be appended.
+	assert.Equal(t, 6, c.Len(), "expected intervention message")
+
+	last := c.At(5)
+	assert.Equal(t, role.User, last.Role)
+	assert.Contains(t, last.TextContent(), "fs_read")
+	assert.Contains(t, last.TextContent(), "2 times")
+}
+
 func TestLoopDetectEffect_DefaultConfig(t *testing.T) {
 	e := NewLoopDetectEffect(LoopDetectConfig{})
 	assert.Equal(t, defaultLoopThreshold, e.cfg.Threshold)

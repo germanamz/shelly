@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -31,6 +32,7 @@ import (
 // configuration and exposes them through a frontend-agnostic API.
 type Engine struct {
 	cfg        Config
+	cancel     context.CancelFunc
 	events     *EventBus
 	store      *state.Store
 	taskStore  *tasks.Store
@@ -64,8 +66,11 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 
 	dir := shellydir.New(shellyDirPath)
 
+	ctx, cancel := context.WithCancel(ctx)
+
 	e := &Engine{
 		cfg:        cfg,
+		cancel:     cancel,
 		events:     NewEventBus(),
 		registry:   agent.NewRegistry(),
 		completers: make(map[string]modeladapter.Completer, len(cfg.Providers)),
@@ -86,7 +91,12 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 	}
 
 	// Load skills once at engine level from .shelly/skills/.
-	if skills, err := skill.LoadDir(dir.SkillsDir()); err == nil {
+	skillsDir := dir.SkillsDir()
+	if _, err := os.Stat(skillsDir); err == nil {
+		skills, err := skill.LoadDir(skillsDir)
+		if err != nil {
+			return nil, fmt.Errorf("engine: skills: %w", err)
+		}
 		e.skills = skills
 	}
 
@@ -281,8 +291,15 @@ func (e *Engine) Session(id string) (*Session, bool) {
 	return s, ok
 }
 
-// Close shuts down MCP clients and releases resources.
+// Close cancels the engine context, shuts down MCP clients, and releases
+// resources. Callers should ensure all active sessions have drained before
+// calling Close, as session cancellation depends on the caller-provided
+// context passed to Send/SendParts.
 func (e *Engine) Close() error {
+	if e.cancel != nil {
+		e.cancel()
+	}
+
 	var firstErr error
 	for _, c := range e.mcpClients {
 		if err := c.Close(); err != nil && firstErr == nil {

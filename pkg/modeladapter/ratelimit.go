@@ -26,14 +26,15 @@ type tokenEntry struct {
 // and reactive 429 retry with exponential backoff and jitter.
 // Input and output tokens are tracked and throttled independently.
 type RateLimitedCompleter struct {
-	inner      Completer
-	mu         sync.Mutex
-	window     []tokenEntry
-	inputTPM   int           // input tokens-per-minute limit (0 = no limit)
-	outputTPM  int           // output tokens-per-minute limit (0 = no limit)
-	rpm        int           // requests-per-minute limit (0 = no limit)
-	maxRetries int           // max retries on 429
-	baseDelay  time.Duration // initial backoff delay
+	inner           Completer
+	mu              sync.Mutex
+	window          []tokenEntry
+	inputTPM        int           // input tokens-per-minute limit (0 = no limit)
+	outputTPM       int           // output tokens-per-minute limit (0 = no limit)
+	rpm             int           // requests-per-minute limit (0 = no limit)
+	maxRetries      int           // max retries on 429
+	baseDelay       time.Duration // initial backoff delay
+	fallbackTracker usage.Tracker // stable fallback tracker when inner lacks UsageReporter
 
 	// nowFunc is used for testing; defaults to time.Now.
 	nowFunc func() time.Time
@@ -105,7 +106,7 @@ func (r *RateLimitedCompleter) pruneWindow(now time.Time) {
 		i++
 	}
 	if i > 0 {
-		r.window = r.window[i:]
+		r.window = append(r.window[:0:0], r.window[i:]...)
 	}
 }
 
@@ -147,8 +148,9 @@ func (r *RateLimitedCompleter) waitForCapacity(ctx context.Context) error {
 		}
 		r.mu.Unlock()
 
-		if waitDur == 0 {
-			continue
+		const minWait = 10 * time.Millisecond
+		if waitDur < minWait {
+			waitDur = minWait
 		}
 
 		if err := r.sleepFunc(ctx, waitDur); err != nil {
@@ -263,7 +265,7 @@ func (r *RateLimitedCompleter) UsageTracker() *usage.Tracker {
 	if ur, ok := r.inner.(UsageReporter); ok {
 		return ur.UsageTracker()
 	}
-	return &usage.Tracker{}
+	return &r.fallbackTracker
 }
 
 // ModelMaxTokens forwards to the inner completer if it implements UsageReporter.

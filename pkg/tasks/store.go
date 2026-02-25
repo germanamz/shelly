@@ -90,7 +90,6 @@ func (s *Store) Create(task Task) string {
 
 	cp := task
 	s.tasks[cp.ID] = &cp
-	s.notify()
 
 	return cp.ID
 }
@@ -151,6 +150,11 @@ func (s *Store) Update(id string, upd Update) error {
 	}
 
 	if upd.Status != nil {
+		switch *upd.Status {
+		case StatusPending, StatusInProgress, StatusCompleted, StatusFailed:
+		default:
+			return fmt.Errorf("tasks: invalid status %q", *upd.Status)
+		}
 		t.Status = *upd.Status
 	}
 	if upd.Description != nil {
@@ -240,20 +244,19 @@ func (s *Store) WatchCompleted(ctx context.Context, id string) (Task, error) {
 	for {
 		s.mu.RLock()
 		t, ok := s.tasks[id]
-		sig := s.signal
-		s.mu.RUnlock()
-
 		if !ok {
+			s.mu.RUnlock()
 			return Task{}, fmt.Errorf("tasks: task %q not found", id)
 		}
 
 		if t.Status == StatusCompleted || t.Status == StatusFailed {
-			s.mu.RLock()
 			cp := s.copyTask(t)
 			s.mu.RUnlock()
-
 			return cp, nil
 		}
+
+		sig := s.signal
+		s.mu.RUnlock()
 
 		select {
 		case <-ctx.Done():

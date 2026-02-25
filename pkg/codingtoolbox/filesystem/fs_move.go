@@ -59,6 +59,11 @@ func (f *FS) handleMove(ctx context.Context, input json.RawMessage) (string, err
 	f.locker.LockPair(absSrc, absDst)
 	defer f.locker.UnlockPair(absSrc, absDst)
 
+	diff := fmt.Sprintf("Move: %s -> %s", absSrc, absDst)
+	if err := f.confirmChange(ctx, absSrc, diff); err != nil {
+		return "", fmt.Errorf("fs_move: %w", err)
+	}
+
 	if err := os.MkdirAll(filepath.Dir(absDst), 0o750); err != nil {
 		return "", fmt.Errorf("fs_move: create dirs: %w", err)
 	}

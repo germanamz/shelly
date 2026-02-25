@@ -4,6 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -481,6 +485,54 @@ func TestDelegateToolWithTaskIDNoCompletion(t *testing.T) {
 	assert.Empty(t, board.updates)
 }
 
+func TestDelegateToolPropagatesOptionsToChild(t *testing.T) {
+	board := &mockTaskBoard{}
+
+	reg := NewRegistry()
+	reg.Register("worker", "Does work", func() *Agent {
+		return New("worker", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{
+						ID:        "c1",
+						Name:      "task_complete",
+						Arguments: `{"status":"failed","summary":"oops"}`,
+					},
+				),
+			},
+		}, Options{})
+	})
+
+	a := &Agent{
+		name:     "orch",
+		registry: reg,
+		chat:     chat.New(),
+		options: Options{
+			TaskBoard:     board,
+			ReflectionDir: t.TempDir(),
+		},
+	}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"worker","task":"do the thing","context":"ctx","task_id":"task-prop"}]}`,
+	))
+
+	require.NoError(t, err)
+
+	// Task was claimed and updated — proves TaskBoard was propagated.
+	require.Len(t, board.claims, 1)
+	assert.Equal(t, "task-prop", board.claims[0].ID)
+	require.Len(t, board.updates, 1)
+	assert.Equal(t, "failed", board.updates[0].Status)
+
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Completion)
+	assert.Equal(t, "failed", results[0].Completion.Status)
+}
+
 func TestDelegateToolConcurrentWithTaskID(t *testing.T) {
 	board := &mockTaskBoard{}
 
@@ -696,6 +748,30 @@ func TestTaskCompleteToolInvalidInput(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid input")
+}
+
+func TestTaskCompleteToolDuplicateCallIgnored(t *testing.T) {
+	a := &Agent{name: "worker", depth: 1}
+	tool := taskCompleteTool(a)
+
+	result1, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"status":"completed","summary":"first call"}`,
+	))
+	require.NoError(t, err)
+	assert.Equal(t, "Task marked as completed.", result1)
+
+	// Second call should be ignored and return "already marked".
+	result2, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"status":"failed","summary":"second call"}`,
+	))
+	require.NoError(t, err)
+	assert.Contains(t, result2, "already marked")
+
+	// Original completion result should be preserved.
+	cr := a.CompletionResult()
+	require.NotNil(t, cr)
+	assert.Equal(t, "completed", cr.Status)
+	assert.Equal(t, "first call", cr.Summary)
 }
 
 func TestDelegateToolWithCompletion(t *testing.T) {
@@ -1021,4 +1097,86 @@ func TestDelegateToolConcurrentIterationExhaustionWithTaskID(t *testing.T) {
 	require.Len(t, board.updates, 1)
 	assert.Equal(t, "task-99", board.updates[0].ID)
 	assert.Equal(t, "failed", board.updates[0].Status)
+}
+
+func TestSearchReflectionsCapsFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create more than maxReflectionFiles (5) relevant reflection files.
+	for i := range 10 {
+		name := fmt.Sprintf("agent-%d.md", i)
+		body := fmt.Sprintf("# Reflection\n\n## Task\nimplement authentication middleware refactor\n\n## Summary\nfailed %d\n", i)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600))
+	}
+
+	result := searchReflections(dir, "implement authentication middleware refactor")
+	assert.NotEmpty(t, result)
+
+	// Count how many reflection blocks are in the output (separated by "---").
+	count := strings.Count(result, "# Reflection")
+	assert.LessOrEqual(t, count, maxReflectionFiles)
+}
+
+func TestSearchReflectionsCapsBytes(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a few large reflection files that exceed maxReflectionBytes.
+	for i := range 3 {
+		name := fmt.Sprintf("agent-%d.md", i)
+		// Each file is ~20KB, so 2 files = 40KB which exceeds maxReflectionBytes (32KB).
+		body := fmt.Sprintf("# Reflection\n\n## Task\nimplement authentication middleware refactor\n\n## Summary\n%s\n", strings.Repeat("x", 20*1024))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600))
+	}
+
+	result := searchReflections(dir, "implement authentication middleware refactor")
+	assert.NotEmpty(t, result)
+
+	// Should have stopped before reading all 3.
+	count := strings.Count(result, "# Reflection")
+	assert.LessOrEqual(t, count, 2)
+}
+
+func TestDelegateToolPropagatesEventFuncToChild(t *testing.T) {
+	var mu sync.Mutex
+	var events []string
+
+	ef := func(_ context.Context, kind string, _ any) {
+		mu.Lock()
+		events = append(events, kind)
+		mu.Unlock()
+	}
+
+	reg := NewRegistry()
+	reg.Register("worker", "Does work", func() *Agent {
+		return New("worker", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.NewText("", role.Assistant, "done"),
+			},
+		}, Options{})
+	})
+
+	a := &Agent{
+		name:     "orch",
+		registry: reg,
+		chat:     chat.New(),
+		options:  Options{EventFunc: ef},
+	}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"worker","task":"do the thing","context":"ctx"}]}`,
+	))
+
+	require.NoError(t, err)
+
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	assert.Equal(t, "done", results[0].Result)
+
+	// The child agent should have emitted at least one "message_added" event
+	// via the propagated EventFunc.
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Contains(t, events, "message_added")
 }

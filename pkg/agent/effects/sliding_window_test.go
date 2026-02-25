@@ -236,3 +236,33 @@ func TestSlidingWindowEffect_PreservesErrorToolResults(t *testing.T) {
 	}
 	assert.True(t, found)
 }
+
+func TestSlidingWindowEffect_AllSystemMessagesNoPanic(t *testing.T) {
+	uc := &usageCompleter{}
+	uc.tracker.Add(usage.TokenCount{InputTokens: 900, OutputTokens: 100})
+
+	e := NewSlidingWindowEffect(SlidingWindowConfig{
+		ContextWindow: 1000,
+		Threshold:     0.8,
+		RecentZone:    2,
+	})
+
+	// Chat with only system messages — edge case that must not panic or corrupt.
+	c := chat.New(
+		message.NewText("", role.System, "sys prompt"),
+		message.NewText("", role.System, "another system message"),
+	)
+
+	ic := agent.IterationContext{
+		Phase:     agent.PhaseBeforeComplete,
+		Iteration: 1,
+		Chat:      c,
+		Completer: uc,
+	}
+
+	err := e.Eval(context.Background(), ic)
+	require.NoError(t, err)
+
+	// Chat should be unchanged — nonSystem is empty, nothing to manage.
+	assert.Equal(t, 2, c.Len())
+}

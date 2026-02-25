@@ -145,6 +145,7 @@ func (s *Search) handleContent(ctx context.Context, input json.RawMessage) (stri
 
 		rel, _ := filepath.Rel(abs, path)
 		scanner := bufio.NewScanner(file)
+		scanner.Buffer(make([]byte, 64*1024), 1<<20) // allow lines up to 1MB
 		lineNum := 0
 
 		for scanner.Scan() {
@@ -162,6 +163,10 @@ func (s *Search) handleContent(ctx context.Context, input json.RawMessage) (stri
 					return filepath.SkipAll
 				}
 			}
+		}
+
+		if err := scanner.Err(); err != nil {
+			return nil // skip files with scan errors
 		}
 
 		return nil
@@ -265,6 +270,13 @@ func matchGlob(pattern, path string) bool {
 	// Handle ** patterns.
 	if strings.Contains(pattern, "**") {
 		return matchDoublestar(pattern, path)
+	}
+
+	// When the pattern contains a directory separator, match against the
+	// full relative path instead of just the base name.
+	if strings.ContainsRune(pattern, filepath.Separator) || strings.ContainsRune(pattern, '/') {
+		matched, _ := filepath.Match(pattern, path)
+		return matched
 	}
 
 	matched, _ := filepath.Match(pattern, filepath.Base(path))

@@ -98,3 +98,62 @@ func TestDelete_EmptyPath(t *testing.T) {
 	assert.True(t, tr.IsError)
 	assert.Contains(t, tr.Content, "path is required")
 }
+
+func TestDelete_ConfirmDenied(t *testing.T) {
+	calls := 0
+	askFn := func(_ context.Context, _ string, _ []string) (string, error) {
+		calls++
+		if calls == 1 {
+			return "yes", nil // directory permission
+		}
+		return "no", nil // file change denied
+	}
+	fs, dir := newTestFS(t, askFn)
+	tb := fs.Tools()
+
+	filePath := filepath.Join(dir, "protected.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte("keep"), 0o600))
+
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:        "tc1",
+		Name:      "fs_delete",
+		Arguments: mustJSON(t, deleteInput{Path: filePath}),
+	})
+
+	assert.True(t, tr.IsError)
+	assert.Contains(t, tr.Content, "denied")
+
+	// File should still exist.
+	_, err := os.Stat(filePath)
+	assert.False(t, os.IsNotExist(err))
+}
+
+func TestDelete_ConfirmDenied_Recursive(t *testing.T) {
+	calls := 0
+	askFn := func(_ context.Context, _ string, _ []string) (string, error) {
+		calls++
+		if calls == 1 {
+			return "yes", nil // directory permission
+		}
+		return "no", nil // file change denied
+	}
+	fs, dir := newTestFS(t, askFn)
+	tb := fs.Tools()
+
+	subDir := filepath.Join(dir, "sub")
+	require.NoError(t, os.MkdirAll(subDir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(subDir, "f.txt"), []byte("x"), 0o600))
+
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:        "tc1",
+		Name:      "fs_delete",
+		Arguments: mustJSON(t, deleteInput{Path: subDir, Recursive: true}),
+	})
+
+	assert.True(t, tr.IsError)
+	assert.Contains(t, tr.Content, "denied")
+
+	// Directory should still exist.
+	_, err := os.Stat(subDir)
+	assert.False(t, os.IsNotExist(err))
+}

@@ -59,11 +59,12 @@ func TestTrimToolResultsEffect_SkipsIteration0(t *testing.T) {
 func TestTrimToolResultsEffect_TrimsLongResults(t *testing.T) {
 	e := NewTrimToolResultsEffect(TrimToolResultsConfig{
 		MaxResultLength: 10,
-		PreserveRecent:  0,
+		PreserveRecent:  1, // Preserve only the last tool message.
 	})
 
 	c := chat.New(
 		message.New("", role.Tool, content.ToolResult{ToolCallID: "c1", Content: "this is a very long tool result"}),
+		message.New("", role.Tool, content.ToolResult{ToolCallID: "c2", Content: "short"}),
 	)
 
 	ic := agent.IterationContext{
@@ -118,12 +119,13 @@ func TestTrimToolResultsEffect_PreservesRecentMessages(t *testing.T) {
 func TestTrimToolResultsEffect_DoesNotTrimErrors(t *testing.T) {
 	e := NewTrimToolResultsEffect(TrimToolResultsConfig{
 		MaxResultLength: 10,
-		PreserveRecent:  0,
+		PreserveRecent:  1, // Preserve only last tool message; first is candidate for trimming.
 	})
 
 	longError := strings.Repeat("e", 100)
 	c := chat.New(
 		message.New("", role.Tool, content.ToolResult{ToolCallID: "c1", Content: longError, IsError: true}),
+		message.New("", role.Tool, content.ToolResult{ToolCallID: "c2", Content: "short"}),
 	)
 
 	ic := agent.IterationContext{
@@ -142,11 +144,12 @@ func TestTrimToolResultsEffect_DoesNotTrimErrors(t *testing.T) {
 func TestTrimToolResultsEffect_DoesNotTrimShortResults(t *testing.T) {
 	e := NewTrimToolResultsEffect(TrimToolResultsConfig{
 		MaxResultLength: 100,
-		PreserveRecent:  0,
+		PreserveRecent:  1, // Preserve only last; first is candidate for trimming.
 	})
 
 	c := chat.New(
 		message.New("", role.Tool, content.ToolResult{ToolCallID: "c1", Content: "ok"}),
+		message.New("", role.Tool, content.ToolResult{ToolCallID: "c2", Content: "also ok"}),
 	)
 
 	ic := agent.IterationContext{
@@ -165,11 +168,12 @@ func TestTrimToolResultsEffect_DoesNotTrimShortResults(t *testing.T) {
 func TestTrimToolResultsEffect_MetadataPreventsDuplicateTrimming(t *testing.T) {
 	e := NewTrimToolResultsEffect(TrimToolResultsConfig{
 		MaxResultLength: 10,
-		PreserveRecent:  0,
+		PreserveRecent:  1, // Preserve only last; first is candidate for trimming.
 	})
 
 	c := chat.New(
 		message.New("", role.Tool, content.ToolResult{ToolCallID: "c1", Content: "this is a very long tool result"}),
+		message.New("", role.Tool, content.ToolResult{ToolCallID: "c2", Content: "short"}),
 	)
 
 	ic := agent.IterationContext{
@@ -198,16 +202,16 @@ func TestTrimToolResultsEffect_DefaultConfig(t *testing.T) {
 	assert.Equal(t, defaultPreserveRecent, e.cfg.PreserveRecent)
 }
 
-func TestTrimToolResultsEffect_ZeroPreserveRecent(t *testing.T) {
-	// 0 is a valid value meaning "preserve nothing".
+func TestTrimToolResultsEffect_ZeroPreserveRecentGetsDefault(t *testing.T) {
+	// Zero value gets the default, matching MaxResultLength behavior.
 	e := NewTrimToolResultsEffect(TrimToolResultsConfig{PreserveRecent: 0})
-	assert.Equal(t, 0, e.cfg.PreserveRecent)
+	assert.Equal(t, defaultPreserveRecent, e.cfg.PreserveRecent)
 }
 
 func TestTrimToolResultsEffect_MixedParts(t *testing.T) {
 	e := NewTrimToolResultsEffect(TrimToolResultsConfig{
 		MaxResultLength: 10,
-		PreserveRecent:  0,
+		PreserveRecent:  1, // Preserve only last tool message; first is candidate for trimming.
 	})
 
 	longContent := strings.Repeat("z", 100)
@@ -217,6 +221,7 @@ func TestTrimToolResultsEffect_MixedParts(t *testing.T) {
 			content.ToolResult{ToolCallID: "c2", Content: "short"},
 			content.ToolResult{ToolCallID: "c3", Content: longContent, IsError: true},
 		),
+		message.New("", role.Tool, content.ToolResult{ToolCallID: "c4", Content: "preserved"}),
 	)
 
 	ic := agent.IterationContext{
@@ -246,7 +251,7 @@ func TestTrimToolResultsEffect_MixedParts(t *testing.T) {
 func TestTrimToolResultsEffect_NoToolMessages(t *testing.T) {
 	e := NewTrimToolResultsEffect(TrimToolResultsConfig{
 		MaxResultLength: 10,
-		PreserveRecent:  0,
+		PreserveRecent:  1,
 	})
 
 	c := chat.New(

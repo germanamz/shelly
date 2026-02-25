@@ -61,6 +61,11 @@ func (f *FS) handleCopy(ctx context.Context, input json.RawMessage) (string, err
 	f.locker.LockPair(absSrc, absDst)
 	defer f.locker.UnlockPair(absSrc, absDst)
 
+	diff := fmt.Sprintf("Copy: %s -> %s", absSrc, absDst)
+	if err := f.confirmChange(ctx, absDst, diff); err != nil {
+		return "", fmt.Errorf("fs_copy: %w", err)
+	}
+
 	info, err := os.Stat(absSrc)
 	if err != nil {
 		return "", fmt.Errorf("fs_copy: %w", err)
@@ -94,11 +99,16 @@ func copyFile(src, dst string, mode fs.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close() //nolint:errcheck // error checked via io.Copy
 
-	_, err = io.Copy(out, in)
+	_, copyErr := io.Copy(out, in)
 
-	return err
+	closeErr := out.Close()
+
+	if copyErr != nil {
+		return copyErr
+	}
+
+	return closeErr
 }
 
 func copyDir(src, dst string) error {

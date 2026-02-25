@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
@@ -33,7 +34,7 @@ func New(store *permissions.Store, askFn AskFunc) *HTTP {
 	return &HTTP{
 		store:  store,
 		ask:    askFn,
-		client: &http.Client{},
+		client: &http.Client{Timeout: 60 * time.Second},
 	}
 }
 

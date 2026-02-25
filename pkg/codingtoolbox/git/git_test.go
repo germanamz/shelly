@@ -187,6 +187,25 @@ func TestCommit_All(t *testing.T) {
 	assert.Contains(t, tr.Content, "update readme")
 }
 
+func TestCommit_FilesAndAll(t *testing.T) {
+	dir := initRepo(t)
+	g, _ := newTestGit(t, autoApprove, dir)
+	tb := g.Tools()
+
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:   "tc1",
+		Name: "git_commit",
+		Arguments: mustJSON(t, commitInput{
+			Message: "bad",
+			Files:   []string{"a.txt"},
+			All:     true,
+		}),
+	})
+
+	assert.True(t, tr.IsError)
+	assert.Contains(t, tr.Content, "cannot use both files and all")
+}
+
 func TestCommit_EmptyMessage(t *testing.T) {
 	dir := initRepo(t)
 	g, _ := newTestGit(t, autoApprove, dir)
@@ -215,6 +234,26 @@ func TestDenied(t *testing.T) {
 
 	assert.True(t, tr.IsError)
 	assert.Contains(t, tr.Content, "permission denied")
+}
+
+func TestLimitedBuffer(t *testing.T) {
+	var buf limitedBuffer
+
+	n, err := buf.Write([]byte("hello"))
+	require.NoError(t, err)
+	assert.Equal(t, 5, n)
+	assert.Equal(t, "hello", buf.String())
+	assert.Equal(t, 5, buf.Len())
+
+	big := make([]byte, maxBufferSize+100)
+	for i := range big {
+		big[i] = 'x'
+	}
+
+	n, err = buf.Write(big)
+	require.NoError(t, err)
+	assert.Equal(t, len(big), n)
+	assert.Equal(t, maxBufferSize, buf.Len())
 }
 
 func TestTrust(t *testing.T) {

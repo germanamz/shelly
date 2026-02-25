@@ -107,6 +107,11 @@ func LoadConfig(path string) (Config, error) {
 var knownEffectKinds = map[string]struct{}{
 	"compact":           {},
 	"trim_tool_results": {},
+	"loop_detect":       {},
+	"sliding_window":    {},
+	"observation_mask":  {},
+	"reflection":        {},
+	"progress":          {},
 }
 
 // Validate checks that the configuration is internally consistent.
@@ -160,10 +165,8 @@ func (c Config) Validate() error {
 		}
 		agentNames[a.Name] = struct{}{}
 
-		if a.Options.ContextThreshold < 0 || a.Options.ContextThreshold >= 1 {
-			if a.Options.ContextThreshold != 0 {
-				return fmt.Errorf("engine: config: agent %q: context_threshold must be in (0, 1) or 0 to disable", a.Name)
-			}
+		if a.Options.ContextThreshold != 0 && (a.Options.ContextThreshold < 0 || a.Options.ContextThreshold >= 1) {
+			return fmt.Errorf("engine: config: agent %q: context_threshold must be in (0, 1) or 0 to disable", a.Name)
 		}
 
 		for i, ef := range a.Effects {

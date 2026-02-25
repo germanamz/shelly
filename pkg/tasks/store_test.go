@@ -622,6 +622,57 @@ func TestToolNamespace(t *testing.T) {
 	assert.Len(t, names, 6)
 }
 
+func TestCreateDoesNotNotify(t *testing.T) {
+	s := &Store{}
+	s.init()
+
+	// Capture the signal channel before Create.
+	s.mu.RLock()
+	sigBefore := s.signal
+	s.mu.RUnlock()
+
+	s.Create(Task{Title: "task"})
+
+	// The signal channel should be the same (not closed/replaced) because
+	// Create should not call notify.
+	s.mu.RLock()
+	sigAfter := s.signal
+	s.mu.RUnlock()
+
+	assert.Equal(t, sigBefore, sigAfter, "Create should not call notify")
+}
+
+func TestWatchCompletedRaceSafe(t *testing.T) {
+	s := &Store{}
+
+	id := s.Create(Task{Title: "race-test"})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// Launch many concurrent watchers and updaters to stress the race detector.
+	var wg sync.WaitGroup
+	for range 5 {
+		wg.Go(func() {
+			_, _ = s.WatchCompleted(ctx, id)
+		})
+	}
+
+	// Let watchers start waiting.
+	time.Sleep(20 * time.Millisecond)
+
+	// Complete the task to unblock all watchers.
+	completed := StatusCompleted
+	require.NoError(t, s.Update(id, Update{Status: &completed}))
+
+	wg.Wait()
+
+	// All watchers should have returned; verify the task is completed.
+	task, ok := s.Get(id)
+	require.True(t, ok)
+	assert.Equal(t, StatusCompleted, task.Status)
+}
+
 func TestToolInvalidInput(t *testing.T) {
 	s := &Store{}
 	tb := s.Tools("ns")

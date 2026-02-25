@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/germanamz/shelly/pkg/agent"
@@ -73,6 +74,7 @@ type SlidingWindowConfig struct {
 // It runs at PhaseBeforeComplete when Iteration > 0.
 type SlidingWindowEffect struct {
 	cfg            SlidingWindowConfig
+	mu             sync.Mutex
 	runningSummary string // Accumulated summary of evicted messages.
 }
 
@@ -128,10 +130,13 @@ func (e *SlidingWindowEffect) shouldManage(completer modeladapter.Completer) boo
 
 // manage applies the three-zone sliding window to the chat.
 func (e *SlidingWindowEffect) manage(ctx context.Context, ic agent.IterationContext) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	msgs := ic.Chat.Messages()
 
 	// Find non-system messages (system prompt is always index 0).
-	startIdx := 0
+	startIdx := len(msgs)
 	for i, m := range msgs {
 		if m.Role != role.System {
 			startIdx = i
@@ -163,12 +168,14 @@ func (e *SlidingWindowEffect) manage(ctx context.Context, ic agent.IterationCont
 	recentMsgs := nonSystem[recentStart:]
 
 	// Summarize old messages incrementally.
+	summarized := true
 	if len(oldMsgs) > 0 {
 		transcript := renderMessages(oldMsgs)
 		if err := e.updateSummary(ctx, ic, transcript); err != nil {
-			// Non-fatal: continue with trimming only.
+			// Non-fatal: retain old messages instead of dropping them.
+			summarized = false
 			if e.cfg.NotifyFunc != nil {
-				e.cfg.NotifyFunc(ctx, "Sliding window summarization failed, continuing with trimming")
+				e.cfg.NotifyFunc(ctx, "Sliding window summarization failed, retaining old messages")
 			}
 		}
 	}
@@ -205,7 +212,10 @@ func (e *SlidingWindowEffect) manage(ctx context.Context, ic agent.IterationCont
 	var newMsgs []message.Message
 	newMsgs = append(newMsgs, msgs[:startIdx]...) // System prompt(s).
 
-	if e.runningSummary != "" {
+	if !summarized {
+		// Summarization failed — keep old messages to avoid data loss.
+		newMsgs = append(newMsgs, oldMsgs...)
+	} else if e.runningSummary != "" {
 		summaryMsg := fmt.Sprintf("[Context summary — earlier conversation condensed below.]\n\n%s", e.runningSummary)
 		newMsgs = append(newMsgs, message.NewText("", role.User, summaryMsg))
 	}

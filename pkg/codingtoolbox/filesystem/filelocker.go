@@ -64,6 +64,11 @@ func (fl *FileLocker) UnlockPair(p1, p2 string) {
 		return
 	}
 
-	fl.Unlock(p1)
+	// Sort to match LockPair order, then unlock in reverse.
+	if p1 > p2 {
+		p1, p2 = p2, p1
+	}
+
 	fl.Unlock(p2)
+	fl.Unlock(p1)
 }

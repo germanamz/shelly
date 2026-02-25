@@ -65,6 +65,35 @@ func TestFileLocker_LockPairCrossedPaths(t *testing.T) {
 	<-done
 }
 
+func TestFileLocker_UnlockPairReverseOrder(t *testing.T) {
+	fl := NewFileLocker()
+
+	// Lock /a then /b (sorted order).
+	fl.LockPair("/a", "/b")
+
+	// After UnlockPair, both should be acquirable again.
+	// This also verifies that passing args in swapped order still works.
+	fl.UnlockPair("/b", "/a")
+
+	// Both paths should now be unlocked — lock them individually to verify.
+	done := make(chan struct{}, 2)
+
+	go func() {
+		fl.Lock("/a")
+		fl.Unlock("/a")
+		done <- struct{}{}
+	}()
+
+	go func() {
+		fl.Lock("/b")
+		fl.Unlock("/b")
+		done <- struct{}{}
+	}()
+
+	<-done
+	<-done
+}
+
 func TestFileLocker_IndependentPathsNotBlocked(t *testing.T) {
 	fl := NewFileLocker()
 	var wg sync.WaitGroup

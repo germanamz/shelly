@@ -46,6 +46,15 @@ func (f *FS) handleDelete(ctx context.Context, input json.RawMessage) (string, e
 	f.locker.Lock(abs)
 	defer f.locker.Unlock(abs)
 
+	diff := fmt.Sprintf("Delete: %s", abs)
+	if in.Recursive {
+		diff = fmt.Sprintf("Delete: %s (recursive)", abs)
+	}
+
+	if err := f.confirmChange(ctx, abs, diff); err != nil {
+		return "", fmt.Errorf("fs_delete: %w", err)
+	}
+
 	if in.Recursive {
 		if err := os.RemoveAll(abs); err != nil {
 			return "", fmt.Errorf("fs_delete: %w", err)

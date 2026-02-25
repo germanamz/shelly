@@ -73,8 +73,9 @@ func (e *LoopDetectEffect) detectLoop(ic agent.IterationContext) (string, int) {
 			continue
 		}
 
-		for _, p := range msgs[i].Parts {
-			tc, ok := p.(content.ToolCall)
+		parts := msgs[i].Parts
+		for j := len(parts) - 1; j >= 0; j-- {
+			tc, ok := parts[j].(content.ToolCall)
 			if !ok {
 				continue
 			}

@@ -359,6 +359,67 @@ func TestEdit_Insert(t *testing.T) {
 	assert.Equal(t, "func main() {\n\tx := 42\n\tfmt.Println(\"hello\")\n}\n", string(data))
 }
 
+func TestWrite_PreservesPermissions(t *testing.T) {
+	fs, dir := newTestFS(t, autoApprove)
+	tb := fs.Tools()
+
+	filePath := filepath.Join(dir, "script.sh")
+	require.NoError(t, os.WriteFile(filePath, []byte("#!/bin/sh\necho old"), 0o600))
+	require.NoError(t, os.Chmod(filePath, 0o755)) //nolint:gosec // test needs 0o755 to verify permission preservation
+
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:        "tc1",
+		Name:      "fs_write",
+		Arguments: mustJSON(t, writeInput{Path: filePath, Content: "#!/bin/sh\necho new"}),
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+
+	info, err := os.Stat(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm())
+}
+
+func TestWrite_NewFileDefault0600(t *testing.T) {
+	fs, dir := newTestFS(t, autoApprove)
+	tb := fs.Tools()
+
+	filePath := filepath.Join(dir, "brand-new.txt")
+
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:        "tc1",
+		Name:      "fs_write",
+		Arguments: mustJSON(t, writeInput{Path: filePath, Content: "hello"}),
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+
+	info, err := os.Stat(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+}
+
+func TestEdit_PreservesPermissions(t *testing.T) {
+	fs, dir := newTestFS(t, autoApprove)
+	tb := fs.Tools()
+
+	filePath := filepath.Join(dir, "script.sh")
+	require.NoError(t, os.WriteFile(filePath, []byte("old content"), 0o600))
+	require.NoError(t, os.Chmod(filePath, 0o755)) //nolint:gosec // test needs 0o755 to verify permission preservation
+
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:        "tc1",
+		Name:      "fs_edit",
+		Arguments: mustJSON(t, editInput{Path: filePath, OldText: "old", NewText: "new"}),
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+
+	info, err := os.Stat(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm())
+}
+
 func TestEdit_EmptyOldText(t *testing.T) {
 	fs, dir := newTestFS(t, autoApprove)
 	tb := fs.Tools()
