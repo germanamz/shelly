@@ -16,6 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func strPtr(s string) *string { return &s }
+
 func TestGrokAdapter_ImplementsCompleter(t *testing.T) {
 	var _ modeladapter.Completer = (*GrokAdapter)(nil)
 }
@@ -39,14 +41,14 @@ func TestComplete_TextResponse(t *testing.T) {
 		assert.Equal(t, "grok-3", req.Model)
 		assert.Len(t, req.Messages, 2)
 		assert.Equal(t, "system", req.Messages[0].Role)
-		assert.Equal(t, "You are helpful.", req.Messages[0].Content)
+		assert.Equal(t, "You are helpful.", *req.Messages[0].Content)
 		assert.Equal(t, "user", req.Messages[1].Role)
-		assert.Equal(t, "Hello", req.Messages[1].Content)
+		assert.Equal(t, "Hello", *req.Messages[1].Content)
 
 		resp := chatResponse{
 			ID: "resp-1",
 			Choices: []choice{{
-				Message:      apiMessage{Role: "assistant", Content: "Hi there!"},
+				Message:      apiMessage{Role: "assistant", Content: strPtr("Hi there!")},
 				FinishReason: "stop",
 			}},
 			Usage: apiUsage{PromptTokens: 10, CompletionTokens: 5},
@@ -161,7 +163,7 @@ func TestComplete_TemperatureAndMaxTokens(t *testing.T) {
 
 		resp := chatResponse{
 			ID:      "resp-4",
-			Choices: []choice{{Message: apiMessage{Role: "assistant", Content: "ok"}}},
+			Choices: []choice{{Message: apiMessage{Role: "assistant", Content: strPtr("ok")}}},
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
@@ -197,13 +199,13 @@ func TestConvertMessages_AllRoles(t *testing.T) {
 	assert.Len(t, msgs, 5)
 
 	assert.Equal(t, "system", msgs[0].Role)
-	assert.Equal(t, "system prompt", msgs[0].Content)
+	assert.Equal(t, "system prompt", *msgs[0].Content)
 
 	assert.Equal(t, "user", msgs[1].Role)
-	assert.Equal(t, "user msg", msgs[1].Content)
+	assert.Equal(t, "user msg", *msgs[1].Content)
 
 	assert.Equal(t, "assistant", msgs[2].Role)
-	assert.Equal(t, "let me check", msgs[2].Content)
+	assert.Equal(t, "let me check", *msgs[2].Content)
 	assert.Len(t, msgs[2].ToolCalls, 1)
 	assert.Equal(t, "tc-1", msgs[2].ToolCalls[0].ID)
 	assert.Equal(t, "function", msgs[2].ToolCalls[0].Type)
@@ -212,10 +214,10 @@ func TestConvertMessages_AllRoles(t *testing.T) {
 
 	assert.Equal(t, "tool", msgs[3].Role)
 	assert.Equal(t, "tc-1", msgs[3].ToolCallID)
-	assert.Equal(t, "result data", msgs[3].Content)
+	assert.Equal(t, "result data", *msgs[3].Content)
 
 	assert.Equal(t, "assistant", msgs[4].Role)
-	assert.Equal(t, "here you go", msgs[4].Content)
+	assert.Equal(t, "here you go", *msgs[4].Content)
 }
 
 func TestConvertMessages_MultipleToolResults(t *testing.T) {
@@ -230,13 +232,13 @@ func TestConvertMessages_MultipleToolResults(t *testing.T) {
 
 	assert.Len(t, msgs, 2)
 	assert.Equal(t, "tc-1", msgs[0].ToolCallID)
-	assert.Equal(t, "result 1", msgs[0].Content)
+	assert.Equal(t, "result 1", *msgs[0].Content)
 	assert.Equal(t, "tc-2", msgs[1].ToolCallID)
-	assert.Equal(t, "result 2", msgs[1].Content)
+	assert.Equal(t, "result 2", *msgs[1].Content)
 }
 
 func TestConvertResponse_TextOnly(t *testing.T) {
-	am := apiMessage{Role: "assistant", Content: "hello"}
+	am := apiMessage{Role: "assistant", Content: strPtr("hello")}
 	msg := convertResponse(am)
 
 	assert.Equal(t, role.Assistant, msg.Role)
@@ -268,7 +270,7 @@ func TestConvertResponse_ToolCallsOnly(t *testing.T) {
 func TestConvertResponse_TextAndToolCalls(t *testing.T) {
 	am := apiMessage{
 		Role:    "assistant",
-		Content: "thinking...",
+		Content: strPtr("thinking..."),
 		ToolCalls: []apiToolCall{
 			{ID: "c1", Type: "function", Function: apiFunction{Name: "fn", Arguments: "{}"}},
 		},

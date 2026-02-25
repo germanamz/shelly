@@ -83,7 +83,7 @@ type chatRequest struct {
 
 type apiMessage struct {
 	Role       string        `json:"role"`
-	Content    string        `json:"content"`
+	Content    *string       `json:"content"`
 	ToolCalls  []apiToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string        `json:"tool_call_id,omitempty"`
 }
@@ -122,14 +122,18 @@ func convertMessages(c *chat.Chat) []apiMessage {
 	c.Each(func(_ int, m message.Message) bool {
 		switch m.Role {
 		case role.System, role.User:
+			text := m.TextContent()
 			msgs = append(msgs, apiMessage{
 				Role:    m.Role.String(),
-				Content: m.TextContent(),
+				Content: &text,
 			})
 		case role.Assistant:
 			am := apiMessage{
-				Role:    role.Assistant.String(),
-				Content: m.TextContent(),
+				Role: role.Assistant.String(),
+			}
+
+			if text := m.TextContent(); text != "" {
+				am.Content = &text
 			}
 
 			for _, tc := range m.ToolCalls() {
@@ -153,7 +157,7 @@ func convertMessages(c *chat.Chat) []apiMessage {
 
 				msgs = append(msgs, apiMessage{
 					Role:       role.Tool.String(),
-					Content:    tr.Content,
+					Content:    &tr.Content,
 					ToolCallID: tr.ToolCallID,
 				})
 			}
@@ -169,8 +173,8 @@ func convertMessages(c *chat.Chat) []apiMessage {
 func convertResponse(am apiMessage) message.Message {
 	var parts []content.Part
 
-	if am.Content != "" {
-		parts = append(parts, content.Text{Text: am.Content})
+	if am.Content != nil && *am.Content != "" {
+		parts = append(parts, content.Text{Text: *am.Content})
 	}
 
 	for _, tc := range am.ToolCalls {
