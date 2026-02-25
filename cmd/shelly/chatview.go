@@ -14,7 +14,8 @@ import (
 // to the terminal scrollback via tea.Println.
 type chatViewModel struct {
 	agents        map[string]*agentContainer
-	agentOrder    []string // agent names in arrival order
+	subAgents     map[string]*subAgentMessage // nested sub-agent containers keyed by agent name
+	agentOrder    []string                    // agent names in arrival order
 	verbose       bool
 	processing    bool   // true while the agent is working
 	spinnerIdx    int    // frame index for standalone processing spinner
@@ -24,8 +25,9 @@ type chatViewModel struct {
 
 func newChatView(verbose bool) chatViewModel {
 	return chatViewModel{
-		agents:  make(map[string]*agentContainer),
-		verbose: verbose,
+		agents:    make(map[string]*agentContainer),
+		subAgents: make(map[string]*subAgentMessage),
+		verbose:   verbose,
 	}
 }
 
@@ -82,10 +84,16 @@ func (m *chatViewModel) processAssistantMessage(msg message.Message) tea.Cmd {
 	}
 
 	if len(calls) > 0 {
-		ac := m.getOrCreateAgent(agentName, "")
+		ac := m.getOrCreateContainer(agentName, "")
 
 		if text != "" {
-			ac.addThinking(text)
+			// If the agent prefix is 📝 and there are tool calls alongside text,
+			// treat it as a plan rather than thinking.
+			if ac.prefix == "📝" {
+				ac.addPlan(text)
+			} else {
+				ac.addThinking(text)
+			}
 		}
 
 		// Detect parallel calls: count calls per tool name.
@@ -111,7 +119,7 @@ func (m *chatViewModel) processAssistantMessage(msg message.Message) tea.Cmd {
 
 	// Final answer — no tool calls. Print to scrollback.
 	if text != "" {
-		ac := m.agents[agentName]
+		ac := m.resolveContainer(agentName)
 		prefix := "🤖"
 		if ac != nil {
 			prefix = ac.prefix
@@ -131,8 +139,8 @@ func (m *chatViewModel) processToolMessage(msg message.Message) {
 		agentName = "assistant"
 	}
 
-	ac, ok := m.agents[agentName]
-	if !ok {
+	ac := m.resolveContainer(agentName)
+	if ac == nil {
 		return
 	}
 
@@ -145,8 +153,48 @@ func (m *chatViewModel) processToolMessage(msg message.Message) {
 	}
 }
 
+// resolveContainer finds the agent container by name, checking top-level agents
+// first, then nested sub-agents.
+func (m *chatViewModel) resolveContainer(agentName string) *agentContainer {
+	if ac, ok := m.agents[agentName]; ok {
+		return ac
+	}
+	if sa, ok := m.subAgents[agentName]; ok {
+		return sa.container
+	}
+	return nil
+}
+
+// getOrCreateContainer returns an existing container (top-level or nested) or
+// creates a new top-level one.
+func (m *chatViewModel) getOrCreateContainer(agentName, prefix string) *agentContainer {
+	if ac := m.resolveContainer(agentName); ac != nil {
+		return ac
+	}
+	ac := newAgentContainer(agentName, prefix, 0)
+	m.agents[agentName] = ac
+	m.agentOrder = append(m.agentOrder, agentName)
+	return ac
+}
+
 // startAgent creates or retrieves an agent container with the given prefix.
-func (m *chatViewModel) startAgent(agentName, prefix string) {
+// If parent is non-empty, the agent is nested inside the parent's container.
+func (m *chatViewModel) startAgent(agentName, prefix, parent string) {
+	if parent != "" {
+		// Nested sub-agent: find parent container, create child, append as display item.
+		parentAC := m.resolveContainer(parent)
+		if parentAC == nil {
+			// Parent not found — fall through to top-level.
+			parentAC = m.getOrCreateContainer(parent, "")
+		}
+		childAC := newAgentContainer(agentName, prefix, 4)
+		sa := &subAgentMessage{container: childAC}
+		parentAC.items = append(parentAC.items, sa)
+		m.subAgents[agentName] = sa
+		return
+	}
+
+	// Top-level agent.
 	if _, ok := m.agents[agentName]; ok {
 		return
 	}
@@ -156,7 +204,17 @@ func (m *chatViewModel) startAgent(agentName, prefix string) {
 }
 
 // endAgent collapses the named agent's container into a summary and prints it.
-func (m *chatViewModel) endAgent(agentName string) tea.Cmd {
+// Sub-agents are marked done inline within their parent; top-level agents are
+// removed and their summary is printed to scrollback.
+func (m *chatViewModel) endAgent(agentName, _ string) tea.Cmd {
+	// Check if this is a nested sub-agent.
+	if sa, ok := m.subAgents[agentName]; ok {
+		sa.container.done = true
+		delete(m.subAgents, agentName)
+		return nil // summary rendered inline by parent
+	}
+
+	// Top-level agent.
 	ac, ok := m.agents[agentName]
 	if !ok {
 		return nil
@@ -198,14 +256,4 @@ func (m *chatViewModel) advanceSpinners() {
 // hasActiveChains returns true if any agent container is still in progress.
 func (m *chatViewModel) hasActiveChains() bool {
 	return len(m.agents) > 0
-}
-
-func (m *chatViewModel) getOrCreateAgent(agentName, prefix string) *agentContainer {
-	ac, ok := m.agents[agentName]
-	if !ok {
-		ac = newAgentContainer(agentName, prefix, 0)
-		m.agents[agentName] = ac
-		m.agentOrder = append(m.agentOrder, agentName)
-	}
-	return ac
 }

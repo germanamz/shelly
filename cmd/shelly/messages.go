@@ -17,11 +17,13 @@ type chatMessageMsg struct {
 type agentStartMsg struct {
 	agent  string
 	prefix string // display prefix (e.g. "🤖", "📝")
+	parent string // parent agent name (empty for top-level)
 }
 
 // agentEndMsg signals that the named agent finished its ReAct loop.
 type agentEndMsg struct {
-	agent string
+	agent  string
+	parent string // parent agent name (empty for top-level)
 }
 
 // askUserMsg delivers a pending question from the ask responder.

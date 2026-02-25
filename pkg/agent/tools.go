@@ -20,6 +20,7 @@ import (
 // AgentEventData carries metadata about an agent lifecycle event.
 type AgentEventData struct {
 	Prefix string // Display prefix (e.g. "🤖", "📝").
+	Parent string // Name of the parent agent (empty for top-level).
 }
 
 // orchestrationToolBox builds a ToolBox containing the built-in orchestration
@@ -142,13 +143,13 @@ func delegateTool(a *Agent) toolbox.Tool {
 					}
 
 					if a.options.EventNotifier != nil {
-						a.options.EventNotifier(ctx, "agent_start", child.name, AgentEventData{Prefix: child.Prefix()})
+						a.options.EventNotifier(ctx, "agent_start", child.name, AgentEventData{Prefix: child.Prefix(), Parent: a.name})
 					}
 
 					reply, err := child.Run(ctx)
 
 					if a.options.EventNotifier != nil {
-						a.options.EventNotifier(ctx, "agent_end", child.name, AgentEventData{Prefix: child.Prefix()})
+						a.options.EventNotifier(ctx, "agent_end", child.name, AgentEventData{Prefix: child.Prefix(), Parent: a.name})
 					}
 
 					if err != nil {

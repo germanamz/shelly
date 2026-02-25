@@ -85,11 +85,11 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case agentStartMsg:
-		m.chatView.startAgent(msg.agent, msg.prefix)
+		m.chatView.startAgent(msg.agent, msg.prefix, msg.parent)
 		return m, nil
 
 	case agentEndMsg:
-		cmd := m.chatView.endAgent(msg.agent)
+		cmd := m.chatView.endAgent(msg.agent, msg.parent)
 		return m, cmd
 
 	case sendCompleteMsg:

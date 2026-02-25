@@ -41,6 +41,15 @@ func (ac *agentContainer) addThinking(text string) {
 	})
 }
 
+// addPlan adds a plan display item.
+func (ac *agentContainer) addPlan(text string) {
+	ac.items = append(ac.items, &planMessage{
+		agent:  ac.agent,
+		prefix: ac.prefix,
+		text:   text,
+	})
+}
+
 // addToolCall adds a single tool call item.
 func (ac *agentContainer) addToolCall(toolName, args string) *toolCallMessage {
 	tc := &toolCallMessage{
@@ -173,8 +182,8 @@ func (ac *agentContainer) collapsedSummary() string {
 	}
 
 	elapsed := time.Since(ac.startTime)
-	return dimStyle.Render(fmt.Sprintf("  [%s %s: %d steps: %s · %s]",
-		ac.prefix, ac.agent, totalCalls, strings.Join(parts, ", "), fmtDuration(elapsed)))
+	return dimStyle.Render(fmt.Sprintf("  %s%s %s: %s. Ran for %s",
+		treeCorner, ac.prefix, ac.agent, strings.Join(parts, ", "), fmtDuration(elapsed)))
 }
 
 // advanceSpinners increments spinner frames for all live items.
@@ -193,9 +202,7 @@ func (ac *agentContainer) advanceSpinners() {
 				}
 			}
 		case *subAgentMessage:
-			if !it.done {
-				it.frameIdx++
-			}
+			it.container.advanceSpinners()
 		case *spinnerMessage:
 			it.frameIdx++
 		}

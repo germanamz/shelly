@@ -174,37 +174,32 @@ func (m *toolGroupMessage) findPending() *toolCallMessage {
 // --- subAgentMessage ---
 
 type subAgentMessage struct {
-	agent    string
-	prefix   string
-	items    []displayItem
-	maxShow  int
-	done     bool
-	frameIdx int
+	container *agentContainer
 }
 
 func (m *subAgentMessage) View(width int) string {
 	var sb strings.Builder
 
-	prefix := m.prefix
+	prefix := m.container.prefix
 	if prefix == "" {
 		prefix = "🦾"
 	}
 
-	if !m.done {
-		frame := spinnerFrames[m.frameIdx%len(spinnerFrames)]
+	if !m.container.done {
+		frame := spinnerFrames[m.container.frameIdx%len(spinnerFrames)]
 		fmt.Fprintf(&sb, "  %s %s\n",
-			subAgentStyle.Render(fmt.Sprintf("%s %s", prefix, m.agent)),
+			subAgentStyle.Render(fmt.Sprintf("%s %s", prefix, m.container.agent)),
 			spinnerStyle.Render(frame),
 		)
 	} else {
 		fmt.Fprintf(&sb, "  %s\n",
-			subAgentStyle.Render(fmt.Sprintf("%s %s (done)", prefix, m.agent)),
+			subAgentStyle.Render(fmt.Sprintf("%s %s (done)", prefix, m.container.agent)),
 		)
 	}
 
-	items := m.items
-	if m.maxShow > 0 && len(items) > m.maxShow {
-		skipped := len(items) - m.maxShow
+	items := m.container.items
+	if m.container.maxShow > 0 && len(items) > m.container.maxShow {
+		skipped := len(items) - m.container.maxShow
 		fmt.Fprintf(&sb, "    %s\n", dimStyle.Render(fmt.Sprintf("... %d more items", skipped)))
 		items = items[skipped:]
 	}
@@ -219,5 +214,32 @@ func (m *subAgentMessage) View(width int) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-func (m *subAgentMessage) IsLive() bool { return !m.done }
+func (m *subAgentMessage) IsLive() bool { return !m.container.done }
 func (m *subAgentMessage) Kind() string { return "sub_agent" }
+
+// --- planMessage ---
+
+type planMessage struct {
+	agent  string
+	prefix string
+	text   string
+}
+
+func (m *planMessage) View(width int) string {
+	prefix := m.prefix
+	if prefix == "" {
+		prefix = "📝"
+	}
+	header := thinkingTextStyle.Render(fmt.Sprintf("  %s %s plan:", prefix, m.agent))
+
+	rendered := renderMarkdown(m.text)
+	var sb strings.Builder
+	sb.WriteString(header)
+	for line := range strings.SplitSeq(rendered, "\n") {
+		fmt.Fprintf(&sb, "\n  %s", thinkingTextStyle.Render("  "+line))
+	}
+	return sb.String()
+}
+
+func (m *planMessage) IsLive() bool { return false }
+func (m *planMessage) Kind() string { return "plan" }

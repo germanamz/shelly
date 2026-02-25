@@ -38,14 +38,19 @@ func startBridge(ctx context.Context, p *tea.Program, c *chat.Chat, events *engi
 					p.Send(askUserMsg{question: q, agent: ev.Agent})
 
 				case engine.EventAgentStart:
-					var prefix string
+					var prefix, parent string
 					if d, ok := ev.Data.(agent.AgentEventData); ok {
 						prefix = d.Prefix
+						parent = d.Parent
 					}
-					p.Send(agentStartMsg{agent: ev.Agent, prefix: prefix})
+					p.Send(agentStartMsg{agent: ev.Agent, prefix: prefix, parent: parent})
 
 				case engine.EventAgentEnd:
-					p.Send(agentEndMsg{agent: ev.Agent})
+					var parent string
+					if d, ok := ev.Data.(agent.AgentEventData); ok {
+						parent = d.Parent
+					}
+					p.Send(agentEndMsg{agent: ev.Agent, parent: parent})
 				}
 			}
 		}
