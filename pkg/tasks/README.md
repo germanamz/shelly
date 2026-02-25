@@ -19,7 +19,8 @@ id := s.Create(tasks.Task{Title: "Research X"})
 task, ok := s.Get(id)
 tasks := s.List(tasks.Filter{Status: &pending})
 s.Update(id, tasks.Update{Status: &completed})
-s.Claim(id, "worker-1")       // atomic assign + in_progress
+s.Claim(id, "worker-1")       // atomic assign + in_progress (rejects different assignee)
+s.Reassign(id, "worker-2")   // force-assign to new agent (used by delegation)
 task, err := s.WatchCompleted(ctx, id) // blocks until done
 blocked := s.IsBlocked(id)
 ```
@@ -34,7 +35,8 @@ pending → in_progress → completed
 ```
 
 - `Create` always sets status to `pending`
-- `Claim` atomically sets assignee + status to `in_progress`
+- `Claim` atomically sets assignee + status to `in_progress` (rejects if already assigned to a different agent)
+- `Reassign` atomically overrides the assignee + status to `in_progress` (used by delegation tools to transfer ownership)
 - `Update` can set any status
 - `WatchCompleted` blocks until `completed` or `failed`
 

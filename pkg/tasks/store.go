@@ -203,6 +203,35 @@ func (s *Store) Claim(id, agent string) error {
 	return nil
 }
 
+// Reassign atomically assigns a task to a new agent, overriding any
+// existing assignee. Used by delegation tools to transfer ownership
+// from the orchestrator to the actual executor. Returns an error if
+// the task is blocked or in a terminal state.
+func (s *Store) Reassign(id, agent string) error {
+	s.init()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	t, ok := s.tasks[id]
+	if !ok {
+		return fmt.Errorf("tasks: task %q not found", id)
+	}
+
+	if t.Status == StatusCompleted || t.Status == StatusFailed {
+		return fmt.Errorf("tasks: task %q is in terminal state %q", id, t.Status)
+	}
+
+	if s.isBlockedLocked(id) {
+		return fmt.Errorf("tasks: task %q is blocked", id)
+	}
+
+	t.Assignee = agent
+	t.Status = StatusInProgress
+	s.notify()
+
+	return nil
+}
+
 // WatchCompleted blocks until the task reaches "completed" or "failed",
 // or the context is cancelled.
 func (s *Store) WatchCompleted(ctx context.Context, id string) (Task, error) {

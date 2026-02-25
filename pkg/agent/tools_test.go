@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/germanamz/shelly/pkg/chats/chat"
@@ -294,9 +295,12 @@ func TestDelegateToolToolboxInheritance(t *testing.T) {
 // --- task_id integration tests ---
 
 // mockTaskBoard records ClaimTask and UpdateTaskStatus calls for testing.
+// It is safe for concurrent use.
 type mockTaskBoard struct {
+	mu      sync.Mutex
 	claims  []mockClaim
 	updates []mockStatusUpdate
+	claimFn func(id, agent string) error // optional custom claim behaviour
 }
 
 type mockClaim struct {
@@ -310,11 +314,18 @@ type mockStatusUpdate struct {
 }
 
 func (m *mockTaskBoard) ClaimTask(id, agent string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.claims = append(m.claims, mockClaim{ID: id, Agent: agent})
+	if m.claimFn != nil {
+		return m.claimFn(id, agent)
+	}
 	return nil
 }
 
 func (m *mockTaskBoard) UpdateTaskStatus(id, status string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.updates = append(m.updates, mockStatusUpdate{ID: id, Status: status})
 	return nil
 }
@@ -357,6 +368,54 @@ func TestDelegateToolWithTaskID(t *testing.T) {
 	assert.Equal(t, "completed", board.updates[0].Status)
 
 	// Result should contain structured completion.
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Completion)
+	assert.Equal(t, "completed", results[0].Completion.Status)
+}
+
+func TestDelegateToolWithTaskIDPreClaimed(t *testing.T) {
+	// Simulates Issue 9: orchestrator claims a task, then delegates with task_id.
+	// The mock board rejects re-claims by a different agent (like Store.Claim does).
+	board := &mockTaskBoard{
+		claimFn: func(id, agent string) error {
+			// First call (from orchestrator) succeeds. Second call (from delegation
+			// to worker) should also succeed because taskBoardAdapter uses Reassign.
+			return nil
+		},
+	}
+
+	reg := NewRegistry()
+	reg.Register("worker", "Does work", func() *Agent {
+		return New("worker", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{
+						ID:        "c1",
+						Name:      "task_complete",
+						Arguments: `{"status":"completed","summary":"did it"}`,
+					},
+				),
+			},
+		}, Options{})
+	})
+
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{TaskBoard: board}}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"worker","task":"do the thing","context":"some context","task_id":"task-1"}]}`,
+	))
+
+	require.NoError(t, err)
+
+	// Verify task was claimed for the child agent.
+	require.Len(t, board.claims, 1)
+	assert.Equal(t, "task-1", board.claims[0].ID)
+	assert.Equal(t, "worker", board.claims[0].Agent)
+
+	// Verify task was completed.
 	var results []delegateResult
 	require.NoError(t, json.Unmarshal([]byte(result), &results))
 	require.Len(t, results, 1)

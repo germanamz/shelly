@@ -230,6 +230,76 @@ func TestClaimNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
+// --- Reassign tests ---
+
+func TestReassign(t *testing.T) {
+	s := &Store{}
+
+	id := s.Create(Task{Title: "task"})
+	require.NoError(t, s.Claim(id, "worker-1"))
+
+	require.NoError(t, s.Reassign(id, "worker-2"))
+
+	task, _ := s.Get(id)
+	assert.Equal(t, "worker-2", task.Assignee)
+	assert.Equal(t, StatusInProgress, task.Status)
+}
+
+func TestReassignSameAgent(t *testing.T) {
+	s := &Store{}
+
+	id := s.Create(Task{Title: "task"})
+	require.NoError(t, s.Claim(id, "worker"))
+
+	require.NoError(t, s.Reassign(id, "worker"))
+
+	task, _ := s.Get(id)
+	assert.Equal(t, "worker", task.Assignee)
+}
+
+func TestReassignFromUnassigned(t *testing.T) {
+	s := &Store{}
+
+	id := s.Create(Task{Title: "task"})
+
+	require.NoError(t, s.Reassign(id, "worker"))
+
+	task, _ := s.Get(id)
+	assert.Equal(t, "worker", task.Assignee)
+	assert.Equal(t, StatusInProgress, task.Status)
+}
+
+func TestReassignTerminal(t *testing.T) {
+	s := &Store{}
+
+	id := s.Create(Task{Title: "task"})
+	completed := StatusCompleted
+	require.NoError(t, s.Update(id, Update{Status: &completed}))
+
+	err := s.Reassign(id, "worker")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "terminal")
+}
+
+func TestReassignBlocked(t *testing.T) {
+	s := &Store{}
+
+	s.Create(Task{Title: "blocker"})
+	id := s.Create(Task{Title: "blocked", BlockedBy: []string{"task-1"}})
+
+	err := s.Reassign(id, "worker")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "blocked")
+}
+
+func TestReassignNotFound(t *testing.T) {
+	s := &Store{}
+
+	err := s.Reassign("task-999", "worker")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
 // --- IsBlocked tests ---
 
 func TestIsBlocked(t *testing.T) {

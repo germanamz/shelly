@@ -40,11 +40,9 @@ Fixed: Delegation tools (`delegate_to_agent`, `spawn_agents`) now synthesize a s
 
 Fixed: Added `FileLocker` (per-path `sync.Mutex`) to the `FS` struct. All file-modifying handlers (`fs_write`, `fs_edit`, `fs_patch`, `fs_delete`, `fs_move`, `fs_copy`, `fs_mkdir`) acquire the lock before their read-modify-write cycle. Two-path operations lock in sorted order to avoid deadlocks. Read-only tools don't lock. Additionally, `delegate_to_agent` and `spawn_agents` were unified into a single `delegate` tool that accepts an array of tasks and runs them concurrently. See `pkg/codingtoolbox/filesystem/filelocker.go` and `pkg/agent/tools.go`.
 
-## Issue 9: `agentctx` Name Mismatch With Task Board
+## ~~Issue 9: `agentctx` Name Mismatch With Task Board~~ (FIXED)
 
-**`pkg/agent/agent.go:132`**
-
-Each agent overwrites the context's agent name: `ctx = agentctx.WithAgentName(ctx, a.name)`. The task board's `handleClaim` uses this to auto-assign tasks. If the orchestrator claims a task before delegating, the assignee is `"orchestrator"` — not `"coder"` — causing a mismatch between the assignee and actual executor.
+Fixed: Added `Store.Reassign()` method that overrides any existing assignee (unlike `Claim()` which rejects re-assignment). The engine's `taskBoardAdapter.ClaimTask()` now calls `Reassign()` instead of `Claim()`, so delegation auto-claim correctly transfers ownership from the orchestrator to the child agent. The manual `shared_tasks_claim` tool still uses `Store.Claim()` via `handleClaim`, preserving "no stealing" semantics for direct agent-to-agent tool calls. See `pkg/tasks/store.go` and `pkg/engine/engine.go`.
 
 ---
 
@@ -60,7 +58,7 @@ Each agent overwrites the context's agent name: `ctx = agentctx.WithAgentName(ct
 | ~~6~~ | ~~Notes not enforced~~ | ~~FIXED — `<notes_protocol>` in system prompt when notes tools present~~ | `agent.go` |
 | ~~7~~ | ~~No iteration exhaustion recovery~~ | ~~FIXED — structured `CompletionResult` on exhaustion~~ | `tools.go`, `agent.go` |
 | ~~8~~ | ~~Concurrent file clobbering~~ | ~~FIXED — FileLocker + unified `delegate` tool~~ | `filelocker.go`, `tools.go` |
-| 9 | Agent name mismatch in tasks | Task assignee doesn't match executor | `agent.go:132` |
+| ~~9~~ | ~~Agent name mismatch in tasks~~ | ~~FIXED — `Reassign()` method + `taskBoardAdapter` uses it~~ | `store.go`, `engine.go` |
 
 ---
 

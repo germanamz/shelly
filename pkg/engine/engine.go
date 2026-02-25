@@ -298,7 +298,7 @@ type taskBoardAdapter struct {
 }
 
 func (a *taskBoardAdapter) ClaimTask(id, agentName string) error {
-	return a.store.Claim(id, agentName)
+	return a.store.Reassign(id, agentName)
 }
 
 func (a *taskBoardAdapter) UpdateTaskStatus(id, status string) error {

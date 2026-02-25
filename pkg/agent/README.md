@@ -69,7 +69,7 @@ Safety guards: self-delegation rejected, `MaxDelegationDepth` enforced.
 
 When `Options.TaskBoard` is set, the `delegate` tool supports an optional `task_id` parameter per task:
 
-1. **Before `child.Run()`**: if `task_id` is provided, `TaskBoard.ClaimTask(taskID, childName)` is called automatically. Claim errors are silently ignored (the task may already be claimed).
+1. **Before `child.Run()`**: if `task_id` is provided, `TaskBoard.ClaimTask(taskID, childName)` is called automatically. This uses `Reassign` semantics, so it overrides any previous assignee (e.g. the orchestrator) to the actual executor. Claim errors are silently ignored.
 2. **After `child.Run()`**: if the child produced a `CompletionResult`, `TaskBoard.UpdateTaskStatus(taskID, cr.Status)` is called automatically.
 
 This eliminates 2-3 manual tool calls per delegation that the LLM would otherwise need to make (`shared_tasks_claim`, `shared_tasks_update`), making task lifecycle management reliable without relying on LLM compliance.
