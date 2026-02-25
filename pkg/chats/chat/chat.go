@@ -3,8 +3,10 @@ package chat
 
 import (
 	"context"
+	"maps"
 	"sync"
 
+	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/chats/role"
 )
@@ -87,13 +89,25 @@ func (c *Chat) Last() (message.Message, bool) {
 	return c.messages[len(c.messages)-1], true
 }
 
-// Messages returns a copy of all messages in the conversation.
+// Messages returns a deep copy of all messages in the conversation.
+// Parts slices and Metadata maps are copied so that callers cannot
+// mutate the original conversation data.
 func (c *Chat) Messages() []message.Message {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	cp := make([]message.Message, len(c.messages))
-	copy(cp, c.messages)
+	for i, m := range c.messages {
+		cp[i] = m
+		if m.Parts != nil {
+			cp[i].Parts = make([]content.Part, len(m.Parts))
+			copy(cp[i].Parts, m.Parts)
+		}
+		if m.Metadata != nil {
+			cp[i].Metadata = make(map[string]any, len(m.Metadata))
+			maps.Copy(cp[i].Metadata, m.Metadata)
+		}
+	}
 
 	return cp
 }

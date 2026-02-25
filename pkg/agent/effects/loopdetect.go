@@ -25,7 +25,8 @@ type LoopDetectConfig struct {
 // the same arguments repeatedly and injects an intervention message. It runs
 // only at PhaseBeforeComplete when Iteration > 0.
 type LoopDetectEffect struct {
-	cfg LoopDetectConfig
+	cfg               LoopDetectConfig
+	lastInjectedCount int
 }
 
 // NewLoopDetectEffect creates a LoopDetectEffect with the given configuration,
@@ -48,10 +49,17 @@ func (e *LoopDetectEffect) Eval(_ context.Context, ic agent.IterationContext) er
 	}
 
 	toolName, count := e.detectLoop(ic)
-	if count >= e.cfg.Threshold {
+	if count < e.cfg.Threshold {
+		e.lastInjectedCount = 0
+
+		return nil
+	}
+
+	if count > e.lastInjectedCount {
 		ic.Chat.Append(message.NewText("", role.User,
 			fmt.Sprintf("You have called %s with the same arguments %d times. This is not making progress. Try a different approach or tool.", toolName, count),
 		))
+		e.lastInjectedCount = count
 	}
 
 	return nil

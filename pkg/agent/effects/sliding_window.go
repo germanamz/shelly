@@ -130,9 +130,6 @@ func (e *SlidingWindowEffect) shouldManage(completer modeladapter.Completer) boo
 
 // manage applies the three-zone sliding window to the chat.
 func (e *SlidingWindowEffect) manage(ctx context.Context, ic agent.IterationContext) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
 	msgs := ic.Chat.Messages()
 
 	// Find non-system messages (system prompt is always index 0).
@@ -168,15 +165,29 @@ func (e *SlidingWindowEffect) manage(ctx context.Context, ic agent.IterationCont
 	recentMsgs := nonSystem[recentStart:]
 
 	// Summarize old messages incrementally.
+	// The LLM call is done outside the mutex to avoid blocking concurrent agents.
 	summarized := true
 	if len(oldMsgs) > 0 {
 		transcript := renderMessages(oldMsgs)
-		if err := e.updateSummary(ctx, ic, transcript); err != nil {
+
+		// Read current summary under lock.
+		e.mu.Lock()
+		existing := e.runningSummary
+		e.mu.Unlock()
+
+		// Perform the blocking LLM call without holding the lock.
+		newSummary, err := e.computeSummary(ctx, ic, existing, transcript)
+		if err != nil {
 			// Non-fatal: retain old messages instead of dropping them.
 			summarized = false
 			if e.cfg.NotifyFunc != nil {
 				e.cfg.NotifyFunc(ctx, "Sliding window summarization failed, retaining old messages")
 			}
+		} else {
+			// Write the updated summary under lock.
+			e.mu.Lock()
+			e.runningSummary = newSummary
+			e.mu.Unlock()
 		}
 	}
 
@@ -209,14 +220,18 @@ func (e *SlidingWindowEffect) manage(ctx context.Context, ic agent.IterationCont
 	}
 
 	// Reconstruct the chat: system prompt + optional summary + medium + recent.
+	e.mu.Lock()
+	currentSummary := e.runningSummary
+	e.mu.Unlock()
+
 	var newMsgs []message.Message
 	newMsgs = append(newMsgs, msgs[:startIdx]...) // System prompt(s).
 
 	if !summarized {
 		// Summarization failed — keep old messages to avoid data loss.
 		newMsgs = append(newMsgs, oldMsgs...)
-	} else if e.runningSummary != "" {
-		summaryMsg := fmt.Sprintf("[Context summary — earlier conversation condensed below.]\n\n%s", e.runningSummary)
+	} else if currentSummary != "" {
+		summaryMsg := fmt.Sprintf("[Context summary — earlier conversation condensed below.]\n\n%s", currentSummary)
 		newMsgs = append(newMsgs, message.NewText("", role.User, summaryMsg))
 	}
 
@@ -232,10 +247,11 @@ func (e *SlidingWindowEffect) manage(ctx context.Context, ic agent.IterationCont
 	return nil
 }
 
-// updateSummary asks the LLM to incrementally update the running summary with
-// information from newly evicted messages.
-func (e *SlidingWindowEffect) updateSummary(ctx context.Context, ic agent.IterationContext, newTranscript string) error {
-	existing := e.runningSummary
+// computeSummary asks the LLM to incrementally update the running summary with
+// information from newly evicted messages. It returns the new summary text
+// without modifying any struct state, so callers can invoke it without holding
+// the mutex.
+func (e *SlidingWindowEffect) computeSummary(ctx context.Context, ic agent.IterationContext, existing, newTranscript string) (string, error) {
 	if existing == "" {
 		existing = "(no prior summary)"
 	}
@@ -249,12 +265,10 @@ func (e *SlidingWindowEffect) updateSummary(ctx context.Context, ic agent.Iterat
 
 	reply, err := ic.Completer.Complete(ctx, tempChat, nil)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	e.runningSummary = reply.TextContent()
-
-	return nil
+	return reply.TextContent(), nil
 }
 
 // renderMessages converts a slice of messages into a compact text transcript.

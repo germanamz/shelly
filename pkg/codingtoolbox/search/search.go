@@ -118,7 +118,12 @@ func (s *Search) handleContent(ctx context.Context, input json.RawMessage) (stri
 		maxResults = 100
 	}
 
-	var matches []contentMatch
+	const maxTotalBytes = 1 << 20 // 1MB total content cap
+
+	var (
+		matches    []contentMatch
+		totalBytes int
+	)
 
 	err = filepath.WalkDir(abs, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -129,7 +134,7 @@ func (s *Search) handleContent(ctx context.Context, input json.RawMessage) (stri
 			return nil
 		}
 
-		if len(matches) >= maxResults {
+		if len(matches) >= maxResults || totalBytes >= maxTotalBytes {
 			return filepath.SkipAll
 		}
 
@@ -159,7 +164,9 @@ func (s *Search) handleContent(ctx context.Context, input json.RawMessage) (stri
 					Content: line,
 				})
 
-				if len(matches) >= maxResults {
+				totalBytes += len(line)
+
+				if len(matches) >= maxResults || totalBytes >= maxTotalBytes {
 					return filepath.SkipAll
 				}
 			}

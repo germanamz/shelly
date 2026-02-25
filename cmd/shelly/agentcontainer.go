@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -155,8 +156,15 @@ func (ac *agentContainer) collapsedSummary() string {
 		return ""
 	}
 
+	toolNames := make([]string, 0, len(toolCounts))
+	for name := range toolCounts {
+		toolNames = append(toolNames, name)
+	}
+	slices.Sort(toolNames)
+
 	var parts []string
-	for name, count := range toolCounts {
+	for _, name := range toolNames {
+		count := toolCounts[name]
 		if count > 1 {
 			parts = append(parts, fmt.Sprintf("%s x%d", name, count))
 		} else {

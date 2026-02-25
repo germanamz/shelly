@@ -202,8 +202,15 @@ func (s *Store) persist() error {
 		return fmt.Errorf("permissions: create dir: %w", err)
 	}
 
-	if err := os.WriteFile(s.filePath, data, 0o600); err != nil {
-		return fmt.Errorf("permissions: write file: %w", err)
+	// Atomic write: write to a temp file first, then rename so a crash
+	// mid-write does not leave a corrupted (truncated) permissions file.
+	tmp := s.filePath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return fmt.Errorf("permissions: write temp file: %w", err)
+	}
+
+	if err := os.Rename(tmp, s.filePath); err != nil {
+		return fmt.Errorf("permissions: rename temp file: %w", err)
 	}
 
 	return nil

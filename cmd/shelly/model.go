@@ -225,14 +225,15 @@ func (m *appModel) handleSubmit(msg inputSubmitMsg) (tea.Model, tea.Cmd) {
 	m.state = stateProcessing
 	m.inputBox.disable()
 	m.chatView.setProcessing(true)
-	m.sendStart = time.Now()
+	sendStart := time.Now()
+	m.sendStart = sendStart
 
 	// Start the send in a background goroutine via tea.Cmd.
 	sess := m.sess
 	ctx := m.ctx
 	sendCmd := func() tea.Msg {
 		_, err := sess.Send(ctx, text)
-		return sendCompleteMsg{err: err, duration: time.Since(m.sendStart)}
+		return sendCompleteMsg{err: err, duration: time.Since(sendStart)}
 	}
 
 	return m, tea.Batch(printCmd, sendCmd, tickCmd())

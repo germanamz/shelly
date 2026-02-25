@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -28,14 +29,82 @@ type HTTP struct {
 	client *http.Client
 }
 
+// privateRanges are the CIDR blocks for private/loopback networks.
+var privateRanges = func() []*net.IPNet {
+	cidrs := []string{
+		"127.0.0.0/8",
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"169.254.0.0/16",
+		"::1/128",
+		"fc00::/7",
+		"fe80::/10",
+	}
+
+	nets := make([]*net.IPNet, 0, len(cidrs))
+
+	for _, cidr := range cidrs {
+		_, ipNet, _ := net.ParseCIDR(cidr)
+		nets = append(nets, ipNet)
+	}
+
+	return nets
+}()
+
+// isPrivateHost returns true if the host resolves to a private or loopback IP.
+func isPrivateHost(host string) bool {
+	hostname := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		hostname = h
+	}
+
+	ips, err := net.LookupIP(hostname)
+	if err != nil {
+		// If we can't resolve, err on the side of caution.
+		return true
+	}
+
+	for _, ip := range ips {
+		for _, r := range privateRanges {
+			if r.Contains(ip) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // New creates an HTTP that checks the given permissions store for trusted
 // domains and prompts the user via askFn when a domain is not yet trusted.
 func New(store *permissions.Store, askFn AskFunc) *HTTP {
-	return &HTTP{
-		store:  store,
-		ask:    askFn,
-		client: &http.Client{Timeout: 60 * time.Second},
+	h := &HTTP{
+		store: store,
+		ask:   askFn,
 	}
+
+	h.client = &http.Client{
+		Timeout: 60 * time.Second,
+		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+			domain := req.URL.Hostname()
+			if domain == "" {
+				return fmt.Errorf("http: redirect target has no domain")
+			}
+
+			if isPrivateHost(req.URL.Host) {
+				return fmt.Errorf("http: redirect to private/internal address %s is not allowed", req.URL.Host)
+			}
+
+			if !h.store.IsDomainTrusted(domain) {
+				return fmt.Errorf("http: redirect to untrusted domain %s is not allowed", domain)
+			}
+
+			return nil
+		},
+	}
+
+	return h
 }
 
 // Tools returns a ToolBox containing the HTTP tools.

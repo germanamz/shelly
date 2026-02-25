@@ -43,16 +43,39 @@ func (b *limitedBuffer) String() string { return string(b.buf) }
 // AskFunc asks the user a question and blocks until a response is received.
 type AskFunc func(ctx context.Context, question string, options []string) (string, error)
 
+// OnExecFunc is called when a trusted command is about to execute, giving the
+// frontend an opportunity to display what is being run without blocking.
+type OnExecFunc func(ctx context.Context, display string)
+
 // Exec provides command execution tools with permission gating.
 type Exec struct {
-	store *permissions.Store
-	ask   AskFunc
+	store  *permissions.Store
+	ask    AskFunc
+	onExec OnExecFunc
 }
 
 // New creates an Exec that checks the given permissions store for trusted
 // commands and prompts the user via askFn when a command is not yet trusted.
-func New(store *permissions.Store, askFn AskFunc) *Exec {
-	return &Exec{store: store, ask: askFn}
+// The optional onExec callback is called for trusted commands so the frontend
+// can display what is being executed.
+func New(store *permissions.Store, askFn AskFunc, opts ...Option) *Exec {
+	e := &Exec{store: store, ask: askFn}
+	for _, opt := range opts {
+		opt(e)
+	}
+
+	return e
+}
+
+// Option configures optional Exec behaviour.
+type Option func(*Exec)
+
+// WithOnExec sets a callback that is invoked when a trusted command is about
+// to execute, allowing the frontend to display the full command line.
+func WithOnExec(fn OnExecFunc) Option {
+	return func(e *Exec) {
+		e.onExec = fn
+	}
 }
 
 // Tools returns a ToolBox containing the exec tools.
@@ -120,16 +143,22 @@ func (e *Exec) handleRun(ctx context.Context, input json.RawMessage) (string, er
 }
 
 func (e *Exec) checkPermission(ctx context.Context, command string, args []string) error {
-	if e.store.IsCommandTrusted(command) {
-		return nil
-	}
-
 	display := command
 	if len(args) > 0 {
 		display += " " + strings.Join(args, " ")
 	}
 
-	resp, err := e.ask(ctx, fmt.Sprintf("Allow running `%s`?", display), []string{"yes", "trust", "no"})
+	if e.store.IsCommandTrusted(command) {
+		// Inform the user what is being executed even for trusted commands
+		// so they maintain awareness of what the agent runs.
+		if e.onExec != nil {
+			e.onExec(ctx, display)
+		}
+
+		return nil
+	}
+
+	resp, err := e.ask(ctx, fmt.Sprintf("Allow running `%s`?\n(\"trust\" will allow `%s` with ANY arguments without future prompts)", display, command), []string{"yes", "trust", "no"})
 	if err != nil {
 		return fmt.Errorf("exec_run: ask permission: %w", err)
 	}

@@ -257,6 +257,10 @@ func (g *Git) handleCommit(ctx context.Context, input json.RawMessage) (string, 
 		return "", fmt.Errorf("git_commit: message is required")
 	}
 
+	if strings.HasPrefix(in.Message, "-") {
+		return "", fmt.Errorf("git_commit: commit message must not start with '-'")
+	}
+
 	if len(in.Files) > 0 && in.All {
 		return "", fmt.Errorf("git_commit: cannot use both files and all")
 	}

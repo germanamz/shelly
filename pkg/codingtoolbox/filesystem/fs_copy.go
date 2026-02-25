@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
@@ -112,9 +113,36 @@ func copyFile(src, dst string, mode fs.FileMode) error {
 }
 
 func copyDir(src, dst string) error {
-	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+	absSrc, err := filepath.Abs(src)
+	if err != nil {
+		return fmt.Errorf("resolve source: %w", err)
+	}
+
+	// Resolve the source root through symlinks so comparisons work on systems
+	// where temp directories are behind symlinks (e.g. /var -> /private/var on macOS).
+	absSrc, err = filepath.EvalSymlinks(absSrc)
+	if err != nil {
+		return fmt.Errorf("resolve source symlinks: %w", err)
+	}
+
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+
+		// Resolve symlinks and verify the real path stays within the source tree.
+		resolved, err := filepath.EvalSymlinks(path)
 		if err != nil {
 			return err
+		}
+
+		if resolved != absSrc && !strings.HasPrefix(resolved, absSrc+string(filepath.Separator)) {
+			// Symlink points outside the source tree; skip it.
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+
+			return nil
 		}
 
 		rel, err := filepath.Rel(src, path)

@@ -48,18 +48,18 @@ func NewResponder(onAsk OnAskFunc) *Responder {
 // if the question ID is not found or the receiver is no longer listening.
 func (r *Responder) Respond(questionID, response string) error {
 	r.mu.Lock()
-	ch, ok := r.pending[questionID]
-	if ok {
-		delete(r.pending, questionID)
-	}
-	r.mu.Unlock()
+	defer r.mu.Unlock()
 
+	ch, ok := r.pending[questionID]
 	if !ok {
 		return fmt.Errorf("ask: question %q not found", questionID)
 	}
 
+	// The channel is buffered (size 1), so this send will not block as long
+	// as the entry is still in pending (meaning no one else has sent yet).
 	select {
 	case ch <- response:
+		delete(r.pending, questionID)
 		return nil
 	default:
 		return fmt.Errorf("ask: question %q is no longer awaiting a response", questionID)

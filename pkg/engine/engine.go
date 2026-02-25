@@ -462,8 +462,10 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 		NotifyFunc:    notifyFn,
 	}
 
-	agentEffects, err := buildEffects(effectConfigs, wctx)
-	if err != nil {
+	// Validate effect configs eagerly so registration fails fast on bad config.
+	// The actual construction happens inside the factory closure below so that
+	// each agent instance gets its own fresh (non-shared) effect state.
+	if _, err := buildEffects(effectConfigs, wctx); err != nil {
 		return fmt.Errorf("engine: agent %q: %w", ac.Name, err)
 	}
 
@@ -499,18 +501,23 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 		taskBoard = &taskBoardAdapter{store: e.taskStore}
 	}
 
-	opts := agent.Options{
-		MaxIterations:      ac.Options.MaxIterations,
-		MaxDelegationDepth: ac.Options.MaxDelegationDepth,
-		Skills:             skills,
-		Effects:            agentEffects,
-		Context:            ctxStr,
-		EventNotifier:      eventNotifier,
-		Prefix:             prefix,
-		TaskBoard:          taskBoard,
-	}
-
 	e.registry.Register(name, desc, func() *agent.Agent {
+		// Build fresh effects for each agent instance so stateful effects
+		// (e.g. SlidingWindowEffect, ReflectionEffect, LoopDetectEffect)
+		// are not shared across agents created by the same factory.
+		agentEffects, _ := buildEffects(effectConfigs, wctx)
+
+		opts := agent.Options{
+			MaxIterations:      ac.Options.MaxIterations,
+			MaxDelegationDepth: ac.Options.MaxDelegationDepth,
+			Skills:             skills,
+			Effects:            agentEffects,
+			Context:            ctxStr,
+			EventNotifier:      eventNotifier,
+			Prefix:             prefix,
+			TaskBoard:          taskBoard,
+		}
+
 		a := agent.New(name, desc, instr, completer, opts)
 		a.AddToolBoxes(tbs...)
 		return a

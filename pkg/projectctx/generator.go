@@ -49,8 +49,8 @@ func readModule(root string) string {
 
 	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "module ") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "module"))
+		if mod, ok := strings.CutPrefix(line, "module "); ok {
+			return strings.TrimSpace(mod)
 		}
 	}
 

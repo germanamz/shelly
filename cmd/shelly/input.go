@@ -131,7 +131,7 @@ func (m *inputModel) updatePickerState(prevVal, newVal string, existingCmd tea.C
 	}
 
 	// Detect new '@' character.
-	if len(newVal) > len(prevVal) && strings.Contains(newVal, "@") && !strings.Contains(prevVal, "@") {
+	if strings.Count(newVal, "@") > strings.Count(prevVal, "@") {
 		atIdx := strings.LastIndex(newVal, "@")
 		atRunePos := len([]rune(newVal[:atIdx]))
 		pickerCmd := m.filePicker.activate(atRunePos)
