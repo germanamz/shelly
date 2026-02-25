@@ -269,6 +269,9 @@ func (a *Agent) buildSystemPrompt() string {
 		b.WriteString("- summary: concise description of what was done\n")
 		b.WriteString("- files_modified, tests_run, caveats: as applicable\n")
 		b.WriteString("Do NOT simply stop responding — always call task_complete.\n")
+		b.WriteString("If you sense you are running low on iterations and cannot finish, ")
+		b.WriteString("call task_complete with status \"failed\", summarize what was done, ")
+		b.WriteString("and describe remaining work in caveats. Write a progress note first.\n")
 		b.WriteString("</completion_protocol>\n")
 	}
 

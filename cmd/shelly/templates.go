@@ -90,9 +90,11 @@ description: "Task orchestration protocol: decomposition, delegation, verificati
 
 ## On Failure or Iteration Exhaustion
 
-1. Read any progress notes the child may have written.
+Iteration exhaustion returns a structured ` + "`CompletionResult`" + ` with ` + "`status: \"failed\"`" + ` — not an error. This is the same format as a normal ` + "`task_complete`" + ` call.
+
+1. Check the ` + "`caveats`" + ` field for exhaustion details and read any progress notes the child may have written.
 2. Diagnose the failure: was the task spec unclear? Was the scope too large?
-3. Refine the task spec, split into smaller tasks if needed, and re-delegate.
+3. Refine the task spec, split into smaller tasks if needed, and re-delegate with a narrower scope.
 4. If repeated failures occur, report the blocker to the user with details.
 
 ## State Persistence
@@ -173,7 +175,7 @@ After completing work:
 If you are running low on iterations and cannot finish:
 
 1. Write a progress note documenting what was completed and what remains.
-2. Mark the task as failed on the task board with details about remaining work.
+2. Call ` + "`task_complete`" + ` with ` + "`status: \"failed\"`" + `, include a summary of what's done, and describe remaining work in ` + "`caveats`" + `. This gives the orchestrator structured data to decide how to proceed.
 `,
 	},
 }

@@ -37,4 +37,4 @@ After completing work:
 If you are running low on iterations and cannot finish:
 
 1. Write a progress note documenting what was completed and what remains.
-2. Mark the task as failed on the task board with details about remaining work.
+2. Call `task_complete` with `status: "failed"`, include a summary of what's done, and describe remaining work in `caveats`. This gives the orchestrator structured data to decide how to proceed.

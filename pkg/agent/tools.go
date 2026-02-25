@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -112,6 +113,21 @@ func delegateTool(a *Agent) toolbox.Tool {
 			}
 
 			if err != nil {
+				if errors.Is(err, ErrMaxIterations) {
+					cr := &CompletionResult{
+						Status:  "failed",
+						Summary: fmt.Sprintf("Agent %q exhausted its iteration limit without completing the task.", di.Agent),
+						Caveats: "Iteration limit reached. Check progress notes for partial work.",
+					}
+					if di.TaskID != "" && a.options.TaskBoard != nil {
+						_ = a.options.TaskBoard.UpdateTaskStatus(di.TaskID, cr.Status)
+					}
+					data, marshalErr := json.Marshal(cr)
+					if marshalErr != nil {
+						return "", fmt.Errorf("delegate_to_agent: marshal completion: %w", marshalErr)
+					}
+					return string(data), nil
+				}
 				return "", fmt.Errorf("delegate_to_agent: agent %q: %w", di.Agent, err)
 			}
 
@@ -220,6 +236,21 @@ func spawnTool(a *Agent) toolbox.Tool {
 					}
 
 					if err != nil {
+						if errors.Is(err, ErrMaxIterations) {
+							cr := &CompletionResult{
+								Status:  "failed",
+								Summary: fmt.Sprintf("Agent %q exhausted its iteration limit without completing the task.", t.Agent),
+								Caveats: "Iteration limit reached. Check progress notes for partial work.",
+							}
+							if t.TaskID != "" && a.options.TaskBoard != nil {
+								_ = a.options.TaskBoard.UpdateTaskStatus(t.TaskID, cr.Status)
+							}
+							results[i] = spawnResult{
+								Agent:      t.Agent,
+								Completion: cr,
+							}
+							return
+						}
 						results[i] = spawnResult{
 							Agent: t.Agent,
 							Error: err.Error(),

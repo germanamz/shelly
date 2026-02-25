@@ -739,6 +739,214 @@ func TestSpawnToolWithCompletion(t *testing.T) {
 	assert.Equal(t, "result-b", results[1].Result)
 }
 
+// --- iteration exhaustion tests ---
+
+func TestDelegateToolIterationExhaustion(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register("worker", "Does work", func() *Agent {
+		// Worker loops with tool calls and never produces a final answer.
+		return New("worker", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{ID: "c1", Name: "echo", Arguments: `{}`},
+				),
+				message.New("", role.Assistant,
+					content.ToolCall{ID: "c2", Name: "echo", Arguments: `{}`},
+				),
+				message.New("", role.Assistant,
+					content.ToolCall{ID: "c3", Name: "echo", Arguments: `{}`},
+				),
+			},
+		}, Options{MaxIterations: 2})
+	})
+
+	echoTB := toolbox.New()
+	echoTB.Register(toolbox.Tool{
+		Name:        "echo",
+		Description: "Echoes input",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Handler: func(_ context.Context, input json.RawMessage) (string, error) {
+			return string(input), nil
+		},
+	})
+
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), toolboxes: []*toolbox.ToolBox{echoTB}}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"agent":"worker","task":"do stuff","context":"some context"}`,
+	))
+
+	// Should NOT return an error — returns structured CompletionResult instead.
+	require.NoError(t, err)
+
+	var cr CompletionResult
+	require.NoError(t, json.Unmarshal([]byte(result), &cr))
+	assert.Equal(t, "failed", cr.Status)
+	assert.Contains(t, cr.Summary, "exhausted")
+	assert.Contains(t, cr.Caveats, "Iteration limit reached")
+}
+
+func TestDelegateToolIterationExhaustionWithTaskID(t *testing.T) {
+	board := &mockTaskBoard{}
+
+	reg := NewRegistry()
+	reg.Register("worker", "Does work", func() *Agent {
+		return New("worker", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{ID: "c1", Name: "echo", Arguments: `{}`},
+				),
+				message.New("", role.Assistant,
+					content.ToolCall{ID: "c2", Name: "echo", Arguments: `{}`},
+				),
+			},
+		}, Options{MaxIterations: 1})
+	})
+
+	echoTB := toolbox.New()
+	echoTB.Register(toolbox.Tool{
+		Name:        "echo",
+		Description: "Echoes input",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Handler: func(_ context.Context, input json.RawMessage) (string, error) {
+			return string(input), nil
+		},
+	})
+
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), toolboxes: []*toolbox.ToolBox{echoTB}, options: Options{TaskBoard: board}}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"agent":"worker","task":"do stuff","context":"some context","task_id":"task-42"}`,
+	))
+
+	require.NoError(t, err)
+
+	var cr CompletionResult
+	require.NoError(t, json.Unmarshal([]byte(result), &cr))
+	assert.Equal(t, "failed", cr.Status)
+
+	// Task was claimed and status was updated to "failed".
+	require.Len(t, board.claims, 1)
+	assert.Equal(t, "task-42", board.claims[0].ID)
+	require.Len(t, board.updates, 1)
+	assert.Equal(t, "task-42", board.updates[0].ID)
+	assert.Equal(t, "failed", board.updates[0].Status)
+}
+
+func TestSpawnToolIterationExhaustion(t *testing.T) {
+	reg := NewRegistry()
+	// "slow" agent exhausts iterations.
+	reg.Register("slow", "Slow agent", func() *Agent {
+		return New("slow", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{ID: "c1", Name: "echo", Arguments: `{}`},
+				),
+				message.New("", role.Assistant,
+					content.ToolCall{ID: "c2", Name: "echo", Arguments: `{}`},
+				),
+			},
+		}, Options{MaxIterations: 1})
+	})
+	// "fast" agent completes normally.
+	reg.Register("fast", "Fast agent", func() *Agent {
+		return New("fast", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.NewText("", role.Assistant, "done"),
+			},
+		}, Options{})
+	})
+
+	echoTB := toolbox.New()
+	echoTB.Register(toolbox.Tool{
+		Name:        "echo",
+		Description: "Echoes input",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Handler: func(_ context.Context, input json.RawMessage) (string, error) {
+			return string(input), nil
+		},
+	})
+
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), toolboxes: []*toolbox.ToolBox{echoTB}}
+	tool := spawnTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"slow","task":"slow task","context":"ctx"},{"agent":"fast","task":"fast task","context":"ctx"}]}`,
+	))
+
+	require.NoError(t, err)
+
+	var results []spawnResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 2)
+
+	// "slow" agent: structured completion with failed status, no error string.
+	assert.Equal(t, "slow", results[0].Agent)
+	require.NotNil(t, results[0].Completion)
+	assert.Equal(t, "failed", results[0].Completion.Status)
+	assert.Contains(t, results[0].Completion.Summary, "exhausted")
+	assert.Empty(t, results[0].Error)
+
+	// "fast" agent: normal completion, unaffected.
+	assert.Equal(t, "fast", results[1].Agent)
+	assert.Equal(t, "done", results[1].Result)
+	assert.Empty(t, results[1].Error)
+}
+
+func TestSpawnToolIterationExhaustionWithTaskID(t *testing.T) {
+	board := &mockTaskBoard{}
+
+	reg := NewRegistry()
+	reg.Register("slow", "Slow agent", func() *Agent {
+		return New("slow", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{ID: "c1", Name: "echo", Arguments: `{}`},
+				),
+				message.New("", role.Assistant,
+					content.ToolCall{ID: "c2", Name: "echo", Arguments: `{}`},
+				),
+			},
+		}, Options{MaxIterations: 1})
+	})
+
+	echoTB := toolbox.New()
+	echoTB.Register(toolbox.Tool{
+		Name:        "echo",
+		Description: "Echoes input",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Handler: func(_ context.Context, input json.RawMessage) (string, error) {
+			return string(input), nil
+		},
+	})
+
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), toolboxes: []*toolbox.ToolBox{echoTB}, options: Options{TaskBoard: board}}
+	tool := spawnTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"slow","task":"slow task","context":"ctx","task_id":"task-99"}]}`,
+	))
+
+	require.NoError(t, err)
+
+	var results []spawnResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+
+	assert.Equal(t, "slow", results[0].Agent)
+	require.NotNil(t, results[0].Completion)
+	assert.Equal(t, "failed", results[0].Completion.Status)
+
+	// Task was claimed and status was updated to "failed".
+	require.Len(t, board.claims, 1)
+	assert.Equal(t, "task-99", board.claims[0].ID)
+	require.Len(t, board.updates, 1)
+	assert.Equal(t, "task-99", board.updates[0].ID)
+	assert.Equal(t, "failed", board.updates[0].Status)
+}
+
 func TestDelegateToolToolboxInheritance(t *testing.T) {
 	parentTB := toolbox.New()
 	parentTB.Register(toolbox.Tool{

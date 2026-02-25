@@ -32,19 +32,9 @@ FIXED — delegation tools (`delegate_to_agent`, `spawn_agents`) accept an optio
 
 Fixed: When an agent has notes tools (detected by `list_notes` in its toolboxes), the system prompt automatically includes a `<notes_protocol>` section that informs the agent about the shared notes system, its durability across compaction, and when to check/write notes. The init wizard now includes "notes" in default toolboxes. See `pkg/agent/agent.go`.
 
-## Issue 7: No Recovery Path for Iteration Exhaustion
+## ~~Issue 7: No Recovery Path for Iteration Exhaustion~~ (FIXED)
 
-**`pkg/agent/tools.go:106-110`**
-
-When a coder hits `max_iterations: 20`, the tool returns `ErrMaxIterations` as an error:
-
-```go
-if err != nil {
-    return "", fmt.Errorf("delegate_to_agent: agent %q: %w", di.Agent, err)
-}
-```
-
-The orchestrator receives `content.ToolResult{IsError: true, Content: "...max iterations reached"}` with no guidance on recovery. It may re-delegate (burning another 20 iterations), give up, or hallucinate success.
+Fixed: Delegation tools (`delegate_to_agent`, `spawn_agents`) now synthesize a structured `CompletionResult{Status: "failed"}` on iteration exhaustion instead of propagating an opaque error. The task board is auto-updated to "failed" when `task_id` is provided. The completion protocol in the system prompt instructs sub-agents to proactively call `task_complete` with `status: "failed"` when running low on iterations. Orchestrator and coder workflow skills updated with recovery guidance. See `pkg/agent/tools.go` and `pkg/agent/agent.go`.
 
 ## Issue 8: Concurrent Spawns Can Clobber Each Other
 
@@ -82,7 +72,7 @@ Each agent overwrites the context's agent name: `ctx = agentctx.WithAgentName(ct
 | ~~4~~ | ~~Compact effect inert~~ | ~~FIXED — per-kind default context windows~~ | `provider.go`, `config.go` |
 | ~~5~~ | ~~Task board unused~~ | ~~FIXED — `task_id` param on delegation tools for auto lifecycle~~ | `tools.go`, `agent.go` |
 | ~~6~~ | ~~Notes not enforced~~ | ~~FIXED — `<notes_protocol>` in system prompt when notes tools present~~ | `agent.go` |
-| 7 | No iteration exhaustion recovery | Orchestrator can't handle coder failure | `tools.go:106-110` |
+| ~~7~~ | ~~No iteration exhaustion recovery~~ | ~~FIXED — structured `CompletionResult` on exhaustion~~ | `tools.go`, `agent.go` |
 | 8 | Concurrent file clobbering | Spawned coders overwrite each other | `tools.go:162-205` |
 | 9 | Agent name mismatch in tasks | Task assignee doesn't match executor | `agent.go:132` |
 
