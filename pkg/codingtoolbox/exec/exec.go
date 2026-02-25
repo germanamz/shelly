@@ -11,6 +11,7 @@ import (
 	"fmt"
 	osexec "os/exec"
 	"strings"
+	"sync"
 
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
@@ -47,11 +48,20 @@ type AskFunc func(ctx context.Context, question string, options []string) (strin
 // frontend an opportunity to display what is being run without blocking.
 type OnExecFunc func(ctx context.Context, display string)
 
+// pendingResult holds the outcome of a single in-flight permission prompt so
+// that concurrent callers waiting on the same command can share the result.
+type pendingResult struct {
+	done chan struct{}
+	err  error
+}
+
 // Exec provides command execution tools with permission gating.
 type Exec struct {
-	store  *permissions.Store
-	ask    AskFunc
-	onExec OnExecFunc
+	store      *permissions.Store
+	ask        AskFunc
+	onExec     OnExecFunc
+	pendingMu  sync.Mutex
+	pendingCmd map[string]*pendingResult
 }
 
 // New creates an Exec that checks the given permissions store for trusted
@@ -59,7 +69,7 @@ type Exec struct {
 // The optional onExec callback is called for trusted commands so the frontend
 // can display what is being executed.
 func New(store *permissions.Store, askFn AskFunc, opts ...Option) *Exec {
-	e := &Exec{store: store, ask: askFn}
+	e := &Exec{store: store, ask: askFn, pendingCmd: make(map[string]*pendingResult)}
 	for _, opt := range opts {
 		opt(e)
 	}
@@ -148,9 +158,8 @@ func (e *Exec) checkPermission(ctx context.Context, command string, args []strin
 		display += " " + strings.Join(args, " ")
 	}
 
+	// Fast path: already trusted (no lock contention).
 	if e.store.IsCommandTrusted(command) {
-		// Inform the user what is being executed even for trusted commands
-		// so they maintain awareness of what the agent runs.
 		if e.onExec != nil {
 			e.onExec(ctx, display)
 		}
@@ -158,6 +167,55 @@ func (e *Exec) checkPermission(ctx context.Context, command string, args []strin
 		return nil
 	}
 
+	e.pendingMu.Lock()
+	// Re-check after acquiring lock.
+	if e.store.IsCommandTrusted(command) {
+		e.pendingMu.Unlock()
+		if e.onExec != nil {
+			e.onExec(ctx, display)
+		}
+
+		return nil
+	}
+
+	// If a prompt is already in-flight for this command, wait for its result.
+	if pr, ok := e.pendingCmd[command]; ok {
+		e.pendingMu.Unlock()
+		<-pr.done
+
+		if pr.err != nil {
+			return pr.err
+		}
+		// The prompt succeeded; the command should now be trusted or was
+		// allowed as a one-shot. Re-check trust for subsequent calls.
+		if e.store.IsCommandTrusted(command) {
+			if e.onExec != nil {
+				e.onExec(ctx, display)
+			}
+		}
+
+		return nil
+	}
+
+	// We are the first — create a pending entry and release the lock.
+	pr := &pendingResult{done: make(chan struct{})}
+	e.pendingCmd[command] = pr
+	e.pendingMu.Unlock()
+
+	// Ask the user (blocking).
+	pr.err = e.askAndApproveCmd(ctx, command, display)
+
+	// Signal waiters and clean up.
+	close(pr.done)
+	e.pendingMu.Lock()
+	delete(e.pendingCmd, command)
+	e.pendingMu.Unlock()
+
+	return pr.err
+}
+
+// askAndApproveCmd prompts the user and trusts/approves the command.
+func (e *Exec) askAndApproveCmd(ctx context.Context, command, display string) error {
 	resp, err := e.ask(ctx, fmt.Sprintf("Allow running `%s`?\n(\"trust\" will allow `%s` with ANY arguments without future prompts)", display, command), []string{"yes", "trust", "no"})
 	if err != nil {
 		return fmt.Errorf("exec_run: ask permission: %w", err)
@@ -165,11 +223,7 @@ func (e *Exec) checkPermission(ctx context.Context, command string, args []strin
 
 	switch strings.ToLower(resp) {
 	case "trust":
-		if err := e.store.TrustCommand(command); err != nil {
-			return err
-		}
-
-		return nil
+		return e.store.TrustCommand(command)
 	case "yes":
 		return nil
 	default:

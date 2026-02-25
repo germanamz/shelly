@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
@@ -31,21 +32,31 @@ func fileMode(path string) fs.FileMode {
 // AskFunc asks the user a question and blocks until a response is received.
 type AskFunc func(ctx context.Context, question string, options []string) (string, error)
 
+// pendingResult holds the outcome of a single in-flight permission prompt so
+// that concurrent callers waiting on the same directory can share the result.
+type pendingResult struct {
+	done chan struct{}
+	err  error
+}
+
 // FS provides filesystem tools with permission gating.
 type FS struct {
-	store  *permissions.Store
-	ask    AskFunc
-	notify NotifyFunc
-	locker *FileLocker
+	store      *permissions.Store
+	ask        AskFunc
+	notify     NotifyFunc
+	locker     *FileLocker
+	pendingMu  sync.Mutex
+	pendingDir map[string]*pendingResult
 }
 
 // New creates an FS backed by the given shared permissions store.
 func New(store *permissions.Store, askFn AskFunc, notifyFn NotifyFunc) *FS {
 	return &FS{
-		store:  store,
-		ask:    askFn,
-		notify: notifyFn,
-		locker: NewFileLocker(),
+		store:      store,
+		ask:        askFn,
+		notify:     notifyFn,
+		locker:     NewFileLocker(),
+		pendingDir: make(map[string]*pendingResult),
 	}
 }
 
@@ -64,7 +75,8 @@ func (f *FS) Tools() *toolbox.ToolBox {
 // --- permission helpers ---
 
 // checkPermission ensures the directory of target is approved. It asks the user
-// if not yet approved.
+// if not yet approved. Concurrent calls for the same directory coalesce into a
+// single prompt so the user is never asked the same question multiple times.
 func (f *FS) checkPermission(ctx context.Context, target string) error {
 	abs, err := filepath.Abs(target)
 	if err != nil {
@@ -80,10 +92,53 @@ func (f *FS) checkPermission(ctx context.Context, target string) error {
 		dir = filepath.Dir(abs)
 	}
 
+	// Fast path: already approved (no lock contention).
 	if f.store.IsDirApproved(dir) {
 		return nil
 	}
 
+	f.pendingMu.Lock()
+	// Re-check after acquiring lock — another goroutine may have approved.
+	if f.store.IsDirApproved(dir) {
+		f.pendingMu.Unlock()
+		return nil
+	}
+
+	// If a prompt is already in-flight for this dir, wait for its result.
+	if pr, ok := f.pendingDir[dir]; ok {
+		f.pendingMu.Unlock()
+		<-pr.done
+
+		if pr.err != nil {
+			return pr.err
+		}
+		// The prompt succeeded; the dir should now be approved.
+		if f.store.IsDirApproved(dir) {
+			return nil
+		}
+
+		return fmt.Errorf("filesystem: access denied to %s", dir)
+	}
+
+	// We are the first — create a pending entry and release the lock.
+	pr := &pendingResult{done: make(chan struct{})}
+	f.pendingDir[dir] = pr
+	f.pendingMu.Unlock()
+
+	// Ask the user (blocking).
+	pr.err = f.askAndApproveDir(ctx, dir)
+
+	// Signal waiters and clean up.
+	close(pr.done)
+	f.pendingMu.Lock()
+	delete(f.pendingDir, dir)
+	f.pendingMu.Unlock()
+
+	return pr.err
+}
+
+// askAndApproveDir prompts the user and approves the directory on "yes".
+func (f *FS) askAndApproveDir(ctx context.Context, dir string) error {
 	resp, err := f.ask(ctx, fmt.Sprintf("Allow filesystem access to %s?", dir), []string{"yes", "no"})
 	if err != nil {
 		return fmt.Errorf("filesystem: ask permission: %w", err)

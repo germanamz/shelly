@@ -191,6 +191,12 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 			return nil, fmt.Errorf("engine: permissions: %w", err)
 		}
 
+		// Pre-approve the process CWD so sub-agents inherit filesystem
+		// access to the working directory without being prompted.
+		if cwd, cwdErr := os.Getwd(); cwdErr == nil {
+			_ = permStore.ApproveDir(cwd)
+		}
+
 		if _, ok := refs["filesystem"]; ok {
 			notifyFn := func(ctx context.Context, message string) {
 				sid, _ := sessionIDFromContext(ctx)
