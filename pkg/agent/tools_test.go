@@ -38,6 +38,24 @@ func TestListAgentsToolExcludesSelf(t *testing.T) {
 	assert.Equal(t, "other", entries[0].Name)
 }
 
+func TestListAgentsToolExcludesSelfCaseInsensitive(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register("Self", "Self agent", func() *Agent { return &Agent{} })
+	reg.Register("other", "Other agent", func() *Agent { return &Agent{} })
+
+	a := &Agent{name: "self", registry: reg}
+	tool := listAgentsTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(`{}`))
+
+	require.NoError(t, err)
+
+	var entries []Entry
+	require.NoError(t, json.Unmarshal([]byte(result), &entries))
+	require.Len(t, entries, 1)
+	assert.Equal(t, "other", entries[0].Name)
+}
+
 func TestDelegateToolInvalidInput(t *testing.T) {
 	a := &Agent{name: "orch", registry: NewRegistry()}
 	tool := delegateTool(a)
@@ -53,6 +71,16 @@ func TestDelegateToolSelfDelegation(t *testing.T) {
 	tool := delegateTool(a)
 
 	_, err := tool.Handler(context.Background(), json.RawMessage(`{"tasks":[{"agent":"orch","task":"loop","context":""}]}`))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "self-delegation")
+}
+
+func TestDelegateToolSelfDelegationCaseInsensitive(t *testing.T) {
+	a := &Agent{name: "Orchestrator", registry: NewRegistry()}
+	tool := delegateTool(a)
+
+	_, err := tool.Handler(context.Background(), json.RawMessage(`{"tasks":[{"agent":"orchestrator","task":"loop","context":""}]}`))
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "self-delegation")

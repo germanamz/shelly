@@ -66,6 +66,10 @@ func (e *ReflectionEffect) Eval(_ context.Context, ic agent.IterationContext) er
 	return nil
 }
 
+// Reset clears per-run state so the effect behaves correctly across multiple
+// Run() calls on a long-lived agent. Implements agent.Resetter.
+func (e *ReflectionEffect) Reset() { e.lastInjectedCount = 0 }
+
 // countConsecutiveFailures scans from the end of the chat for consecutive
 // tool-role messages with IsError == true. It skips assistant messages between
 // tool results (since tool calls always produce an assistant message followed

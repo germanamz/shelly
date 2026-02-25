@@ -256,6 +256,65 @@ func TestReflectionEffect_ToolMessageWithNoToolResultParts(t *testing.T) {
 	assert.Equal(t, 4, c.Len())
 }
 
+func TestReflectionEffect_ResetClearsState(t *testing.T) {
+	e := NewReflectionEffect(ReflectionConfig{FailureThreshold: 2})
+
+	c := chat.New(
+		message.New("bot", role.Assistant,
+			content.ToolCall{ID: "c1", Name: "exec", Arguments: `{"cmd":"bad"}`},
+		),
+		message.New("", role.Tool,
+			content.ToolResult{ToolCallID: "c1", Content: "failed", IsError: true},
+		),
+		message.New("bot", role.Assistant,
+			content.ToolCall{ID: "c2", Name: "exec", Arguments: `{"cmd":"bad2"}`},
+		),
+		message.New("", role.Tool,
+			content.ToolResult{ToolCallID: "c2", Content: "failed", IsError: true},
+		),
+	)
+
+	ic := agent.IterationContext{
+		Phase:     agent.PhaseBeforeComplete,
+		Iteration: 2,
+		Chat:      c,
+	}
+
+	// First eval should inject.
+	err := e.Eval(context.Background(), ic)
+	require.NoError(t, err)
+	assert.Equal(t, 5, c.Len())
+
+	// Reset.
+	e.Reset()
+
+	// After reset, a fresh chat with failures should trigger injection again.
+	c2 := chat.New(
+		message.New("bot", role.Assistant,
+			content.ToolCall{ID: "c3", Name: "exec", Arguments: `{"cmd":"bad"}`},
+		),
+		message.New("", role.Tool,
+			content.ToolResult{ToolCallID: "c3", Content: "failed", IsError: true},
+		),
+		message.New("bot", role.Assistant,
+			content.ToolCall{ID: "c4", Name: "exec", Arguments: `{"cmd":"bad2"}`},
+		),
+		message.New("", role.Tool,
+			content.ToolResult{ToolCallID: "c4", Content: "failed", IsError: true},
+		),
+	)
+
+	ic2 := agent.IterationContext{
+		Phase:     agent.PhaseBeforeComplete,
+		Iteration: 1,
+		Chat:      c2,
+	}
+
+	err = e.Eval(context.Background(), ic2)
+	require.NoError(t, err)
+	assert.Equal(t, 5, c2.Len(), "should inject again after reset")
+}
+
 func TestReflectionEffect_ReInjectionGuard(t *testing.T) {
 	e := NewReflectionEffect(ReflectionConfig{FailureThreshold: 2})
 

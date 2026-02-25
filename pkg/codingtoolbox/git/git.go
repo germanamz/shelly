@@ -18,6 +18,20 @@ import (
 // maxBufferSize is the maximum number of bytes captured from stdout/stderr (1MB).
 const maxBufferSize = 1 << 20
 
+// allowedLogFormats is the set of git built-in format names accepted by
+// the git_log tool. Custom format strings (e.g. "format:%H") are not
+// allowed to prevent exfiltration of sensitive repository metadata.
+var allowedLogFormats = map[string]bool{
+	"oneline":   true,
+	"short":     true,
+	"medium":    true,
+	"full":      true,
+	"fuller":    true,
+	"reference": true,
+	"email":     true,
+	"raw":       true,
+}
+
 // limitedBuffer is a bytes.Buffer that silently discards writes beyond maxBufferSize.
 type limitedBuffer struct {
 	buf []byte
@@ -199,7 +213,7 @@ type logInput struct {
 func (g *Git) logTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "git_log",
-		Description: "Show commit logs. Use to understand recent changes and commit history. Default shows last 10 commits in oneline format.",
+		Description: "Show commit logs. Use to understand recent changes and commit history. Default shows last 10 commits in oneline format. Allowed formats: oneline, short, medium, full, fuller, reference, email, raw.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"count":{"type":"integer","description":"Number of commits to show (default 10)"},"format":{"type":"string","description":"Pretty format (default oneline)"}}}`),
 		Handler:     g.handleLog,
 	}
@@ -219,6 +233,10 @@ func (g *Git) handleLog(ctx context.Context, input json.RawMessage) (string, err
 	format := in.Format
 	if format == "" {
 		format = "oneline"
+	}
+
+	if !allowedLogFormats[format] {
+		return "", fmt.Errorf("git_log: unsupported format %q; allowed: oneline, short, medium, full, fuller, reference, email, raw", format)
 	}
 
 	args := []string{"log", "--pretty=" + format, "-n", strconv.Itoa(count)}

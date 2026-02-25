@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -52,6 +53,17 @@ var privateRanges = func() []*net.IPNet {
 	return nets
 }()
 
+// isPrivateIP returns true if the given IP falls within any private/loopback range.
+func isPrivateIP(ip net.IP) bool {
+	for _, r := range privateRanges {
+		if r.Contains(ip) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // isPrivateHost returns true if the host resolves to a private or loopback IP.
 func isPrivateHost(host string) bool {
 	hostname := host
@@ -65,15 +77,41 @@ func isPrivateHost(host string) bool {
 		return true
 	}
 
-	for _, ip := range ips {
-		for _, r := range privateRanges {
-			if r.Contains(ip) {
-				return true
-			}
-		}
+	return slices.ContainsFunc(ips, isPrivateIP)
+}
+
+// safeTransport returns an *http.Transport with a custom DialContext that
+// validates resolved IPs against private ranges at connection time. This
+// prevents DNS rebinding attacks where a hostname resolves to a public IP
+// during the permission check but to a private IP when the connection is made.
+func safeTransport() *http.Transport {
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
 	}
 
-	return false
+	return &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, fmt.Errorf("http: invalid address %s: %w", addr, err)
+			}
+
+			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, fmt.Errorf("http: DNS lookup failed for %s: %w", host, err)
+			}
+
+			for _, ip := range ips {
+				if isPrivateIP(ip.IP) {
+					return nil, fmt.Errorf("http: connection to private address %s blocked", ip.IP)
+				}
+			}
+
+			// Dial using the first resolved IP to prevent a second DNS lookup.
+			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+		},
+	}
 }
 
 // New creates an HTTP that checks the given permissions store for trusted
@@ -85,7 +123,8 @@ func New(store *permissions.Store, askFn AskFunc) *HTTP {
 	}
 
 	h.client = &http.Client{
-		Timeout: 60 * time.Second,
+		Timeout:   60 * time.Second,
+		Transport: safeTransport(),
 		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
 			domain := req.URL.Hostname()
 			if domain == "" {

@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -43,7 +44,13 @@ func newTestHTTP(t *testing.T, askFn AskFunc) (*HTTP, *permissions.Store) {
 	store, err := permissions.New(filepath.Join(dir, "perms.json"))
 	require.NoError(t, err)
 
-	return New(store, askFn), store
+	h := New(store, askFn)
+
+	// Override the safe transport so existing tests can reach httptest servers
+	// on localhost. The safeTransport is tested separately.
+	h.client.Transport = &http.Transport{}
+
+	return h, store
 }
 
 func TestFetch_GET(t *testing.T) {
@@ -200,4 +207,47 @@ func TestFetch_CustomHeaders(t *testing.T) {
 
 	assert.False(t, tr.IsError, tr.Content)
 	assert.Equal(t, "Bearer token123", receivedAuth)
+}
+
+func TestIsPrivateIP(t *testing.T) {
+	tests := []struct {
+		name    string
+		ip      string
+		private bool
+	}{
+		{"loopback_v4", "127.0.0.1", true},
+		{"loopback_v4_other", "127.0.0.2", true},
+		{"class_a_private", "10.0.0.1", true},
+		{"class_b_private", "172.16.0.1", true},
+		{"class_c_private", "192.168.1.1", true},
+		{"link_local", "169.254.1.1", true},
+		{"loopback_v6", "::1", true},
+		{"unique_local_v6", "fc00::1", true},
+		{"link_local_v6", "fe80::1", true},
+		{"public_v4", "8.8.8.8", false},
+		{"public_v4_cloudflare", "1.1.1.1", false},
+		{"public_v6", "2607:f8b0:4004:800::200e", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ip := net.ParseIP(tt.ip)
+			require.NotNil(t, ip, "failed to parse IP %s", tt.ip)
+			assert.Equal(t, tt.private, isPrivateIP(ip))
+		})
+	}
+}
+
+func TestSafeTransport_BlocksPrivateIP(t *testing.T) {
+	transport := safeTransport()
+
+	// Attempt to dial a private address (localhost) — the transport should block it.
+	conn, err := transport.DialContext(context.Background(), "tcp", "127.0.0.1:80")
+	if conn != nil {
+		_ = conn.Close()
+	}
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "connection to private address")
+	assert.Contains(t, err.Error(), "blocked")
 }

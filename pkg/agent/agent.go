@@ -186,6 +186,14 @@ func (a *Agent) run(ctx context.Context) (message.Message, error) {
 		tools = append(tools, tb.Tools()...)
 	}
 
+	// Reset effects that track per-run state so they behave correctly across
+	// multiple Run() calls on a long-lived session agent.
+	for _, eff := range a.options.Effects {
+		if r, ok := eff.(Resetter); ok {
+			r.Reset()
+		}
+	}
+
 	for i := 0; a.options.MaxIterations == 0 || i < a.options.MaxIterations; i++ {
 		ic := IterationContext{
 			Phase:     PhaseBeforeComplete,

@@ -144,6 +144,52 @@ func TestLog(t *testing.T) {
 	assert.Contains(t, tr.Content, "initial")
 }
 
+func TestLog_CustomFormat(t *testing.T) {
+	dir := initRepo(t)
+	g, _ := newTestGit(t, autoApprove, dir)
+	tb := g.Tools()
+
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:        "tc1",
+		Name:      "git_log",
+		Arguments: mustJSON(t, logInput{Format: "short"}),
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+	assert.Contains(t, tr.Content, "initial")
+}
+
+func TestLog_UnsupportedFormat(t *testing.T) {
+	dir := initRepo(t)
+	g, _ := newTestGit(t, autoApprove, dir)
+	tb := g.Tools()
+
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:        "tc1",
+		Name:      "git_log",
+		Arguments: mustJSON(t, logInput{Format: "format:%H%n%ae"}),
+	})
+
+	assert.True(t, tr.IsError)
+	assert.Contains(t, tr.Content, "unsupported format")
+}
+
+func TestLog_AllAllowedFormats(t *testing.T) {
+	dir := initRepo(t)
+	g, _ := newTestGit(t, autoApprove, dir)
+	tb := g.Tools()
+
+	for _, format := range []string{"oneline", "short", "medium", "full", "fuller", "reference", "email", "raw"} {
+		tr := tb.Call(context.Background(), content.ToolCall{
+			ID:        "tc-" + format,
+			Name:      "git_log",
+			Arguments: mustJSON(t, logInput{Format: format}),
+		})
+
+		assert.False(t, tr.IsError, "format %s should be allowed: %s", format, tr.Content)
+	}
+}
+
 func TestCommit(t *testing.T) {
 	dir := initRepo(t)
 	g, _ := newTestGit(t, autoApprove, dir)

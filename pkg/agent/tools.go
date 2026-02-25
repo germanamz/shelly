@@ -47,7 +47,7 @@ func listAgentsTool(a *Agent) toolbox.Tool {
 			// Filter out self.
 			var filtered []Entry
 			for _, e := range entries {
-				if e.Name != a.name {
+				if !strings.EqualFold(e.Name, a.name) {
 					filtered = append(filtered, e)
 				}
 			}
@@ -98,7 +98,7 @@ func delegateTool(a *Agent) toolbox.Tool {
 			}
 
 			for _, t := range di.Tasks {
-				if t.Agent == a.name {
+				if strings.EqualFold(t.Agent, a.name) {
 					return "", fmt.Errorf("delegate: self-delegation is not allowed")
 				}
 			}

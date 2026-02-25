@@ -230,3 +230,64 @@ func TestLoopDetectEffect_DefaultConfig(t *testing.T) {
 	assert.Equal(t, defaultLoopThreshold, e.cfg.Threshold)
 	assert.Equal(t, defaultLoopWindowSize, e.cfg.WindowSize)
 }
+
+func TestLoopDetectEffect_ResetClearsState(t *testing.T) {
+	e := NewLoopDetectEffect(LoopDetectConfig{Threshold: 2})
+
+	// Simulate a loop detection that sets lastInjectedCount.
+	c := chat.New(
+		message.New("bot", role.Assistant,
+			content.ToolCall{ID: "c1", Name: "fs_read", Arguments: `{"path":"/foo"}`},
+		),
+		message.New("", role.Tool,
+			content.ToolResult{ToolCallID: "c1", Content: "ok"},
+		),
+		message.New("bot", role.Assistant,
+			content.ToolCall{ID: "c2", Name: "fs_read", Arguments: `{"path":"/foo"}`},
+		),
+		message.New("", role.Tool,
+			content.ToolResult{ToolCallID: "c2", Content: "ok"},
+		),
+	)
+
+	ic := agent.IterationContext{
+		Phase:     agent.PhaseBeforeComplete,
+		Iteration: 2,
+		Chat:      c,
+	}
+
+	// First eval should inject.
+	err := e.Eval(context.Background(), ic)
+	require.NoError(t, err)
+	assert.Equal(t, 5, c.Len())
+
+	// Reset and verify fresh state.
+	e.Reset()
+
+	// After reset, with a fresh chat showing a loop, it should inject again
+	// (because lastInjectedCount was cleared).
+	c2 := chat.New(
+		message.New("bot", role.Assistant,
+			content.ToolCall{ID: "c3", Name: "exec", Arguments: `{"cmd":"ls"}`},
+		),
+		message.New("", role.Tool,
+			content.ToolResult{ToolCallID: "c3", Content: "ok"},
+		),
+		message.New("bot", role.Assistant,
+			content.ToolCall{ID: "c4", Name: "exec", Arguments: `{"cmd":"ls"}`},
+		),
+		message.New("", role.Tool,
+			content.ToolResult{ToolCallID: "c4", Content: "ok"},
+		),
+	)
+
+	ic2 := agent.IterationContext{
+		Phase:     agent.PhaseBeforeComplete,
+		Iteration: 1,
+		Chat:      c2,
+	}
+
+	err = e.Eval(context.Background(), ic2)
+	require.NoError(t, err)
+	assert.Equal(t, 5, c2.Len(), "should inject again after reset")
+}

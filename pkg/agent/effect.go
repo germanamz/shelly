@@ -34,6 +34,13 @@ type Effect interface {
 	Eval(ctx context.Context, ic IterationContext) error
 }
 
+// Resetter is an optional interface that effects can implement to reset
+// their internal state between agent runs. Effects that track per-run
+// state (e.g. injection guards) should implement this.
+type Resetter interface {
+	Reset()
+}
+
 // EffectFunc is an adapter that lets ordinary functions implement Effect.
 type EffectFunc func(ctx context.Context, ic IterationContext) error
 

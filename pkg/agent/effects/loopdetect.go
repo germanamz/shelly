@@ -65,6 +65,10 @@ func (e *LoopDetectEffect) Eval(_ context.Context, ic agent.IterationContext) er
 	return nil
 }
 
+// Reset clears per-run state so the effect behaves correctly across multiple
+// Run() calls on a long-lived agent. Implements agent.Resetter.
+func (e *LoopDetectEffect) Reset() { e.lastInjectedCount = 0 }
+
 // detectLoop scans the last WindowSize assistant-role messages from the end of
 // the chat for ToolCall parts. It returns the tool name and the count of
 // consecutive identical calls at the tail of the window. The key used for
