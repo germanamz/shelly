@@ -25,6 +25,13 @@ s := notes.New("/path/to/notes/dir")
 agent.AddToolBoxes(s.Tools())
 ```
 
+## Agent Integration
+
+When a notes toolbox is registered with an agent, the agent's system prompt
+automatically includes a `<notes_protocol>` section (see `pkg/agent/`). This
+lightweight protocol informs the agent that shared notes exist and should be
+used for cross-agent communication — no notes content is preloaded.
+
 ## Dependencies
 
 - `pkg/tools/toolbox` -- Tool and ToolBox types

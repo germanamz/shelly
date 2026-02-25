@@ -881,6 +881,54 @@ func TestSystemPromptNoCompletionProtocolAtTopLevel(t *testing.T) {
 	assert.NotContains(t, prompt, "<completion_protocol>")
 }
 
+// --- Notes protocol tests ---
+
+func TestSystemPromptNotesProtocolWithNotesTools(t *testing.T) {
+	p := &sequenceCompleter{
+		replies: []message.Message{
+			message.NewText("", role.Assistant, "Hi"),
+		},
+	}
+	a := New("bot", "", "", p, Options{})
+
+	// Add a toolbox that contains list_notes.
+	notesTB := toolbox.New()
+	notesTB.Register(toolbox.Tool{
+		Name:        "list_notes",
+		Description: "Lists all notes",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Handler: func(_ context.Context, _ json.RawMessage) (string, error) {
+			return "[]", nil
+		},
+	})
+	a.AddToolBoxes(notesTB)
+
+	_, err := a.Run(context.Background())
+	require.NoError(t, err)
+
+	prompt := a.Chat().SystemPrompt()
+	assert.Contains(t, prompt, "<notes_protocol>")
+	assert.Contains(t, prompt, "shared notes system")
+	assert.Contains(t, prompt, "list_notes and read_note")
+	assert.Contains(t, prompt, "write_note")
+	assert.Contains(t, prompt, "</notes_protocol>")
+}
+
+func TestSystemPromptNoNotesProtocolWithoutNotesTools(t *testing.T) {
+	p := &sequenceCompleter{
+		replies: []message.Message{
+			message.NewText("", role.Assistant, "Hi"),
+		},
+	}
+	a := New("bot", "", "", p, Options{})
+
+	_, err := a.Run(context.Background())
+	require.NoError(t, err)
+
+	prompt := a.Chat().SystemPrompt()
+	assert.NotContains(t, prompt, "<notes_protocol>")
+}
+
 func TestAddToolBoxesDeduplicates(t *testing.T) {
 	tb1 := newEchoToolBox()
 	tb2 := toolbox.New()

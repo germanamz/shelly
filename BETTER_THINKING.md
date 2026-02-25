@@ -28,9 +28,9 @@ Fixed: `ProviderConfig.ContextWindow` is now `*int` to distinguish "not set" (ni
 
 FIXED — delegation tools (`delegate_to_agent`, `spawn_agents`) accept an optional `task_id` parameter for automatic claim/status-update. When provided, the task is auto-claimed for the child agent before it runs, and its status is auto-updated based on the child's `task_complete` result. Skills updated to document the `task_id` workflow. See `pkg/agent/tools.go` and `pkg/agent/agent.go`.
 
-## Issue 6: Notes Are the Only Durable Cross-Agent State, But Their Use Isn't Enforced
+## ~~Issue 6: Notes Are the Only Durable Cross-Agent State, But Their Use Isn't Enforced~~ (FIXED)
 
-The planner can write notes, but there's no instruction forcing the coder to `read_note` or `list_notes` before starting work. The planner→orchestrator→coder context chain depends entirely on the LLM deciding to use notes, which is unreliable.
+Fixed: When an agent has notes tools (detected by `list_notes` in its toolboxes), the system prompt automatically includes a `<notes_protocol>` section that informs the agent about the shared notes system, its durability across compaction, and when to check/write notes. The init wizard now includes "notes" in default toolboxes. See `pkg/agent/agent.go`.
 
 ## Issue 7: No Recovery Path for Iteration Exhaustion
 
@@ -81,7 +81,7 @@ Each agent overwrites the context's agent name: `ctx = agentctx.WithAgentName(ct
 | ~~3~~ | ~~No structured completion~~ | ~~FIXED — `task_complete` tool with structured metadata~~ | `tools.go`, `agent.go` |
 | ~~4~~ | ~~Compact effect inert~~ | ~~FIXED — per-kind default context windows~~ | `provider.go`, `config.go` |
 | ~~5~~ | ~~Task board unused~~ | ~~FIXED — `task_id` param on delegation tools for auto lifecycle~~ | `tools.go`, `agent.go` |
-| 6 | Notes not enforced | Durable state exists but isn't used reliably | `config.yaml` |
+| ~~6~~ | ~~Notes not enforced~~ | ~~FIXED — `<notes_protocol>` in system prompt when notes tools present~~ | `agent.go` |
 | 7 | No iteration exhaustion recovery | Orchestrator can't handle coder failure | `tools.go:106-110` |
 | 8 | Concurrent file clobbering | Spawned coders overwrite each other | `tools.go:162-205` |
 | 9 | Agent name mismatch in tasks | Task assignee doesn't match executor | `agent.go:132` |

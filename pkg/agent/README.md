@@ -96,6 +96,17 @@ type CompletionResult struct {
 
 Top-level agents (depth 0) do not get the `task_complete` tool or the completion protocol prompt section.
 
+### Notes Protocol
+
+When an agent has notes tools (detected by the presence of `list_notes` in its toolboxes), the system prompt includes a `<notes_protocol>` section. This lightweight protocol informs the agent that:
+
+- A shared notes system exists for durable cross-agent communication
+- Notes survive context compaction and agent boundaries
+- It should check `list_notes`/`read_note` when expecting context from other agents
+- It should use `write_note` to document results for downstream agents
+
+The protocol does **not** preload any notes content — it simply ensures agents are aware the system exists and know when to use it.
+
 ### Sub-Agent Event Notifications
 
 When `Options.EventNotifier` is set, orchestration tools publish lifecycle events for child agents:
@@ -176,11 +187,12 @@ The system prompt is built by `buildSystemPrompt()` using XML tags for clear sec
 
 1. `<identity>` — Agent name and description (static, cacheable prefix)
 2. `<completion_protocol>` — Sub-agent completion instructions (static, depth > 0 only)
-3. `<instructions>` — Agent-specific instructions (static)
-4. `<project_context>` — Project context loaded at startup (semi-static)
-5. `<skills>` — Inline skill content (semi-static)
-6. `<available_skills>` — On-demand skill descriptions (semi-static)
-7. `<available_agents>` — Agent directory from registry (dynamic, last)
+3. `<notes_protocol>` — Cross-agent notes awareness (static, only when notes tools are present)
+4. `<instructions>` — Agent-specific instructions (static)
+5. `<project_context>` — Project context loaded at startup (semi-static)
+6. `<skills>` — Inline skill content (semi-static)
+7. `<available_skills>` — On-demand skill descriptions (semi-static)
+8. `<available_agents>` — Agent directory from registry (dynamic, last)
 
 This ordering ensures LLM provider prompt caching can cache the stable prefix across iterations, and the XML tags help LLMs attend to section boundaries without relying on prose structure.
 

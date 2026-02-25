@@ -272,6 +272,18 @@ func (a *Agent) buildSystemPrompt() string {
 		b.WriteString("</completion_protocol>\n")
 	}
 
+	// Notes protocol (only when notes tools are available).
+	if a.hasNotesTools() {
+		b.WriteString("\n<notes_protocol>\n")
+		b.WriteString("A shared notes system is available for durable cross-agent communication.\n")
+		b.WriteString("Notes persist across agent boundaries and context compaction.\n")
+		b.WriteString("When you expect context from another agent (plans, task specs, prior results), ")
+		b.WriteString("use list_notes and read_note to retrieve it.\n")
+		b.WriteString("When you complete significant work, use write_note to document results ")
+		b.WriteString("so other agents can pick up where you left off.\n")
+		b.WriteString("</notes_protocol>\n")
+	}
+
 	// Instructions.
 	if a.instructions != "" {
 		b.WriteString("\n<instructions>\n")
@@ -340,6 +352,16 @@ func (a *Agent) buildSystemPrompt() string {
 	}
 
 	return b.String()
+}
+
+// hasNotesTools returns true if any toolbox contains the "list_notes" tool.
+func (a *Agent) hasNotesTools() bool {
+	for _, tb := range a.toolboxes {
+		if _, ok := tb.Get("list_notes"); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // callTool searches all toolboxes for the named tool and executes it.
