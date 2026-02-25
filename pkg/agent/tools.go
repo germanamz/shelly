@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/chats/role"
@@ -247,12 +248,19 @@ func buildDelegateResult(agentName string, reply message.Message, cr *Completion
 		Completion: cr,
 	}
 
-	if cr != nil && cr.Summary != "" {
+	switch {
+	case cr != nil && cr.Summary != "":
 		result.Result = cr.Summary
-	} else {
+	case cr != nil && cr.Status != "":
+		parts := []string{cr.Status}
+		if cr.Caveats != "" {
+			parts = append(parts, cr.Caveats)
+		}
+		result.Result = strings.Join(parts, ": ")
+	default:
 		text := reply.TextContent()
-		if len(text) > maxDelegateResultLen {
-			text = text[:maxDelegateResultLen] + "… [truncated]"
+		if utf8.RuneCountInString(text) > maxDelegateResultLen {
+			text = string([]rune(text)[:maxDelegateResultLen]) + "… [truncated]"
 		}
 		result.Result = text
 	}

@@ -21,7 +21,8 @@ type ReflectionConfig struct {
 // prompt, forcing the agent to analyze what went wrong before retrying. It runs
 // at PhaseBeforeComplete when Iteration > 0.
 type ReflectionEffect struct {
-	cfg ReflectionConfig
+	cfg               ReflectionConfig
+	lastInjectedCount int // guards against re-injecting at same count
 }
 
 // NewReflectionEffect creates a ReflectionEffect with the given configuration,
@@ -41,14 +42,26 @@ func (e *ReflectionEffect) Eval(_ context.Context, ic agent.IterationContext) er
 	}
 
 	count := e.countConsecutiveFailures(ic)
-	if count >= e.cfg.FailureThreshold {
-		ic.Chat.Append(message.NewText("", role.User,
-			fmt.Sprintf(`You have encountered %d consecutive tool failures. Before your next action:
+
+	if count < e.cfg.FailureThreshold {
+		e.lastInjectedCount = 0
+
+		return nil
+	}
+
+	// Only inject when count increases since last injection.
+	if count <= e.lastInjectedCount {
+		return nil
+	}
+
+	e.lastInjectedCount = count
+
+	ic.Chat.Append(message.NewText("", role.User,
+		fmt.Sprintf(`You have encountered %d consecutive tool failures. Before your next action:
 1. Analyze what went wrong in each failed attempt
 2. Identify the root cause (wrong path? wrong approach? missing prerequisite?)
 3. Describe a different strategy you will try next`, count),
-		))
-	}
+	))
 
 	return nil
 }
@@ -71,7 +84,8 @@ func (e *ReflectionEffect) countConsecutiveFailures(ic agent.IterationContext) i
 			break
 		}
 
-		allErrors := true
+		hasError := false
+		hasSuccess := false
 
 		for _, p := range msgs[i].Parts {
 			tr, ok := p.(content.ToolResult)
@@ -79,13 +93,15 @@ func (e *ReflectionEffect) countConsecutiveFailures(ic agent.IterationContext) i
 				continue
 			}
 
-			if !tr.IsError {
-				allErrors = false
-				break
+			if tr.IsError {
+				hasError = true
+			} else {
+				hasSuccess = true
 			}
 		}
 
-		if !allErrors {
+		// A message with no ToolResult parts is not a failure.
+		if !hasError || hasSuccess {
 			break
 		}
 

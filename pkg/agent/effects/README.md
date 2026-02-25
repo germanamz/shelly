@@ -28,34 +28,144 @@ number, chat, completer, and agent name. Returning an error aborts the loop.
 
 | Effect | Kind | Phase | Description |
 |--------|------|-------|-------------|
-| `CompactEffect` | `compact` | BeforeComplete | Graduated context compaction: first trims old tool results (lightweight), then falls back to full summarisation |
+| `CompactEffect` | `compact` | BeforeComplete | Full conversation summarisation when token usage exceeds threshold |
 | `TrimToolResultsEffect` | `trim_tool_results` | AfterComplete | Trims old tool result content to a configurable length, preserving recent messages |
+| `SlidingWindowEffect` | `sliding_window` | BeforeComplete | Three-zone context management with incremental summarisation |
+| `ObservationMaskEffect` | `observation_mask` | BeforeComplete | Replaces old tool results with brief placeholders while keeping reasoning intact |
+| `ReflectionEffect` | `reflection` | BeforeComplete | Detects consecutive tool failures and injects a reflection prompt |
+| `ProgressEffect` | `progress` | BeforeComplete | Periodically prompts the agent to write a progress note |
+| `LoopDetectEffect` | `loop_detect` | BeforeComplete | Detects repeated identical tool calls and injects an intervention |
 
-### CompactEffect — Graduated Context Compaction
+### CompactEffect — Full Summarisation
 
-Runs at `PhaseBeforeComplete` (iteration > 0). Uses a two-phase graduated approach:
-
-1. **Phase 1 (lightweight)**: Trims old tool result content in messages beyond the last 6, replacing long results with truncated versions. If this brings token usage below the threshold, no further action is taken.
-2. **Phase 2 (full summarisation)**: If still over threshold after trimming, renders the conversation as a text transcript and summarises it via an LLM call. The chat is replaced with the system prompt + a single compacted user message containing the summary.
-
-Configuration:
+Runs at `PhaseBeforeComplete` (iteration > 0). When token usage exceeds the
+threshold, renders the conversation as a text transcript and summarises it via
+an LLM call. The chat is replaced with the system prompt + a single compacted
+user message containing the summary.
 
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
 | `threshold` | float | 0.8 | Fraction of context window that triggers compaction |
 
+```yaml
+- kind: compact
+  params:
+    threshold: 0.8
+```
+
 ### TrimToolResultsEffect — Tool Result Trimming
 
-Runs at `PhaseAfterComplete` (iteration > 0). Replaces long `ToolResult` content with truncated versions, preserving the most recent tool messages untrimmed. Error results are never trimmed.
-
-Uses message metadata (`"trimmed"` key) to track already-trimmed messages and avoid re-processing.
-
-Configuration:
+Runs at `PhaseAfterComplete` (iteration > 0). Replaces long `ToolResult` content
+with truncated versions, preserving the most recent tool messages untrimmed.
+Error results are never trimmed.
 
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
-| `max_result_length` | int | 500 | Maximum characters for tool result content |
+| `max_result_length` | int | 500 | Maximum runes for tool result content |
 | `preserve_recent` | int | 4 | Number of recent tool-role messages to keep untrimmed (0 = trim all) |
+
+```yaml
+- kind: trim_tool_results
+  params:
+    max_result_length: 500
+    preserve_recent: 4
+```
+
+### SlidingWindowEffect — Three-Zone Context Management
+
+Runs at `PhaseBeforeComplete` (iteration > 0). Divides messages into three zones:
+
+1. **Recent zone** (last N messages): full fidelity
+2. **Medium zone** (next M messages before recent): tool results trimmed, text preserved
+3. **Old zone** (everything before medium): incrementally summarised into a running summary
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `threshold` | float | 0.7 | Fraction of context window that triggers window management |
+| `recent_zone` | int | 10 | Messages kept at full fidelity |
+| `medium_zone` | int | 10 | Messages where tool results are trimmed |
+| `trim_length` | int | 200 | Max runes for tool results in the medium zone |
+
+```yaml
+- kind: sliding_window
+  params:
+    threshold: 0.7
+    recent_zone: 10
+    medium_zone: 10
+    trim_length: 200
+```
+
+### ObservationMaskEffect — Observation Masking
+
+Runs at `PhaseBeforeComplete` (iteration > 0). Replaces old tool result content
+with brief placeholders (`[tool result for <name>: <preview>]`) while keeping
+assistant reasoning (text) and actions (tool calls) intact. A lightweight first
+tier before heavier compaction.
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `threshold` | float | 0.6 | Fraction of context window that triggers masking |
+| `recent_window` | int | 10 | Messages to keep at full fidelity |
+
+```yaml
+- kind: observation_mask
+  params:
+    threshold: 0.6
+    recent_window: 10
+```
+
+### ReflectionEffect — Failure Reflection
+
+Runs at `PhaseBeforeComplete` (iteration > 0). Counts consecutive error-only
+tool messages from the tail of the chat. When the count reaches the threshold,
+injects a reflection prompt asking the agent to analyse root causes. Includes a
+re-injection guard to avoid injecting the same prompt repeatedly at the same
+failure count.
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `failure_threshold` | int | 2 | Consecutive failures before reflection is injected |
+
+```yaml
+- kind: reflection
+  params:
+    failure_threshold: 2
+```
+
+### ProgressEffect — Progress Notes
+
+Runs at `PhaseBeforeComplete` (iteration > 0). Every N iterations, injects a
+prompt asking the agent to write a progress note via `write_note`, documenting
+accomplishments, remaining work, and blockers.
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `interval` | int | 5 | Inject progress prompt every N iterations |
+
+```yaml
+- kind: progress
+  params:
+    interval: 5
+```
+
+### LoopDetectEffect — Loop Detection
+
+Runs at `PhaseBeforeComplete` (iteration > 0). Scans a sliding window of recent
+tool calls for consecutive identical calls (same tool name + arguments). When
+the count reaches the threshold, injects an intervention message asking the
+agent to try a different approach.
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `threshold` | int | 3 | Identical calls before intervention |
+| `window_size` | int | 10 | Number of recent tool calls to track |
+
+```yaml
+- kind: loop_detect
+  params:
+    threshold: 3
+    window_size: 10
+```
 
 ## Dependency Direction
 

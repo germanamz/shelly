@@ -413,3 +413,16 @@ func TestTruncate_Exact(t *testing.T) {
 func TestTruncate_Long(t *testing.T) {
 	assert.Equal(t, "ab\u2026", truncate("abcdef", 2))
 }
+
+func TestTruncate_MultiByte(t *testing.T) {
+	// 5 runes: こ ん に ち は (each 3 bytes in UTF-8)
+	s := "こんにちは"
+	result := truncate(s, 3)
+	assert.Equal(t, "こんに\u2026", result)
+
+	// At exact rune length — no truncation.
+	assert.Equal(t, s, truncate(s, 5))
+
+	// Shorter than limit — returned as-is.
+	assert.Equal(t, s, truncate(s, 10))
+}

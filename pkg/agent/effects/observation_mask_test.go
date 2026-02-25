@@ -243,7 +243,7 @@ func TestObservationMaskEffect_TruncatesLongPreview(t *testing.T) {
 
 	result := c.At(2).Parts[0].(content.ToolResult)
 	assert.Contains(t, result.Content, "[tool result for read_file:")
-	assert.Contains(t, result.Content, "...")
+	assert.Contains(t, result.Content, "\u2026")
 }
 
 func TestObservationMaskEffect_DisabledByZeroWindow(t *testing.T) {
@@ -269,4 +269,62 @@ func TestObservationMaskEffect_Defaults(t *testing.T) {
 	e := NewObservationMaskEffect(ObservationMaskConfig{})
 	assert.Equal(t, defaultObsMaskRecentWindow, e.cfg.RecentWindow)
 	assert.InDelta(t, defaultObsMaskThreshold, e.cfg.Threshold, 0.001)
+}
+
+func TestObservationMaskEffect_EmptyChat(t *testing.T) {
+	uc := &usageCompleter{}
+	uc.tracker.Add(usage.TokenCount{InputTokens: 700, OutputTokens: 100})
+
+	e := NewObservationMaskEffect(ObservationMaskConfig{
+		ContextWindow: 1000,
+		Threshold:     0.6,
+		RecentWindow:  5,
+	})
+
+	c := chat.New()
+
+	ic := agent.IterationContext{
+		Phase:     agent.PhaseBeforeComplete,
+		Iteration: 1,
+		Chat:      c,
+		Completer: uc,
+	}
+
+	err := e.Eval(context.Background(), ic)
+	require.NoError(t, err)
+	assert.Equal(t, 0, c.Len())
+}
+
+func TestObservationMaskEffect_AllMessagesWithinRecentWindow(t *testing.T) {
+	uc := &usageCompleter{}
+	uc.tracker.Add(usage.TokenCount{InputTokens: 700, OutputTokens: 100})
+
+	e := NewObservationMaskEffect(ObservationMaskConfig{
+		ContextWindow: 1000,
+		Threshold:     0.6,
+		RecentWindow:  10, // Large enough to cover all messages.
+	})
+
+	c := chat.New(
+		message.NewText("", role.System, "sys"),
+		message.New("bot", role.Assistant,
+			content.ToolCall{ID: "c1", Name: "read_file", Arguments: `{"path":"a.go"}`},
+		),
+		message.New("", role.Tool,
+			content.ToolResult{ToolCallID: "c1", Content: "full content preserved"},
+		),
+	)
+
+	ic := agent.IterationContext{
+		Phase:     agent.PhaseBeforeComplete,
+		Iteration: 1,
+		Chat:      c,
+		Completer: uc,
+	}
+
+	err := e.Eval(context.Background(), ic)
+	require.NoError(t, err)
+	// All within recent window — nothing masked.
+	result := c.At(2).Parts[0].(content.ToolResult)
+	assert.Equal(t, "full content preserved", result.Content)
 }

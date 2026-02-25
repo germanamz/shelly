@@ -2,6 +2,7 @@ package effects
 
 import (
 	"context"
+	"unicode/utf8"
 
 	"github.com/germanamz/shelly/pkg/agent"
 	"github.com/germanamz/shelly/pkg/chats/content"
@@ -100,11 +101,11 @@ func (e *TrimToolResultsEffect) trimMessage(m *message.Message) bool {
 
 	for j, p := range m.Parts {
 		tr, ok := p.(content.ToolResult)
-		if !ok || tr.IsError || len(tr.Content) <= e.cfg.MaxResultLength {
+		if !ok || tr.IsError || utf8.RuneCountInString(tr.Content) <= e.cfg.MaxResultLength {
 			continue
 		}
 
-		tr.Content = tr.Content[:e.cfg.MaxResultLength] + trimSuffix
+		tr.Content = string([]rune(tr.Content)[:e.cfg.MaxResultLength]) + trimSuffix
 		m.Parts[j] = tr
 		trimmed = true
 	}

@@ -116,10 +116,7 @@ func (e *ObservationMaskEffect) mask(ic agent.IterationContext) {
 				continue
 			}
 
-			preview := tr.Content
-			if len(preview) > obsMaskMaxPreview {
-				preview = preview[:obsMaskMaxPreview] + "..."
-			}
+			preview := truncate(tr.Content, obsMaskMaxPreview)
 
 			tr.Content = fmt.Sprintf("[tool result for %s: %s]", toolNameForResult(msgs, i, tr.ToolCallID), preview)
 			msgs[i].Parts[j] = tr

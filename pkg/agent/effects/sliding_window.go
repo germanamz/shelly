@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/germanamz/shelly/pkg/agent"
 	"github.com/germanamz/shelly/pkg/chats/chat"
@@ -186,11 +187,11 @@ func (e *SlidingWindowEffect) manage(ctx context.Context, ic agent.IterationCont
 
 		for j, p := range mediumMsgs[i].Parts {
 			tr, ok := p.(content.ToolResult)
-			if !ok || tr.IsError || len(tr.Content) <= e.cfg.TrimLength {
+			if !ok || tr.IsError || utf8.RuneCountInString(tr.Content) <= e.cfg.TrimLength {
 				continue
 			}
 
-			tr.Content = tr.Content[:e.cfg.TrimLength] + "… [trimmed]"
+			tr.Content = string([]rune(tr.Content)[:e.cfg.TrimLength]) + "… [trimmed]"
 			mediumMsgs[i].Parts[j] = tr
 			trimmed = true
 		}

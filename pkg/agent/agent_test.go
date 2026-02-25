@@ -944,7 +944,7 @@ func TestSystemPromptBehavioralConstraintsDefault(t *testing.T) {
 
 	prompt := a.Chat().SystemPrompt()
 	assert.Contains(t, prompt, "<behavioral_constraints>")
-	assert.Contains(t, prompt, "Do not retry the same operation more than twice")
+	assert.Contains(t, prompt, "Do not repeat the same action more than twice")
 	assert.Contains(t, prompt, "Read files before editing them")
 	assert.Contains(t, prompt, "</behavioral_constraints>")
 }

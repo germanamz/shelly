@@ -224,3 +224,70 @@ func TestReflectionEffect_Defaults(t *testing.T) {
 	e := NewReflectionEffect(ReflectionConfig{})
 	assert.Equal(t, defaultFailureThreshold, e.cfg.FailureThreshold)
 }
+
+func TestReflectionEffect_ToolMessageWithNoToolResultParts(t *testing.T) {
+	e := NewReflectionEffect(ReflectionConfig{FailureThreshold: 2})
+
+	// A tool-role message with only a Text part (no ToolResult) should not
+	// be counted as a failure.
+	c := chat.New(
+		message.New("bot", role.Assistant,
+			content.ToolCall{ID: "c1", Name: "exec", Arguments: `{"cmd":"bad"}`},
+		),
+		message.New("", role.Tool,
+			content.ToolResult{ToolCallID: "c1", Content: "failed", IsError: true},
+		),
+		message.New("bot", role.Assistant,
+			content.ToolCall{ID: "c2", Name: "exec", Arguments: `{"cmd":"bad2"}`},
+		),
+		// Tool-role message with only text, no ToolResult parts.
+		message.NewText("", role.Tool, "some text without a tool result"),
+	)
+
+	ic := agent.IterationContext{
+		Phase:     agent.PhaseBeforeComplete,
+		Iteration: 2,
+		Chat:      c,
+	}
+
+	err := e.Eval(context.Background(), ic)
+	require.NoError(t, err)
+	// The text-only tool message breaks the streak — no injection.
+	assert.Equal(t, 4, c.Len())
+}
+
+func TestReflectionEffect_ReInjectionGuard(t *testing.T) {
+	e := NewReflectionEffect(ReflectionConfig{FailureThreshold: 2})
+
+	c := chat.New(
+		message.New("bot", role.Assistant,
+			content.ToolCall{ID: "c1", Name: "exec", Arguments: `{"cmd":"bad"}`},
+		),
+		message.New("", role.Tool,
+			content.ToolResult{ToolCallID: "c1", Content: "failed", IsError: true},
+		),
+		message.New("bot", role.Assistant,
+			content.ToolCall{ID: "c2", Name: "exec", Arguments: `{"cmd":"bad2"}`},
+		),
+		message.New("", role.Tool,
+			content.ToolResult{ToolCallID: "c2", Content: "failed again", IsError: true},
+		),
+	)
+
+	ic := agent.IterationContext{
+		Phase:     agent.PhaseBeforeComplete,
+		Iteration: 2,
+		Chat:      c,
+	}
+
+	// First eval: should inject.
+	err := e.Eval(context.Background(), ic)
+	require.NoError(t, err)
+	assert.Equal(t, 5, c.Len())
+
+	// Second eval with same count: should NOT re-inject.
+	ic.Iteration = 3
+	err = e.Eval(context.Background(), ic)
+	require.NoError(t, err)
+	assert.Equal(t, 5, c.Len())
+}

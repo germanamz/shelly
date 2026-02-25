@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/germanamz/shelly/pkg/agent"
 	"github.com/germanamz/shelly/pkg/chats/chat"
@@ -204,11 +205,13 @@ func renderConversation(c *chat.Chat) string {
 	return b.String()
 }
 
-// truncate returns s truncated to maxLen characters with "..." appended if needed.
+// truncate returns s truncated to maxLen runes with "…" appended if needed.
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	if utf8.RuneCountInString(s) <= maxLen {
 		return s
 	}
 
-	return s[:maxLen] + "\u2026"
+	runes := []rune(s)
+
+	return string(runes[:maxLen]) + "\u2026"
 }
