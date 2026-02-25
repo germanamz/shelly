@@ -14,7 +14,7 @@ func TestNewStoreAndSkills(t *testing.T) {
 		{Name: "charlie", Content: "C"},
 		{Name: "alpha", Content: "A"},
 		{Name: "bravo", Content: "B"},
-	})
+	}, "")
 
 	skills := st.Skills()
 
@@ -27,7 +27,7 @@ func TestNewStoreAndSkills(t *testing.T) {
 func TestStoreGetFound(t *testing.T) {
 	st := NewStore([]Skill{
 		{Name: "review", Content: "Review steps"},
-	})
+	}, "")
 
 	s, ok := st.Get("review")
 
@@ -36,7 +36,7 @@ func TestStoreGetFound(t *testing.T) {
 }
 
 func TestStoreGetNotFound(t *testing.T) {
-	st := NewStore([]Skill{})
+	st := NewStore([]Skill{}, "")
 
 	_, ok := st.Get("missing")
 
@@ -45,13 +45,28 @@ func TestStoreGetNotFound(t *testing.T) {
 
 func TestStoreToolLoadSkillValid(t *testing.T) {
 	st := NewStore([]Skill{
-		{Name: "deploy", Content: "1. Build\n2. Deploy", Dir: "/skills/deploy"},
-	})
+		{Name: "deploy", Content: "1. Build\n2. Deploy", Dir: "/project/skills/deploy"},
+	}, "/project")
 	tb := st.Tools()
 
 	tools := tb.Tools()
 	require.Len(t, tools, 1)
 	assert.Equal(t, "load_skill", tools[0].Name)
+
+	input, _ := json.Marshal(loadSkillInput{Name: "deploy"})
+	result, err := tools[0].Handler(context.Background(), input)
+
+	require.NoError(t, err)
+	expected := "1. Build\n2. Deploy\n\n---\nSkill directory: skills/deploy\nUse filesystem tools to access supplementary files in this directory."
+	assert.Equal(t, expected, result)
+}
+
+func TestStoreToolLoadSkillValidNoWorkDir(t *testing.T) {
+	st := NewStore([]Skill{
+		{Name: "deploy", Content: "1. Build\n2. Deploy", Dir: "/skills/deploy"},
+	}, "")
+	tb := st.Tools()
+	tools := tb.Tools()
 
 	input, _ := json.Marshal(loadSkillInput{Name: "deploy"})
 	result, err := tools[0].Handler(context.Background(), input)
@@ -64,7 +79,7 @@ func TestStoreToolLoadSkillValid(t *testing.T) {
 func TestStoreToolLoadSkillNoDirFooter(t *testing.T) {
 	st := NewStore([]Skill{
 		{Name: "simple", Content: "Simple content"},
-	})
+	}, "")
 	tb := st.Tools()
 	tools := tb.Tools()
 
@@ -77,7 +92,7 @@ func TestStoreToolLoadSkillNoDirFooter(t *testing.T) {
 }
 
 func TestStoreToolLoadSkillNotFound(t *testing.T) {
-	st := NewStore([]Skill{})
+	st := NewStore([]Skill{}, "")
 	tb := st.Tools()
 	tools := tb.Tools()
 
@@ -89,7 +104,7 @@ func TestStoreToolLoadSkillNotFound(t *testing.T) {
 }
 
 func TestStoreToolLoadSkillInvalidJSON(t *testing.T) {
-	st := NewStore([]Skill{})
+	st := NewStore([]Skill{}, "")
 	tb := st.Tools()
 	tools := tb.Tools()
 

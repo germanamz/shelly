@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/germanamz/shelly/pkg/agent"
 	"github.com/germanamz/shelly/pkg/agent/effects"
@@ -53,7 +54,29 @@ func buildEffects(ecs []EffectConfig, wctx EffectWiringContext) ([]agent.Effect,
 		effs = append(effs, eff)
 	}
 
+	sortEffects(effs)
+
 	return effs, nil
+}
+
+// sortEffects ensures compaction-class effects run before others so that
+// effects injecting messages (e.g. ReflectionEffect, LoopDetectEffect)
+// are not immediately summarized away in the same iteration.
+func sortEffects(effs []agent.Effect) {
+	sort.SliceStable(effs, func(i, j int) bool {
+		return effectPriority(effs[i]) < effectPriority(effs[j])
+	})
+}
+
+// effectPriority returns 0 for compaction-class effects (which should run
+// first) and 1 for everything else.
+func effectPriority(e agent.Effect) int {
+	switch e.(type) {
+	case *effects.CompactEffect, *effects.SlidingWindowEffect:
+		return 0
+	default:
+		return 1
+	}
 }
 
 // buildCompactEffect creates a CompactEffect from YAML params.

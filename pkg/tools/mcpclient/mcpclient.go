@@ -90,7 +90,10 @@ func (c *MCPClient) CallTool(ctx context.Context, name string, arguments json.Ra
 	return text, nil
 }
 
-// Close terminates the session and releases resources.
+// Close terminates the session and releases resources. The MCP Go SDK handles
+// subprocess lifecycle automatically: session.Close() chains through
+// jsonrpc2.Connection.Close() → ioConn.Close() → pipeRWC.Close(), which
+// closes stdin, waits with timeout, and escalates through SIGTERM/SIGKILL.
 func (c *MCPClient) Close() error {
 	return c.session.Close()
 }

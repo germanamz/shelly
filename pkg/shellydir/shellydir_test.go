@@ -19,6 +19,7 @@ func TestDir_PathAccessors(t *testing.T) {
 	assert.Equal(t, "/project/.shelly/local", d.LocalDir())
 	assert.Equal(t, "/project/.shelly/local/permissions.json", d.PermissionsPath())
 	assert.Equal(t, "/project/.shelly/local/context-cache.json", d.ContextCachePath())
+	assert.Equal(t, "/project/.shelly/local/reflections", d.ReflectionsDir())
 	assert.Equal(t, "/project/.shelly/.gitignore", d.GitignorePath())
 }
 

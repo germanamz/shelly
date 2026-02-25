@@ -178,6 +178,38 @@ func TestEngine_TasksDisabled(t *testing.T) {
 	assert.Nil(t, eng.Tasks())
 }
 
+func TestEngine_RemoveSession(t *testing.T) {
+	RegisterProvider("mock", func(_ ProviderConfig) (modeladapter.Completer, error) {
+		return &mockCompleter{reply: "ok"}, nil
+	})
+
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "mock"}},
+		Agents:    []AgentConfig{{Name: "bot", Provider: "p1"}},
+	}
+
+	eng, err := New(context.Background(), cfg)
+	require.NoError(t, err)
+	defer func() { _ = eng.Close() }()
+
+	sess, err := eng.NewSession("")
+	require.NoError(t, err)
+
+	// Session exists.
+	_, ok := eng.Session(sess.ID())
+	assert.True(t, ok)
+
+	// Remove it.
+	assert.True(t, eng.RemoveSession(sess.ID()))
+
+	// Session no longer exists.
+	_, ok = eng.Session(sess.ID())
+	assert.False(t, ok)
+
+	// Removing again returns false.
+	assert.False(t, eng.RemoveSession(sess.ID()))
+}
+
 func TestEngine_InvalidConfig(t *testing.T) {
 	_, err := New(context.Background(), Config{})
 	assert.Error(t, err)

@@ -291,6 +291,21 @@ func (e *Engine) Session(id string) (*Session, bool) {
 	return s, ok
 }
 
+// RemoveSession removes a session from the engine. Returns true if the session
+// existed and was removed, false if no session with that ID was found. The
+// caller is responsible for ensuring the session is no longer active before
+// removing it.
+func (e *Engine) RemoveSession(id string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	_, ok := e.sessions[id]
+	if ok {
+		delete(e.sessions, id)
+	}
+	return ok
+}
+
 // Close cancels the engine context, shuts down MCP clients, and releases
 // resources. Callers should ensure all active sessions have drained before
 // calling Close, as session cancellation depends on the caller-provided
@@ -404,7 +419,7 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 	// load_skill toolbox so the agent can retrieve full content on demand.
 	for _, s := range skills {
 		if s.HasDescription() {
-			store := skill.NewStore(skills)
+			store := skill.NewStore(skills, filepath.Dir(e.dir.Root()))
 			tbs = append(tbs, store.Tools())
 			break
 		}
@@ -490,6 +505,36 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 		})
 	})
 
+	// Build EventFunc that publishes fine-grained loop events.
+	eventFunc := agent.EventFunc(func(ctx context.Context, kind string, data any) {
+		sid, _ := sessionIDFromContext(ctx)
+		aname := agentctx.AgentNameFromContext(ctx)
+		var ek EventKind
+		switch kind {
+		case "tool_call_start":
+			ek = EventToolCallStart
+		case "tool_call_end":
+			ek = EventToolCallEnd
+		case "message_added":
+			ek = EventMessageAdded
+		default:
+			return
+		}
+		e.events.Publish(Event{
+			Kind:      ek,
+			SessionID: sid,
+			Agent:     aname,
+			Timestamp: time.Now(),
+			Data:      data,
+		})
+	})
+
+	// Resolve reflection directory (enabled when .shelly/ exists).
+	var reflectionDir string
+	if e.dir.Exists() {
+		reflectionDir = e.dir.ReflectionsDir()
+	}
+
 	// Capture values for factory closure.
 	name := ac.Name
 	desc := ac.Description
@@ -514,6 +559,8 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 			Effects:            agentEffects,
 			Context:            ctxStr,
 			EventNotifier:      eventNotifier,
+			EventFunc:          eventFunc,
+			ReflectionDir:      reflectionDir,
 			Prefix:             prefix,
 			TaskBoard:          taskBoard,
 		}

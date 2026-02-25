@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -13,16 +14,19 @@ import (
 // Store holds loaded skills and exposes a load_skill tool for on-demand
 // retrieval of skill content by agents.
 type Store struct {
-	skills map[string]Skill
+	skills  map[string]Skill
+	workDir string
 }
 
-// NewStore creates a Store from the given skills.
-func NewStore(skills []Skill) *Store {
+// NewStore creates a Store from the given skills. The workDir is used to
+// convert absolute skill paths to relative paths before exposing them to
+// LLM providers, avoiding machine-specific path leakage.
+func NewStore(skills []Skill, workDir string) *Store {
 	m := make(map[string]Skill, len(skills))
 	for _, s := range skills {
 		m[s.Name] = s
 	}
-	return &Store{skills: m}
+	return &Store{skills: m, workDir: workDir}
 }
 
 // Get returns the skill with the given name and whether it was found.
@@ -74,8 +78,14 @@ func (st *Store) handleLoadSkill(_ context.Context, input json.RawMessage) (stri
 	b.WriteString(s.Content)
 
 	if s.Dir != "" {
+		dir := s.Dir
+		if st.workDir != "" {
+			if rel, err := filepath.Rel(st.workDir, s.Dir); err == nil {
+				dir = rel
+			}
+		}
 		b.WriteString("\n\n---\nSkill directory: ")
-		b.WriteString(s.Dir)
+		b.WriteString(dir)
 		b.WriteString("\nUse filesystem tools to access supplementary files in this directory.")
 	}
 
