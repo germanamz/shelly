@@ -52,7 +52,9 @@ func TestFormatToolCall(t *testing.T) {
 
 		// Agent orchestration
 		{name: "list_agents", tool: "list_agents", args: `{}`, expected: "Listing agents"},
-		{name: "delegate", tool: "delegate", args: `{"tasks":[{"agent":"coder","task":"fix it","context":""}]}`, expected: "Delegating"},
+		{name: "delegate", tool: "delegate", args: `{"tasks":[{"agent":"coder","task":"fix it","context":""}]}`, expected: "Delegating to coder: fix it"},
+		{name: "delegate no tasks", tool: "delegate", args: `{"tasks":[]}`, expected: "Delegating"},
+		{name: "delegate multi", tool: "delegate", args: `{"tasks":[{"agent":"coder","task":"fix it","context":""},{"agent":"planner","task":"plan it","context":""}]}`, expected: "Delegating to coder: fix it, planner: plan it"},
 
 		// Skills
 		{name: "load_skill", tool: "load_skill", args: `{"name":"review"}`, expected: `Loading skill "review"`},

@@ -89,14 +89,20 @@ func (m *toolCallMessage) View(width int) string {
 	label := formatToolCall(m.toolName, m.args)
 	var sb strings.Builder
 
+	// Available width for text after the 2-space indent.
+	contentWidth := max(width-2, 20)
+
 	if m.completed {
-		fmt.Fprintf(&sb, "  %s", toolNameStyle.Render("🔧 "+label))
+		labelStyle := toolNameStyle.Width(contentWidth)
+		fmt.Fprintf(&sb, "  %s", labelStyle.Render("🔧 "+label))
 		if m.result != "" {
 			resultTxt := truncate(m.result, 200)
+			// Account for tree corner prefix in available width.
+			resultWidth := max(contentWidth-len(treeCorner), 20)
 			if m.isError {
-				fmt.Fprintf(&sb, "\n  %s", toolErrorStyle.Render(treeCorner+resultTxt))
+				fmt.Fprintf(&sb, "\n  %s", toolErrorStyle.Width(resultWidth).Render(treeCorner+resultTxt))
 			} else {
-				fmt.Fprintf(&sb, "\n  %s", toolResultStyle.Render(treeCorner+resultTxt))
+				fmt.Fprintf(&sb, "\n  %s", toolResultStyle.Width(resultWidth).Render(treeCorner+resultTxt))
 			}
 		}
 	} else {

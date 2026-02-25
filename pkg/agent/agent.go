@@ -180,10 +180,19 @@ func (a *Agent) run(ctx context.Context) (message.Message, error) {
 	// Collect all toolboxes (user + orchestration).
 	toolboxes := a.allToolBoxes()
 
-	// Collect tool declarations from all toolboxes for the completer.
+	// Collect tool declarations from all toolboxes for the completer,
+	// deduplicating by name so providers that reject duplicate definitions
+	// (e.g. Grok) don't fail when parent toolboxes are injected into children.
+	seen := make(map[string]struct{})
 	var tools []toolbox.Tool
 	for _, tb := range toolboxes {
-		tools = append(tools, tb.Tools()...)
+		for _, t := range tb.Tools() {
+			if _, dup := seen[t.Name]; dup {
+				continue
+			}
+			seen[t.Name] = struct{}{}
+			tools = append(tools, t)
+		}
 	}
 
 	// Reset effects that track per-run state so they behave correctly across

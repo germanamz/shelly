@@ -100,7 +100,32 @@ var toolFormatters = map[string]toolFormatter{
 
 	// Agent orchestration
 	"list_agents": func(_ func(string) string, _ map[string]any) string { return "Listing agents" },
-	"delegate":    func(_ func(string) string, _ map[string]any) string { return "Delegating" },
+	"delegate": func(s func(string) string, args map[string]any) string {
+		if tasks, ok := args["tasks"]; ok {
+			if arr, ok := tasks.([]any); ok {
+				names := make([]string, 0, len(arr))
+				for _, t := range arr {
+					if m, ok := t.(map[string]any); ok {
+						if agent, ok := m["agent"].(string); ok {
+							task := ""
+							if t, ok := m["task"].(string); ok {
+								task = truncate(t, 60)
+							}
+							if task != "" {
+								names = append(names, fmt.Sprintf("%s: %s", agent, task))
+							} else {
+								names = append(names, agent)
+							}
+						}
+					}
+				}
+				if len(names) > 0 {
+					return fmt.Sprintf("Delegating to %s", strings.Join(names, ", "))
+				}
+			}
+		}
+		return "Delegating"
+	},
 
 	// Skills
 	"load_skill": func(s func(string) string, _ map[string]any) string {
