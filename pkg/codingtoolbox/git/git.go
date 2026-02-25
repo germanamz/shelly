@@ -104,7 +104,7 @@ type statusInput struct {
 func (g *Git) statusTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "git_status",
-		Description: "Show the working tree status.",
+		Description: "Show the working tree status. Use to check for uncommitted changes, staged files, and untracked files before committing.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"short":{"type":"boolean","description":"Show short format"}}}`),
 		Handler:     g.handleStatus,
 	}
@@ -138,7 +138,7 @@ type diffInput struct {
 func (g *Git) diffTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "git_diff",
-		Description: "Show changes between commits, commit and working tree, etc.",
+		Description: "Show changes between commits, commit and working tree, etc. Use staged=true to see what will be committed. Use path to limit diff to a specific file.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"staged":{"type":"boolean","description":"Show staged changes (--cached)"},"path":{"type":"string","description":"Limit diff to a specific path"}}}`),
 		Handler:     g.handleDiff,
 	}
@@ -176,7 +176,7 @@ type logInput struct {
 func (g *Git) logTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "git_log",
-		Description: "Show commit logs.",
+		Description: "Show commit logs. Use to understand recent changes and commit history. Default shows last 10 commits in oneline format.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"count":{"type":"integer","description":"Number of commits to show (default 10)"},"format":{"type":"string","description":"Pretty format (default oneline)"}}}`),
 		Handler:     g.handleLog,
 	}
@@ -218,7 +218,7 @@ type commitInput struct {
 func (g *Git) commitTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "git_commit",
-		Description: "Create a git commit. Optionally stage specific files first.",
+		Description: "Create a git commit. Optionally stage specific files first with the files parameter, or use all=true to stage all tracked changes. Always check git_status and git_diff before committing.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"message":{"type":"string","description":"Commit message"},"files":{"type":"array","items":{"type":"string"},"description":"Files to stage before committing"},"all":{"type":"boolean","description":"Stage all tracked changes (-a)"}},"required":["message"]}`),
 		Handler:     g.handleCommit,
 	}

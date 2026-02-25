@@ -48,7 +48,7 @@ type runInput struct {
 func (e *Exec) runTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "exec_run",
-		Description: "Run a program or CLI command. The user will be asked for permission before execution. They can choose to trust the command for all future calls.",
+		Description: "Run a program or CLI command. The user will be asked for permission before execution. They can choose to trust the command for all future calls. Use for arbitrary shell commands. For git operations, prefer the dedicated git tools (git_status, git_diff, git_log, git_commit) which provide structured output.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string","description":"The program or command to run (e.g. git, ls, npm)"},"args":{"type":"array","items":{"type":"string"},"description":"Arguments to pass to the command"}},"required":["command"]}`),
 		Handler:     e.handleRun,
 	}

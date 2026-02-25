@@ -15,24 +15,33 @@ import (
 	"github.com/germanamz/shelly/pkg/modeladapter"
 )
 
-const summarizationPrompt = `You are a conversation summarizer. Create a concise but thorough summary including:
-1. The original user request or goal
-2. What has been accomplished (key actions, files modified, commands run)
-3. What is currently in progress
-4. Important decisions, constraints, or context discovered
-5. Pending tasks or planned next steps`
+const summarizationPrompt = `You are a conversation summarizer. Summarize this conversation into the following structured format. Be precise — preserve exact file paths, error messages, and technical details.
+
+## Goal
+[The original user request — copy verbatim if short, otherwise paraphrase precisely]
+
+## Completed Work
+- [Each completed action with file paths and outcomes]
+
+## Files Touched
+- [path]: [created/modified/read — and what was done]
+
+## Key Decisions
+- [Decision]: [rationale]
+
+## Errors & Blockers
+- [Any errors encountered and resolution status]
+
+## Current State
+[What the agent is currently working on or just finished]
+
+## Next Steps
+1. [Specific next action with enough detail to execute without prior context]
+2. [Following action]`
 
 const (
 	maxToolArgs   = 200
 	maxToolResult = 500
-
-	// trimmedToolResult is the max length for tool results during lightweight
-	// compaction (Phase 1 of graduated compaction).
-	trimmedToolResult = 200
-
-	// preserveRecentMessages is the number of recent messages to keep untouched
-	// during lightweight tool-result trimming.
-	preserveRecentMessages = 6
 )
 
 // CompactConfig holds parameters for the CompactEffect.
@@ -67,7 +76,7 @@ func (e *CompactEffect) Eval(ctx context.Context, ic agent.IterationContext) err
 		return nil
 	}
 
-	return e.compact(ctx, ic)
+	return e.summarize(ctx, ic)
 }
 
 // shouldCompact returns true when the last LLM call's input tokens have
@@ -92,28 +101,10 @@ func (e *CompactEffect) shouldCompact(completer modeladapter.Completer) bool {
 	return last.InputTokens >= limit
 }
 
-// compact uses a graduated approach: first tries lightweight tool-result
-// trimming, then escalates to full summarization if still over threshold.
-func (e *CompactEffect) compact(ctx context.Context, ic agent.IterationContext) error {
-	// Phase 1: Lightweight — trim old tool results in place.
-	if e.trimToolResults(ic.Chat) {
-		if e.cfg.NotifyFunc != nil {
-			e.cfg.NotifyFunc(ctx, "Tool results trimmed to save context")
-		}
-
-		// Re-check: if a subsequent shouldCompact check would still trigger,
-		// fall through to full summarization. Otherwise we're done.
-		if !e.shouldCompact(ic.Completer) {
-			return nil
-		}
-	}
-
-	// Phase 2: Full summarization.
-	return e.summarize(ctx, ic)
-}
-
 // summarize performs full conversation summarization, keeping the system prompt
-// and a compacted summary.
+// and a compacted summary. Tool-result trimming is handled separately by the
+// standalone TrimToolResultsEffect which runs at PhaseAfterComplete before
+// this effect's PhaseBeforeComplete on the next iteration.
 func (e *CompactEffect) summarize(ctx context.Context, ic agent.IterationContext) error {
 	transcript := renderConversation(ic.Chat)
 
@@ -128,7 +119,7 @@ func (e *CompactEffect) summarize(ctx context.Context, ic agent.IterationContext
 	}
 
 	sysPrompt := ic.Chat.SystemPrompt()
-	compactedMsg := fmt.Sprintf("[Conversation compacted — previous context summarized below.]\n\n%s\n\n[Continue from where we left off.]", summary.TextContent())
+	compactedMsg := fmt.Sprintf("[Conversation compacted — previous context summarized below.]\n\n%s\n\n[Continue executing the next steps listed above. Do not re-read files or repeat work already marked as completed.]", summary.TextContent())
 	ic.Chat.Replace(
 		message.NewText(ic.AgentName, role.System, sysPrompt),
 		message.NewText("", role.User, compactedMsg),
@@ -139,56 +130,6 @@ func (e *CompactEffect) summarize(ctx context.Context, ic agent.IterationContext
 	}
 
 	return nil
-}
-
-// trimToolResults replaces long tool-result content with truncated versions,
-// preserving the most recent messages. Returns true if any trimming occurred.
-func (e *CompactEffect) trimToolResults(c *chat.Chat) bool {
-	msgs := c.Messages()
-	if len(msgs) <= preserveRecentMessages {
-		return false
-	}
-
-	trimmed := false
-	boundary := len(msgs) - preserveRecentMessages
-
-	for i := range boundary {
-		if msgs[i].Role != role.Tool {
-			continue
-		}
-
-		// Skip already-trimmed messages.
-		if _, ok := msgs[i].GetMeta("tool_result_trimmed"); ok {
-			continue
-		}
-
-		newParts := make([]content.Part, len(msgs[i].Parts))
-		partTrimmed := false
-
-		for j, p := range msgs[i].Parts {
-			tr, ok := p.(content.ToolResult)
-			if !ok || tr.IsError || len(tr.Content) <= trimmedToolResult {
-				newParts[j] = p
-				continue
-			}
-
-			tr.Content = tr.Content[:trimmedToolResult] + "… [trimmed]"
-			newParts[j] = tr
-			partTrimmed = true
-		}
-
-		if partTrimmed {
-			msgs[i].Parts = newParts
-			msgs[i].SetMeta("tool_result_trimmed", true)
-			trimmed = true
-		}
-	}
-
-	if trimmed {
-		c.Replace(msgs...)
-	}
-
-	return trimmed
 }
 
 // handleCompactError asks the user what to do on compaction failure if AskFunc
@@ -216,7 +157,7 @@ func (e *CompactEffect) handleCompactError(ctx context.Context, ic agent.Iterati
 		}
 
 		sysPrompt := ic.Chat.SystemPrompt()
-		compactedMsg := fmt.Sprintf("[Conversation compacted — previous context summarized below.]\n\n%s\n\n[Continue from where we left off.]", summary.TextContent())
+		compactedMsg := fmt.Sprintf("[Conversation compacted — previous context summarized below.]\n\n%s\n\n[Continue executing the next steps listed above. Do not re-read files or repeat work already marked as completed.]", summary.TextContent())
 		ic.Chat.Replace(
 			message.NewText(ic.AgentName, role.System, sysPrompt),
 			message.NewText("", role.User, compactedMsg),

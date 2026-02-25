@@ -105,7 +105,7 @@ type editInput struct {
 func (f *FS) readTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "fs_read",
-		Description: "Read the contents of a file at the given path.",
+		Description: "Read the contents of a file at the given path. Use this to inspect file contents before editing. Returns the full file content as text.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path to the file to read"}},"required":["path"]}`),
 		Handler:     f.handleRead,
 	}
@@ -141,7 +141,7 @@ func (f *FS) handleRead(ctx context.Context, input json.RawMessage) (string, err
 func (f *FS) writeTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "fs_write",
-		Description: "Write content to a file, creating parent directories as needed.",
+		Description: "Write content to a file, creating parent directories as needed. Use for creating new files or full file rewrites. For targeted edits to existing files, prefer fs_edit instead.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path to the file to write"},"content":{"type":"string","description":"Content to write"}},"required":["path","content"]}`),
 		Handler:     f.handleWrite,
 	}
@@ -196,7 +196,7 @@ func (f *FS) handleWrite(ctx context.Context, input json.RawMessage) (string, er
 func (f *FS) editTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "fs_edit",
-		Description: "Edit a file by finding and replacing text. The old_text must appear exactly once. Supports three operations: modify (replace old_text with new_text), delete (omit new_text to remove old_text), and insert (include surrounding context in old_text and add new content in new_text).",
+		Description: "Edit a file by finding and replacing text. The old_text must appear exactly once. Supports three operations: modify (replace old_text with new_text), delete (omit new_text to remove old_text), and insert (include surrounding context in old_text and add new content in new_text). Use for targeted edits. For full rewrites, use fs_write instead. Always read the file first with fs_read to get exact text to match.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path to the file to edit"},"old_text":{"type":"string","description":"Text to find (must appear exactly once)"},"new_text":{"type":"string","description":"Replacement text. Omit or set to empty string to delete the matched text."}},"required":["path","old_text"]}`),
 		Handler:     f.handleEdit,
 	}
@@ -270,7 +270,7 @@ type listEntry struct {
 func (f *FS) listTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "fs_list",
-		Description: "List entries in a directory. Returns JSON with name, type, and size.",
+		Description: "List entries in a directory (non-recursive). Returns JSON with name, type, and size. For recursive file discovery, use search_files instead.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path to the directory to list"}},"required":["path"]}`),
 		Handler:     f.handleList,
 	}

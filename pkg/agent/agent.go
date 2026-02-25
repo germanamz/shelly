@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/germanamz/shelly/pkg/agentctx"
 	"github.com/germanamz/shelly/pkg/chats/chat"
@@ -37,6 +38,21 @@ type CompletionResult struct {
 // lifecycle events (e.g. "agent_start", "agent_end") to the engine's EventBus.
 type EventNotifier func(ctx context.Context, kind string, agentName string, data any)
 
+// EventFunc is called by the agent to publish fine-grained loop events
+// (tool_call_start, tool_call_end, message_added).
+type EventFunc func(ctx context.Context, kind string, data any)
+
+// ToolCallEventData carries metadata for tool_call_start / tool_call_end events.
+type ToolCallEventData struct {
+	ToolName string `json:"tool_name"`
+	CallID   string `json:"call_id"`
+}
+
+// MessageAddedEventData carries metadata for message_added events.
+type MessageAddedEventData struct {
+	Role string `json:"role"`
+}
+
 // TaskBoard abstracts the shared task board so orchestration tools can
 // manage task lifecycle during delegation without importing pkg/tasks.
 type TaskBoard interface {
@@ -46,15 +62,18 @@ type TaskBoard interface {
 
 // Options configures an Agent.
 type Options struct {
-	MaxIterations      int           // ReAct loop limit (0 = unlimited).
-	MaxDelegationDepth int           // Prevents infinite delegation loops (0 = unlimited).
-	Skills             []skill.Skill // Procedures the agent knows.
-	Middleware         []Middleware  // Applied around Run().
-	Effects            []Effect      // Per-iteration hooks run inside the ReAct loop.
-	Context            string        // Project context injected into the system prompt.
-	EventNotifier      EventNotifier // Publishes sub-agent lifecycle events.
-	Prefix             string        // Display prefix (emoji + label) for the TUI.
-	TaskBoard          TaskBoard     // Optional task board for automatic task lifecycle during delegation.
+	MaxIterations          int           // ReAct loop limit (0 = unlimited).
+	MaxDelegationDepth     int           // Prevents infinite delegation loops (0 = unlimited).
+	Skills                 []skill.Skill // Procedures the agent knows.
+	Middleware             []Middleware  // Applied around Run().
+	Effects                []Effect      // Per-iteration hooks run inside the ReAct loop.
+	Context                string        // Project context injected into the system prompt.
+	EventNotifier          EventNotifier // Publishes sub-agent lifecycle events.
+	Prefix                 string        // Display prefix (emoji + label) for the TUI.
+	TaskBoard              TaskBoard     // Optional task board for automatic task lifecycle during delegation.
+	ReflectionDir          string        // Directory for failure reflection notes (empty = disabled).
+	DisableBehavioralHints bool          // When true, omits the <behavioral_constraints> section from the system prompt.
+	EventFunc              EventFunc     // Optional callback for fine-grained loop events (tool calls, message added).
 }
 
 // Agent is the unified agent type. It runs a ReAct loop, can delegate to other
@@ -186,6 +205,7 @@ func (a *Agent) run(ctx context.Context) (message.Message, error) {
 
 		reply.Sender = a.name
 		a.chat.Append(reply)
+		a.emitEvent(ctx, "message_added", MessageAddedEventData{Role: string(reply.Role)})
 
 		ic.Phase = PhaseAfterComplete
 		if err := a.evalEffects(ctx, ic); err != nil {
@@ -197,9 +217,24 @@ func (a *Agent) run(ctx context.Context) (message.Message, error) {
 			return reply, nil
 		}
 
-		for _, tc := range calls {
-			result := callTool(ctx, toolboxes, tc)
+		// Execute tool calls concurrently, collecting results in order.
+		results := make([]content.ToolResult, len(calls))
+
+		var wg sync.WaitGroup
+
+		for i, tc := range calls {
+			wg.Go(func() {
+				a.emitEvent(ctx, "tool_call_start", ToolCallEventData{ToolName: tc.Name, CallID: tc.ID})
+				results[i] = callTool(ctx, toolboxes, tc)
+				a.emitEvent(ctx, "tool_call_end", ToolCallEventData{ToolName: tc.Name, CallID: tc.ID})
+			})
+		}
+
+		wg.Wait()
+
+		for _, result := range results {
 			a.chat.Append(message.New(a.name, role.Tool, result))
+			a.emitEvent(ctx, "message_added", MessageAddedEventData{Role: string(role.Tool)})
 		}
 
 		if a.completionResult != nil {
@@ -294,6 +329,18 @@ func (a *Agent) buildSystemPrompt() string {
 		b.WriteString("\n</instructions>\n")
 	}
 
+	// Behavioral constraints (default on, can be disabled).
+	if !a.options.DisableBehavioralHints {
+		b.WriteString("\n<behavioral_constraints>\n")
+		b.WriteString("- When a file operation fails, verify the path exists before retrying.\n")
+		b.WriteString("- Do not retry the same operation more than twice without changing your approach.\n")
+		b.WriteString("- If you have made 5+ tool calls without visible progress, stop and reassess your approach.\n")
+		b.WriteString("- Read files before editing them. Search before assuming file locations.\n")
+		b.WriteString("- When a command errors, read the error message carefully and address the root cause.\n")
+		b.WriteString("- Prefer targeted edits over full file rewrites to minimize unintended changes.\n")
+		b.WriteString("</behavioral_constraints>\n")
+	}
+
 	// --- Semi-static content (loaded once at startup) ---
 
 	// Project context.
@@ -355,6 +402,13 @@ func (a *Agent) buildSystemPrompt() string {
 	}
 
 	return b.String()
+}
+
+// emitEvent publishes a fine-grained loop event if EventFunc is set.
+func (a *Agent) emitEvent(ctx context.Context, kind string, data any) {
+	if a.options.EventFunc != nil {
+		a.options.EventFunc(ctx, kind, data)
+	}
 }
 
 // hasNotesTools returns true if any toolbox contains the "list_notes" tool.

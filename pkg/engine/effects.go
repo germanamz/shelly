@@ -25,6 +25,8 @@ type EffectFactory func(params map[string]any, wctx EffectWiringContext) (agent.
 var effectFactories = map[string]EffectFactory{
 	"compact":           buildCompactEffect,
 	"trim_tool_results": buildTrimToolResultsEffect,
+	"loop_detect":       buildLoopDetectEffect,
+	"sliding_window":    buildSlidingWindowEffect,
 }
 
 // buildEffects constructs all effects for an agent from its config.
@@ -100,4 +102,89 @@ func buildTrimToolResultsEffect(params map[string]any, _ EffectWiringContext) (a
 	}
 
 	return effects.NewTrimToolResultsEffect(cfg), nil
+}
+
+// buildLoopDetectEffect creates a LoopDetectEffect from YAML params.
+func buildLoopDetectEffect(params map[string]any, _ EffectWiringContext) (agent.Effect, error) {
+	cfg := effects.LoopDetectConfig{}
+
+	if v, ok := params["threshold"]; ok {
+		switch t := v.(type) {
+		case float64:
+			cfg.Threshold = int(t)
+		case int:
+			cfg.Threshold = t
+		default:
+			return nil, fmt.Errorf("threshold must be a number, got %T", v)
+		}
+	}
+
+	if v, ok := params["window_size"]; ok {
+		switch t := v.(type) {
+		case float64:
+			cfg.WindowSize = int(t)
+		case int:
+			cfg.WindowSize = t
+		default:
+			return nil, fmt.Errorf("window_size must be a number, got %T", v)
+		}
+	}
+
+	return effects.NewLoopDetectEffect(cfg), nil
+}
+
+// buildSlidingWindowEffect creates a SlidingWindowEffect from YAML params.
+func buildSlidingWindowEffect(params map[string]any, wctx EffectWiringContext) (agent.Effect, error) {
+	cfg := effects.SlidingWindowConfig{
+		ContextWindow: wctx.ContextWindow,
+		NotifyFunc:    wctx.NotifyFunc,
+	}
+
+	threshold := 0.7 // default (lower than compact to trigger earlier)
+	if v, ok := params["threshold"]; ok {
+		switch t := v.(type) {
+		case float64:
+			threshold = t
+		case int:
+			threshold = float64(t)
+		default:
+			return nil, fmt.Errorf("threshold must be a number, got %T", v)
+		}
+	}
+	cfg.Threshold = threshold
+
+	if v, ok := params["recent_zone"]; ok {
+		switch t := v.(type) {
+		case float64:
+			cfg.RecentZone = int(t)
+		case int:
+			cfg.RecentZone = t
+		default:
+			return nil, fmt.Errorf("recent_zone must be a number, got %T", v)
+		}
+	}
+
+	if v, ok := params["medium_zone"]; ok {
+		switch t := v.(type) {
+		case float64:
+			cfg.MediumZone = int(t)
+		case int:
+			cfg.MediumZone = t
+		default:
+			return nil, fmt.Errorf("medium_zone must be a number, got %T", v)
+		}
+	}
+
+	if v, ok := params["trim_length"]; ok {
+		switch t := v.(type) {
+		case float64:
+			cfg.TrimLength = int(t)
+		case int:
+			cfg.TrimLength = t
+		default:
+			return nil, fmt.Errorf("trim_length must be a number, got %T", v)
+		}
+	}
+
+	return effects.NewSlidingWindowEffect(cfg), nil
 }

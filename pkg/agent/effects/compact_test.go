@@ -218,6 +218,7 @@ func TestCompactEffect_Success(t *testing.T) {
 	assert.Equal(t, role.System, c.At(0).Role)
 	assert.Contains(t, c.At(1).TextContent(), "Summary: user asked for help.")
 	assert.Contains(t, c.At(1).TextContent(), "[Conversation compacted")
+	assert.Contains(t, c.At(1).TextContent(), "Continue executing the next steps")
 }
 
 // --- compaction failure ---

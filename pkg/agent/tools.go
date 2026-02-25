@@ -5,7 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/chats/role"
@@ -121,6 +125,11 @@ func delegateTool(a *Agent) toolbox.Tool {
 					child.options.EventNotifier = a.options.EventNotifier
 					child.AddToolBoxes(a.toolboxes...)
 					prependContext(child, t.Context)
+
+					if reflections := searchReflections(a.options.ReflectionDir, t.Task); reflections != "" {
+						child.chat.Append(message.NewText("user", role.User, reflections))
+					}
+
 					child.chat.Append(message.NewText("user", role.User, t.Task))
 
 					// Auto-claim task if task_id is provided and TaskBoard is available.
@@ -145,6 +154,7 @@ func delegateTool(a *Agent) toolbox.Tool {
 								Summary: fmt.Sprintf("Agent %q exhausted its iteration limit without completing the task.", t.Agent),
 								Caveats: "Iteration limit reached. Check progress notes for partial work.",
 							}
+							writeReflection(a.options.ReflectionDir, t.Agent, t.Task, cr)
 							if t.TaskID != "" && a.options.TaskBoard != nil {
 								_ = a.options.TaskBoard.UpdateTaskStatus(t.TaskID, cr.Status)
 							}
@@ -162,8 +172,11 @@ func delegateTool(a *Agent) toolbox.Tool {
 					}
 
 					// Auto-update task status based on completion result.
-					if t.TaskID != "" && a.options.TaskBoard != nil {
-						if cr := child.CompletionResult(); cr != nil {
+					if cr := child.CompletionResult(); cr != nil {
+						if cr.Status == "failed" {
+							writeReflection(a.options.ReflectionDir, t.Agent, t.Task, cr)
+						}
+						if t.TaskID != "" && a.options.TaskBoard != nil {
 							_ = a.options.TaskBoard.UpdateTaskStatus(t.TaskID, cr.Status)
 						}
 					}
@@ -231,4 +244,116 @@ func taskCompleteTool(a *Agent) toolbox.Tool {
 func prependContext(child *Agent, ctx string) {
 	child.chat.Append(message.NewText("user", role.User,
 		"<delegation_context>\n"+ctx+"\n</delegation_context>"))
+}
+
+// --- reflection helpers ---
+
+// writeReflection writes a reflection note when a sub-agent fails.
+// It is best-effort: errors are silently ignored.
+func writeReflection(dir string, agentName string, task string, cr *CompletionResult) {
+	if dir == "" || cr == nil || cr.Status != "failed" {
+		return
+	}
+
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return // best-effort
+	}
+
+	timestamp := time.Now().UTC().Format(time.RFC3339)
+	// Use a sanitized filename based on agent name and timestamp.
+	safeName := sanitizeFilename(agentName + "-" + time.Now().UTC().Format("20060102-150405"))
+	path := filepath.Join(dir, safeName+".md")
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Reflection: %s\n\n", agentName)
+	fmt.Fprintf(&b, "**Timestamp**: %s\n\n", timestamp)
+	fmt.Fprintf(&b, "## Task\n%s\n\n", task)
+	fmt.Fprintf(&b, "## Summary\n%s\n\n", cr.Summary)
+	if cr.Caveats != "" {
+		fmt.Fprintf(&b, "## Caveats\n%s\n\n", cr.Caveats)
+	}
+	if len(cr.FilesModified) > 0 {
+		b.WriteString("## Files Modified\n")
+		for _, f := range cr.FilesModified {
+			fmt.Fprintf(&b, "- %s\n", f)
+		}
+		b.WriteString("\n")
+	}
+
+	os.WriteFile(path, []byte(b.String()), 0o600) //nolint:errcheck,gosec // best-effort reflection
+}
+
+// sanitizeFilename replaces any non-alphanumeric, non-hyphen, non-underscore
+// characters with hyphens.
+func sanitizeFilename(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune('-')
+		}
+	}
+	return b.String()
+}
+
+// searchReflections searches for relevant reflections before delegating.
+// Returns an empty string if no relevant reflections are found.
+func searchReflections(dir string, task string) string {
+	if dir == "" {
+		return ""
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+
+	var reflections []string
+	taskLower := strings.ToLower(task)
+
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+
+		data, err := os.ReadFile(filepath.Join(dir, e.Name())) //nolint:gosec // dir is controlled by config, entry names from ReadDir
+		if err != nil {
+			continue
+		}
+
+		content := string(data)
+		// Simple relevance: check if any words from the task appear in the reflection.
+		if containsRelevantKeywords(taskLower, strings.ToLower(content)) {
+			reflections = append(reflections, content)
+		}
+	}
+
+	if len(reflections) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("\n<prior_reflections>\nPrevious attempts at similar tasks failed. Learn from these reflections:\n\n")
+	for _, r := range reflections {
+		b.WriteString(r)
+		b.WriteString("\n---\n")
+	}
+	b.WriteString("</prior_reflections>")
+	return b.String()
+}
+
+// containsRelevantKeywords checks if the content shares significant keywords with the task.
+func containsRelevantKeywords(task, content string) bool {
+	words := strings.Fields(task)
+	matches := 0
+	for _, w := range words {
+		if len(w) < 4 { // skip short words like "the", "for", etc.
+			continue
+		}
+		if strings.Contains(content, w) {
+			matches++
+		}
+	}
+	return matches >= 2 // at least 2 significant word matches
 }

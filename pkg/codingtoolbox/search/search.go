@@ -79,7 +79,7 @@ type contentMatch struct {
 func (s *Search) contentTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "search_content",
-		Description: "Search file contents using a regular expression. Returns matching lines with file path and line number.",
+		Description: "Search file contents using a regular expression. Returns matching lines with file path and line number. Use to find code patterns, definitions, or references across a directory. Returns matching lines only — use fs_read to see surrounding context after finding matches.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string","description":"Regular expression pattern to search for"},"directory":{"type":"string","description":"Directory to search in"},"max_results":{"type":"integer","description":"Maximum number of results (default 100)"}},"required":["pattern","directory"]}`),
 		Handler:     s.handleContent,
 	}
@@ -189,7 +189,7 @@ type filesInput struct {
 func (s *Search) filesTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "search_files",
-		Description: "Find files by name pattern (supports glob with ** for recursive matching). Returns matching file paths.",
+		Description: "Find files by name pattern (supports glob with ** for recursive matching). Returns matching file paths. Use to locate files before reading them. Example patterns: '**/*.go' for all Go files, '**/test_*' for test files.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string","description":"Glob pattern to match file names (supports **)"},"directory":{"type":"string","description":"Directory to search in"},"max_results":{"type":"integer","description":"Maximum number of results (default 100)"}},"required":["pattern","directory"]}`),
 		Handler:     s.handleFiles,
 	}

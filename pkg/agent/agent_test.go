@@ -929,6 +929,41 @@ func TestSystemPromptNoNotesProtocolWithoutNotesTools(t *testing.T) {
 	assert.NotContains(t, prompt, "<notes_protocol>")
 }
 
+// --- Behavioral constraints tests ---
+
+func TestSystemPromptBehavioralConstraintsDefault(t *testing.T) {
+	p := &sequenceCompleter{
+		replies: []message.Message{
+			message.NewText("", role.Assistant, "Hi"),
+		},
+	}
+	a := New("bot", "", "", p, Options{})
+
+	_, err := a.Run(context.Background())
+	require.NoError(t, err)
+
+	prompt := a.Chat().SystemPrompt()
+	assert.Contains(t, prompt, "<behavioral_constraints>")
+	assert.Contains(t, prompt, "Do not retry the same operation more than twice")
+	assert.Contains(t, prompt, "Read files before editing them")
+	assert.Contains(t, prompt, "</behavioral_constraints>")
+}
+
+func TestSystemPromptBehavioralConstraintsDisabled(t *testing.T) {
+	p := &sequenceCompleter{
+		replies: []message.Message{
+			message.NewText("", role.Assistant, "Hi"),
+		},
+	}
+	a := New("bot", "", "", p, Options{DisableBehavioralHints: true})
+
+	_, err := a.Run(context.Background())
+	require.NoError(t, err)
+
+	prompt := a.Chat().SystemPrompt()
+	assert.NotContains(t, prompt, "<behavioral_constraints>")
+}
+
 func TestAddToolBoxesDeduplicates(t *testing.T) {
 	tb1 := newEchoToolBox()
 	tb2 := toolbox.New()
