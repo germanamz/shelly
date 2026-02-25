@@ -27,6 +27,9 @@ var effectFactories = map[string]EffectFactory{
 	"trim_tool_results": buildTrimToolResultsEffect,
 	"loop_detect":       buildLoopDetectEffect,
 	"sliding_window":    buildSlidingWindowEffect,
+	"observation_mask":  buildObservationMaskEffect,
+	"reflection":        buildReflectionEffect,
+	"progress":          buildProgressEffect,
 }
 
 // buildEffects constructs all effects for an agent from its config.
@@ -131,6 +134,73 @@ func buildLoopDetectEffect(params map[string]any, _ EffectWiringContext) (agent.
 	}
 
 	return effects.NewLoopDetectEffect(cfg), nil
+}
+
+// buildObservationMaskEffect creates an ObservationMaskEffect from YAML params.
+func buildObservationMaskEffect(params map[string]any, wctx EffectWiringContext) (agent.Effect, error) {
+	cfg := effects.ObservationMaskConfig{
+		ContextWindow: wctx.ContextWindow,
+	}
+
+	if v, ok := params["threshold"]; ok {
+		switch t := v.(type) {
+		case float64:
+			cfg.Threshold = t
+		case int:
+			cfg.Threshold = float64(t)
+		default:
+			return nil, fmt.Errorf("threshold must be a number, got %T", v)
+		}
+	}
+
+	if v, ok := params["recent_window"]; ok {
+		switch t := v.(type) {
+		case float64:
+			cfg.RecentWindow = int(t)
+		case int:
+			cfg.RecentWindow = t
+		default:
+			return nil, fmt.Errorf("recent_window must be a number, got %T", v)
+		}
+	}
+
+	return effects.NewObservationMaskEffect(cfg), nil
+}
+
+// buildReflectionEffect creates a ReflectionEffect from YAML params.
+func buildReflectionEffect(params map[string]any, _ EffectWiringContext) (agent.Effect, error) {
+	cfg := effects.ReflectionConfig{}
+
+	if v, ok := params["failure_threshold"]; ok {
+		switch t := v.(type) {
+		case float64:
+			cfg.FailureThreshold = int(t)
+		case int:
+			cfg.FailureThreshold = t
+		default:
+			return nil, fmt.Errorf("failure_threshold must be a number, got %T", v)
+		}
+	}
+
+	return effects.NewReflectionEffect(cfg), nil
+}
+
+// buildProgressEffect creates a ProgressEffect from YAML params.
+func buildProgressEffect(params map[string]any, _ EffectWiringContext) (agent.Effect, error) {
+	cfg := effects.ProgressConfig{}
+
+	if v, ok := params["interval"]; ok {
+		switch t := v.(type) {
+		case float64:
+			cfg.Interval = int(t)
+		case int:
+			cfg.Interval = t
+		default:
+			return nil, fmt.Errorf("interval must be a number, got %T", v)
+		}
+	}
+
+	return effects.NewProgressEffect(cfg), nil
 }
 
 // buildSlidingWindowEffect creates a SlidingWindowEffect from YAML params.

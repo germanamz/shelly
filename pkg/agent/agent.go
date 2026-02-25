@@ -338,6 +338,11 @@ func (a *Agent) buildSystemPrompt() string {
 		b.WriteString("- Read files before editing them. Search before assuming file locations.\n")
 		b.WriteString("- When a command errors, read the error message carefully and address the root cause.\n")
 		b.WriteString("- Prefer targeted edits over full file rewrites to minimize unintended changes.\n")
+		b.WriteString("- Before starting a multi-step task, briefly outline your plan and the order of steps.\n")
+		b.WriteString("- After a tool failure, analyze the error and change your approach before retrying. Do not repeat the same action expecting different results.\n")
+		b.WriteString("- When you have multiple tools that could work, prefer the most specific one for the task.\n")
+		b.WriteString("- If you are unsure which file to modify, search first rather than guessing paths.\n")
+		b.WriteString("- When approaching your iteration limit, prioritize completing the most critical remaining work and write a progress note.\n")
 		b.WriteString("</behavioral_constraints>\n")
 	}
 

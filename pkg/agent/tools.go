@@ -181,11 +181,7 @@ func delegateTool(a *Agent) toolbox.Tool {
 						}
 					}
 
-					results[i] = delegateResult{
-						Agent:      t.Agent,
-						Result:     reply.TextContent(),
-						Completion: child.CompletionResult(),
-					}
+					results[i] = buildDelegateResult(t.Agent, reply, child.CompletionResult())
 				})
 			}
 
@@ -237,6 +233,31 @@ func taskCompleteTool(a *Agent) toolbox.Tool {
 			return fmt.Sprintf("Task marked as %s.", tci.Status), nil
 		},
 	}
+}
+
+const maxDelegateResultLen = 2000
+
+// buildDelegateResult constructs a delegateResult from a child agent's reply.
+// When a CompletionResult is available, its Summary is used as the primary
+// result to keep the parent's context concise. Otherwise, the reply text is
+// truncated to maxDelegateResultLen.
+func buildDelegateResult(agentName string, reply message.Message, cr *CompletionResult) delegateResult {
+	result := delegateResult{
+		Agent:      agentName,
+		Completion: cr,
+	}
+
+	if cr != nil && cr.Summary != "" {
+		result.Result = cr.Summary
+	} else {
+		text := reply.TextContent()
+		if len(text) > maxDelegateResultLen {
+			text = text[:maxDelegateResultLen] + "… [truncated]"
+		}
+		result.Result = text
+	}
+
+	return result
 }
 
 // prependContext adds a context message before the task message
