@@ -101,24 +101,10 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		}
 	}
 
-	// Load skills once at engine level from .shelly/skills/.
-	skillsDir := dir.SkillsDir()
-	if _, err := os.Stat(skillsDir); err == nil {
-		status("Loading skills...")
-		start := time.Now()
-		skills, err := skill.LoadDir(skillsDir)
-		if err != nil {
-			return nil, fmt.Errorf("engine: skills: %w", err)
-		}
-		e.skills = skills
-		status(fmt.Sprintf("Loaded %d skills (%s)", len(skills), time.Since(start).Round(time.Millisecond)))
+	// Load skills, project context, and MCP connections in parallel.
+	if err := e.parallelInit(ctx, cfg, dir, status); err != nil {
+		return nil, err
 	}
-
-	// Load project context (best-effort).
-	status("Loading project context...")
-	start := time.Now()
-	e.projectCtx = projectctx.Load(dir, filepath.Dir(dir.Root()))
-	status(fmt.Sprintf("Project context ready (%s)", time.Since(start).Round(time.Millisecond)))
 
 	// Build provider completers.
 	for _, pc := range cfg.Providers {
@@ -128,11 +114,6 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 			return nil, fmt.Errorf("engine: provider %q: %w", pc.Name, err)
 		}
 		e.completers[pc.Name] = c
-	}
-
-	// Connect MCP clients and build toolboxes.
-	if err := e.connectMCPClients(ctx, cfg.MCPServers, status); err != nil {
-		return nil, err
 	}
 
 	// Create ask responder (always available).
@@ -330,37 +311,121 @@ func (e *Engine) RemoveSession(id string) bool {
 	return ok
 }
 
-// connectMCPClients connects to all configured MCP servers and populates toolboxes.
-func (e *Engine) connectMCPClients(ctx context.Context, servers []MCPConfig, status func(string)) error {
-	for _, mc := range servers {
-		status(fmt.Sprintf("Connecting MCP server %q...", mc.Name))
-		start := time.Now()
+// parallelInit runs skills loading, project context loading, and MCP server
+// connections concurrently to reduce startup latency.
+func (e *Engine) parallelInit(ctx context.Context, cfg Config, dir shellydir.Dir, status func(string)) error {
+	var (
+		skillsErr error
+		mcpErr    error
+		wg        sync.WaitGroup
+	)
 
-		var client *mcpclient.MCPClient
-		var err error
-		if mc.URL != "" {
-			client, err = mcpclient.NewHTTP(ctx, mc.URL)
-		} else {
-			client, err = mcpclient.New(ctx, mc.Command, mc.Args...)
-		}
-		if err != nil {
-			_ = e.Close()
-			return fmt.Errorf("engine: mcp %q: %w", mc.Name, err)
-		}
-		e.mcpClients = append(e.mcpClients, client)
-
-		tools, err := client.ListTools(ctx)
-		if err != nil {
-			_ = e.Close()
-			return fmt.Errorf("engine: mcp %q: list tools: %w", mc.Name, err)
-		}
-
-		tb := toolbox.New()
-		tb.Register(tools...)
-		e.toolboxes[mc.Name] = tb
-
-		status(fmt.Sprintf("MCP server %q ready — %d tools (%s)", mc.Name, len(tools), time.Since(start).Round(time.Millisecond)))
+	skillsDir := dir.SkillsDir()
+	if _, err := os.Stat(skillsDir); err == nil {
+		wg.Go(func() {
+			status("Loading skills...")
+			start := time.Now()
+			skills, err := skill.LoadDir(skillsDir)
+			if err != nil {
+				skillsErr = fmt.Errorf("engine: skills: %w", err)
+				return
+			}
+			e.skills = skills
+			status(fmt.Sprintf("Loaded %d skills (%s)", len(skills), time.Since(start).Round(time.Millisecond)))
+		})
 	}
+
+	wg.Go(func() {
+		status("Loading project context...")
+		start := time.Now()
+		e.projectCtx = projectctx.Load(dir, filepath.Dir(dir.Root()))
+		status(fmt.Sprintf("Project context ready (%s)", time.Since(start).Round(time.Millisecond)))
+	})
+
+	wg.Go(func() {
+		mcpErr = e.connectMCPClients(ctx, cfg.MCPServers, status)
+	})
+
+	wg.Wait()
+
+	if skillsErr != nil {
+		return skillsErr
+	}
+	if mcpErr != nil {
+		return mcpErr
+	}
+	return nil
+}
+
+// mcpResult holds the outcome of a single parallel MCP connection attempt.
+type mcpResult struct {
+	name   string
+	client *mcpclient.MCPClient
+	tb     *toolbox.ToolBox
+	err    error
+}
+
+// connectMCPClients connects to all configured MCP servers in parallel and
+// populates toolboxes. On any error, successfully-connected clients are closed.
+func (e *Engine) connectMCPClients(ctx context.Context, servers []MCPConfig, status func(string)) error {
+	if len(servers) == 0 {
+		return nil
+	}
+
+	results := make([]mcpResult, len(servers))
+
+	var wg sync.WaitGroup
+	for i, mc := range servers {
+		wg.Go(func() {
+			status(fmt.Sprintf("Connecting MCP server %q...", mc.Name))
+			start := time.Now()
+
+			var client *mcpclient.MCPClient
+			var err error
+			if mc.URL != "" {
+				client, err = mcpclient.NewHTTP(ctx, mc.URL)
+			} else {
+				client, err = mcpclient.New(ctx, mc.Command, mc.Args...)
+			}
+			if err != nil {
+				results[i] = mcpResult{name: mc.Name, err: fmt.Errorf("engine: mcp %q: %w", mc.Name, err)}
+				return
+			}
+
+			tools, err := client.ListTools(ctx)
+			if err != nil {
+				_ = client.Close()
+				results[i] = mcpResult{name: mc.Name, err: fmt.Errorf("engine: mcp %q: list tools: %w", mc.Name, err)}
+				return
+			}
+
+			tb := toolbox.New()
+			tb.Register(tools...)
+
+			status(fmt.Sprintf("MCP server %q ready — %d tools (%s)", mc.Name, len(tools), time.Since(start).Round(time.Millisecond)))
+			results[i] = mcpResult{name: mc.Name, client: client, tb: tb}
+		})
+	}
+	wg.Wait()
+
+	// Check results: on first error, close any successfully-connected clients.
+	for _, r := range results {
+		if r.err != nil {
+			for _, r2 := range results {
+				if r2.client != nil {
+					_ = r2.client.Close()
+				}
+			}
+			return r.err
+		}
+	}
+
+	// All succeeded — populate engine state.
+	for _, r := range results {
+		e.mcpClients = append(e.mcpClients, r.client)
+		e.toolboxes[r.name] = r.tb
+	}
+
 	return nil
 }
 

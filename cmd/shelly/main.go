@@ -175,7 +175,12 @@ func run(configPath, shellyDirPath, agentName string, verbose bool) error {
 
 	model := newAppModel(ctx, sess, eng, verbose)
 
-	p := tea.NewProgram(model)
+	// Flush any stale terminal responses (e.g. OSC 11 background-color
+	// replies) already buffered in the kernel tty input queue before
+	// bubbletea starts reading from stdin.
+	flushStdinBuffer()
+
+	p := tea.NewProgram(model, tea.WithFilter(filterStaleEscapes))
 
 	// Send the program reference so the model can start bridge goroutines.
 	go func() {
