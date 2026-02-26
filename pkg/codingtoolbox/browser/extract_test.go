@@ -34,7 +34,7 @@ func TestExtract_FullPage(t *testing.T) {
 	// Navigate first.
 	tr := tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc1",
-		Name:      "web_navigate",
+		Name:      "browser_navigate",
 		Arguments: mustJSON(t, navigateInput{URL: srv.URL}),
 	})
 	require.False(t, tr.IsError, tr.Content)
@@ -42,7 +42,7 @@ func TestExtract_FullPage(t *testing.T) {
 	// Extract.
 	tr = tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc2",
-		Name:      "web_extract",
+		Name:      "browser_extract",
 		Arguments: `{}`,
 	})
 
@@ -71,14 +71,14 @@ func TestExtract_WithSelector(t *testing.T) {
 
 	tr := tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc1",
-		Name:      "web_navigate",
+		Name:      "browser_navigate",
 		Arguments: mustJSON(t, navigateInput{URL: srv.URL}),
 	})
 	require.False(t, tr.IsError, tr.Content)
 
 	tr = tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc2",
-		Name:      "web_extract",
+		Name:      "browser_extract",
 		Arguments: mustJSON(t, extractInput{Selector: "#target"}),
 	})
 
@@ -105,14 +105,14 @@ func TestExtract_Truncation(t *testing.T) {
 
 	tr := tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc1",
-		Name:      "web_navigate",
+		Name:      "browser_navigate",
 		Arguments: mustJSON(t, navigateInput{URL: srv.URL}),
 	})
 	require.False(t, tr.IsError, tr.Content)
 
 	tr = tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc2",
-		Name:      "web_extract",
+		Name:      "browser_extract",
 		Arguments: `{}`,
 	})
 

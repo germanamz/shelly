@@ -16,7 +16,7 @@ func TestSearch_EmptyQuery(t *testing.T) {
 
 	tr := tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc1",
-		Name:      "web_search",
+		Name:      "browser_search",
 		Arguments: `{"query":""}`,
 	})
 
@@ -32,7 +32,7 @@ func TestSearch_InvalidInput(t *testing.T) {
 
 	tr := tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc1",
-		Name:      "web_search",
+		Name:      "browser_search",
 		Arguments: `{invalid`,
 	})
 
@@ -46,7 +46,7 @@ func TestSearch_ToolRegistered(t *testing.T) {
 	t.Cleanup(b.Close)
 
 	tb := b.Tools()
-	tool, ok := tb.Get("web_search")
+	tool, ok := tb.Get("browser_search")
 	assert.True(t, ok)
-	assert.Equal(t, "web_search", tool.Name)
+	assert.Equal(t, "browser_search", tool.Name)
 }

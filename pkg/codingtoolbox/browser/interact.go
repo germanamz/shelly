@@ -10,7 +10,7 @@ import (
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
-// --- web_click ---
+// --- browser_click ---
 
 type clickInput struct {
 	Selector string `json:"selector"`
@@ -23,8 +23,8 @@ type clickOutput struct {
 
 func (b *Browser) clickTool() toolbox.Tool {
 	return toolbox.Tool{
-		Name:        "web_click",
-		Description: "Click an element on the current page by CSS selector. After clicking, checks domain trust if the page navigates to a new domain.",
+		Name:        "browser_click",
+		Description: "Click an element on the current browser page by CSS selector. Use this to interact with web UIs — follow links, press buttons, expand sections, or navigate multi-page content. Operates on the page loaded by browser_navigate. Checks domain trust if the click navigates to a new domain.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"selector":{"type":"string","description":"CSS selector for the element to click"}},"required":["selector"]}`),
 		Handler:     b.handleClick,
 	}
@@ -33,11 +33,11 @@ func (b *Browser) clickTool() toolbox.Tool {
 func (b *Browser) handleClick(ctx context.Context, input json.RawMessage) (string, error) {
 	var in clickInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return "", fmt.Errorf("web_click: invalid input: %w", err)
+		return "", fmt.Errorf("browser_click: invalid input: %w", err)
 	}
 
 	if in.Selector == "" {
-		return "", fmt.Errorf("web_click: selector is required")
+		return "", fmt.Errorf("browser_click: selector is required")
 	}
 
 	bCtx, err := b.ensureBrowser()
@@ -52,7 +52,7 @@ func (b *Browser) handleClick(ctx context.Context, input json.RawMessage) (strin
 		chromedp.Click(in.Selector, chromedp.ByQuery),
 		chromedp.WaitReady("body", chromedp.ByQuery),
 	); err != nil {
-		return "", fmt.Errorf("web_click: %w", err)
+		return "", fmt.Errorf("browser_click: %w", err)
 	}
 
 	// Check domain trust after navigation.
@@ -69,13 +69,13 @@ func (b *Browser) handleClick(ctx context.Context, input json.RawMessage) (strin
 
 	data, err := json.Marshal(out)
 	if err != nil {
-		return "", fmt.Errorf("web_click: marshal: %w", err)
+		return "", fmt.Errorf("browser_click: marshal: %w", err)
 	}
 
 	return string(data), nil
 }
 
-// --- web_type ---
+// --- browser_type ---
 
 type typeInput struct {
 	Selector string `json:"selector"`
@@ -90,8 +90,8 @@ type typeOutput struct {
 
 func (b *Browser) typeTool() toolbox.Tool {
 	return toolbox.Tool{
-		Name:        "web_type",
-		Description: "Type text into an input field on the current page. Optionally submit the form by pressing Enter.",
+		Name:        "browser_type",
+		Description: "Type text into an input field on the current browser page. Use this to fill in search forms, login fields, or any text input on a web page. Operates on the page loaded by browser_navigate. Optionally submit the form by pressing Enter.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"selector":{"type":"string","description":"CSS selector for the input field"},"text":{"type":"string","description":"Text to type"},"submit":{"type":"boolean","description":"Press Enter after typing (default false)"}},"required":["selector","text"]}`),
 		Handler:     b.handleType,
 	}
@@ -100,15 +100,15 @@ func (b *Browser) typeTool() toolbox.Tool {
 func (b *Browser) handleType(ctx context.Context, input json.RawMessage) (string, error) {
 	var in typeInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return "", fmt.Errorf("web_type: invalid input: %w", err)
+		return "", fmt.Errorf("browser_type: invalid input: %w", err)
 	}
 
 	if in.Selector == "" {
-		return "", fmt.Errorf("web_type: selector is required")
+		return "", fmt.Errorf("browser_type: selector is required")
 	}
 
 	if in.Text == "" {
-		return "", fmt.Errorf("web_type: text is required")
+		return "", fmt.Errorf("browser_type: text is required")
 	}
 
 	bCtx, err := b.ensureBrowser()
@@ -132,7 +132,7 @@ func (b *Browser) handleType(ctx context.Context, input json.RawMessage) (string
 	}
 
 	if err := chromedp.Run(opCtx, actions...); err != nil {
-		return "", fmt.Errorf("web_type: %w", err)
+		return "", fmt.Errorf("browser_type: %w", err)
 	}
 
 	currentURL, title, err := b.pageInfo(opCtx)
@@ -151,7 +151,7 @@ func (b *Browser) handleType(ctx context.Context, input json.RawMessage) (string
 
 	data, err := json.Marshal(out)
 	if err != nil {
-		return "", fmt.Errorf("web_type: marshal: %w", err)
+		return "", fmt.Errorf("browser_type: marshal: %w", err)
 	}
 
 	return string(data), nil

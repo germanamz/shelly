@@ -22,8 +22,8 @@ type navigateOutput struct {
 
 func (b *Browser) navigateTool() toolbox.Tool {
 	return toolbox.Tool{
-		Name:        "web_navigate",
-		Description: "Navigate to a URL and extract the page's clean text content (scripts/styles stripped, 100KB cap). Requires domain trust.",
+		Name:        "browser_navigate",
+		Description: "Navigate to a URL in the Chrome browser and extract the page's clean text content (scripts/styles stripped, 100KB cap). Use this to read documentation pages, API references, external guides, or verify deployed web pages. The page remains loaded for follow-up interactions with browser_click, browser_type, browser_extract, or browser_screenshot. Requires domain trust.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"url":{"type":"string","description":"The URL to navigate to"}},"required":["url"]}`),
 		Handler:     b.handleNavigate,
 	}
@@ -32,11 +32,11 @@ func (b *Browser) navigateTool() toolbox.Tool {
 func (b *Browser) handleNavigate(ctx context.Context, input json.RawMessage) (string, error) {
 	var in navigateInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return "", fmt.Errorf("web_navigate: invalid input: %w", err)
+		return "", fmt.Errorf("browser_navigate: invalid input: %w", err)
 	}
 
 	if in.URL == "" {
-		return "", fmt.Errorf("web_navigate: url is required")
+		return "", fmt.Errorf("browser_navigate: url is required")
 	}
 
 	if err := b.checkPermission(ctx, in.URL); err != nil {
@@ -55,7 +55,7 @@ func (b *Browser) handleNavigate(ctx context.Context, input json.RawMessage) (st
 		chromedp.Navigate(in.URL),
 		chromedp.WaitReady("body", chromedp.ByQuery),
 	); err != nil {
-		return "", fmt.Errorf("web_navigate: %w", err)
+		return "", fmt.Errorf("browser_navigate: %w", err)
 	}
 
 	text, err := b.extractText(opCtx, "")
@@ -76,7 +76,7 @@ func (b *Browser) handleNavigate(ctx context.Context, input json.RawMessage) (st
 
 	data, err := json.Marshal(out)
 	if err != nil {
-		return "", fmt.Errorf("web_navigate: marshal: %w", err)
+		return "", fmt.Errorf("browser_navigate: marshal: %w", err)
 	}
 
 	return string(data), nil

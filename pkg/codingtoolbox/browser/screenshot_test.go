@@ -25,14 +25,14 @@ func TestScreenshot_Viewport(t *testing.T) {
 
 	tr := tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc1",
-		Name:      "web_navigate",
+		Name:      "browser_navigate",
 		Arguments: mustJSON(t, navigateInput{URL: srv.URL}),
 	})
 	require.False(t, tr.IsError, tr.Content)
 
 	tr = tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc2",
-		Name:      "web_screenshot",
+		Name:      "browser_screenshot",
 		Arguments: `{}`,
 	})
 
@@ -57,14 +57,14 @@ func TestScreenshot_FullPage(t *testing.T) {
 
 	tr := tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc1",
-		Name:      "web_navigate",
+		Name:      "browser_navigate",
 		Arguments: mustJSON(t, navigateInput{URL: srv.URL}),
 	})
 	require.False(t, tr.IsError, tr.Content)
 
 	tr = tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc2",
-		Name:      "web_screenshot",
+		Name:      "browser_screenshot",
 		Arguments: mustJSON(t, screenshotInput{FullPage: true}),
 	})
 
@@ -90,14 +90,14 @@ func TestScreenshot_Element(t *testing.T) {
 
 	tr := tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc1",
-		Name:      "web_navigate",
+		Name:      "browser_navigate",
 		Arguments: mustJSON(t, navigateInput{URL: srv.URL}),
 	})
 	require.False(t, tr.IsError, tr.Content)
 
 	tr = tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc2",
-		Name:      "web_screenshot",
+		Name:      "browser_screenshot",
 		Arguments: mustJSON(t, screenshotInput{Selector: "#box"}),
 	})
 

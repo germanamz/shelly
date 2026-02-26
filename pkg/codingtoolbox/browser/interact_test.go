@@ -20,7 +20,7 @@ func TestClick_EmptySelector(t *testing.T) {
 
 	tr := tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc1",
-		Name:      "web_click",
+		Name:      "browser_click",
 		Arguments: `{"selector":""}`,
 	})
 
@@ -46,7 +46,7 @@ func TestClick_Success(t *testing.T) {
 	// First navigate to the page.
 	tr := tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc1",
-		Name:      "web_navigate",
+		Name:      "browser_navigate",
 		Arguments: mustJSON(t, navigateInput{URL: srv.URL}),
 	})
 	require.False(t, tr.IsError, tr.Content)
@@ -54,7 +54,7 @@ func TestClick_Success(t *testing.T) {
 	// Click the link.
 	tr = tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc2",
-		Name:      "web_click",
+		Name:      "browser_click",
 		Arguments: mustJSON(t, clickInput{Selector: "#link"}),
 	})
 
@@ -73,7 +73,7 @@ func TestType_EmptySelector(t *testing.T) {
 
 	tr := tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc1",
-		Name:      "web_type",
+		Name:      "browser_type",
 		Arguments: `{"selector":"","text":"hello"}`,
 	})
 
@@ -89,7 +89,7 @@ func TestType_EmptyText(t *testing.T) {
 
 	tr := tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc1",
-		Name:      "web_type",
+		Name:      "browser_type",
 		Arguments: `{"selector":"#input","text":""}`,
 	})
 
@@ -113,7 +113,7 @@ func TestType_Success(t *testing.T) {
 	// Navigate first.
 	tr := tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc1",
-		Name:      "web_navigate",
+		Name:      "browser_navigate",
 		Arguments: mustJSON(t, navigateInput{URL: srv.URL}),
 	})
 	require.False(t, tr.IsError, tr.Content)
@@ -121,7 +121,7 @@ func TestType_Success(t *testing.T) {
 	// Type into the input.
 	tr = tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc2",
-		Name:      "web_type",
+		Name:      "browser_type",
 		Arguments: mustJSON(t, typeInput{Selector: "#input", Text: "hello world"}),
 	})
 

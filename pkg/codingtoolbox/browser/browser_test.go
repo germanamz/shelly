@@ -121,7 +121,7 @@ func TestExtractTool_NoSelector(t *testing.T) {
 	// Navigate to about:blank first (no permission needed).
 	tr := tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc1",
-		Name:      "web_extract",
+		Name:      "browser_extract",
 		Arguments: `{}`,
 	})
 

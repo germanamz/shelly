@@ -41,7 +41,7 @@ func TestEstimateChat_WithToolCalls(t *testing.T) {
 		message.NewText("user", role.User, "Search for golang"),
 		message.New("bot", role.Assistant,
 			content.Text{Text: "Let me search."},
-			content.ToolCall{ID: "c1", Name: "web_search", Arguments: `{"query":"golang"}`},
+			content.ToolCall{ID: "c1", Name: "browser_search", Arguments: `{"query":"golang"}`},
 		),
 		message.New("tool", role.Tool,
 			content.ToolResult{ToolCallID: "c1", Content: "Found results."},
@@ -62,7 +62,7 @@ func TestEstimateTools_SingleTool(t *testing.T) {
 	schema := json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}}}`)
 
 	tools := []toolbox.Tool{
-		{Name: "web_search", Description: "Search the web", InputSchema: schema},
+		{Name: "browser_search", Description: "Search the web", InputSchema: schema},
 	}
 
 	got := e.EstimateTools(tools)

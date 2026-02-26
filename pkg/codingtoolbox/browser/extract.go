@@ -21,8 +21,8 @@ type extractOutput struct {
 
 func (b *Browser) extractTool() toolbox.Tool {
 	return toolbox.Tool{
-		Name:        "web_extract",
-		Description: "Extract clean text from the current page or a specific element by CSS selector. Scripts, styles, and SVGs are stripped.",
+		Name:        "browser_extract",
+		Description: "Extract clean text from the current browser page or a specific element by CSS selector. Use this to pull specific sections from a page (e.g., API endpoint docs, code examples, error details) without re-navigating. Operates on the page loaded by browser_navigate. Scripts, styles, and SVGs are stripped.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"selector":{"type":"string","description":"CSS selector to extract from (default: entire page)"}}}`),
 		Handler:     b.handleExtract,
 	}
@@ -31,7 +31,7 @@ func (b *Browser) extractTool() toolbox.Tool {
 func (b *Browser) handleExtract(ctx context.Context, input json.RawMessage) (string, error) {
 	var in extractInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return "", fmt.Errorf("web_extract: invalid input: %w", err)
+		return "", fmt.Errorf("browser_extract: invalid input: %w", err)
 	}
 
 	bCtx, err := b.ensureBrowser()
@@ -60,7 +60,7 @@ func (b *Browser) handleExtract(ctx context.Context, input json.RawMessage) (str
 
 	data, err := json.Marshal(out)
 	if err != nil {
-		return "", fmt.Errorf("web_extract: marshal: %w", err)
+		return "", fmt.Errorf("browser_extract: marshal: %w", err)
 	}
 
 	return string(data), nil

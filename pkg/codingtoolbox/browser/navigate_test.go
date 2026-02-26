@@ -20,7 +20,7 @@ func TestNavigate_EmptyURL(t *testing.T) {
 
 	tr := tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc1",
-		Name:      "web_navigate",
+		Name:      "browser_navigate",
 		Arguments: `{"url":""}`,
 	})
 
@@ -40,7 +40,7 @@ func TestNavigate_Denied(t *testing.T) {
 	tb := b.Tools()
 	tr := tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc1",
-		Name:      "web_navigate",
+		Name:      "browser_navigate",
 		Arguments: mustJSON(t, navigateInput{URL: srv.URL}),
 	})
 
@@ -65,7 +65,7 @@ func TestNavigate_Success(t *testing.T) {
 	tb := b.Tools()
 	tr := tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc1",
-		Name:      "web_navigate",
+		Name:      "browser_navigate",
 		Arguments: mustJSON(t, navigateInput{URL: srv.URL}),
 	})
 
@@ -91,7 +91,7 @@ func TestNavigate_Trust(t *testing.T) {
 	tb := b.Tools()
 	tr := tb.Call(context.Background(), content.ToolCall{
 		ID:        "tc1",
-		Name:      "web_navigate",
+		Name:      "browser_navigate",
 		Arguments: mustJSON(t, navigateInput{URL: srv.URL}),
 	})
 

@@ -23,8 +23,8 @@ type searchResult struct {
 
 func (b *Browser) searchTool() toolbox.Tool {
 	return toolbox.Tool{
-		Name:        "web_search",
-		Description: "Search the web via DuckDuckGo. Returns an array of {title, url, snippet}.",
+		Name:        "browser_search",
+		Description: "Search the web using a Chrome browser via DuckDuckGo. Use this to find documentation, API references, library guides, error solutions, or any external information. Returns an array of {title, url, snippet}. Pair with browser_navigate to read full page content from the results.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"Search query"}},"required":["query"]}`),
 		Handler:     b.handleSearch,
 	}
@@ -33,11 +33,11 @@ func (b *Browser) searchTool() toolbox.Tool {
 func (b *Browser) handleSearch(ctx context.Context, input json.RawMessage) (string, error) {
 	var in searchInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return "", fmt.Errorf("web_search: invalid input: %w", err)
+		return "", fmt.Errorf("browser_search: invalid input: %w", err)
 	}
 
 	if in.Query == "" {
-		return "", fmt.Errorf("web_search: query is required")
+		return "", fmt.Errorf("browser_search: query is required")
 	}
 
 	bCtx, err := b.ensureBrowser()
@@ -77,12 +77,12 @@ func (b *Browser) handleSearch(ctx context.Context, input json.RawMessage) (stri
 		`, &results),
 	)
 	if err != nil {
-		return "", fmt.Errorf("web_search: %w", err)
+		return "", fmt.Errorf("browser_search: %w", err)
 	}
 
 	data, err := json.Marshal(results)
 	if err != nil {
-		return "", fmt.Errorf("web_search: marshal: %w", err)
+		return "", fmt.Errorf("browser_search: marshal: %w", err)
 	}
 
 	return string(data), nil

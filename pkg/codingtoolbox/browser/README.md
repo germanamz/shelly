@@ -14,12 +14,12 @@ The Chrome process is started lazily on the first tool call (not at engine boot)
 
 | Tool | Description | Permission |
 |------|-------------|------------|
-| `web_search` | Search via DuckDuckGo HTML, returns `[{title, url, snippet}]` | None |
-| `web_navigate` | Navigate to URL, extract clean text (100KB cap) | Domain trust |
-| `web_click` | Click element by CSS selector | Post-click domain check |
-| `web_type` | Type into input field, optionally submit | None |
-| `web_extract` | Extract text from current page or CSS selector | None |
-| `web_screenshot` | PNG screenshot as base64 (viewport, full page, or element) | None |
+| `browser_search` | Search via DuckDuckGo HTML, returns `[{title, url, snippet}]` | None |
+| `browser_navigate` | Navigate to URL, extract clean text (100KB cap) | Domain trust |
+| `browser_click` | Click element by CSS selector | Post-click domain check |
+| `browser_type` | Type into input field, optionally submit | None |
+| `browser_extract` | Extract text from current page or CSS selector | None |
+| `browser_screenshot` | PNG screenshot as base64 (viewport, full page, or element) | None |
 
 ## Usage
 
