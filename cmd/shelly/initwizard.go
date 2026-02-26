@@ -280,7 +280,7 @@ func wizardPromptAgent(providerNames, mcpNames []string) (wizardAgent, error) {
 		Instructions:       "You are a helpful assistant. Be concise and accurate.",
 		MaxIterations:      10,
 		MaxDelegationDepth: 2,
-		Toolboxes:          []string{"filesystem", "exec", "search", "git", "http", "state", "tasks", "notes"},
+		Toolboxes:          []string{"filesystem", "exec", "search", "git", "http", "browser", "state", "tasks", "notes"},
 	}
 
 	if len(providerNames) > 0 {
@@ -301,6 +301,7 @@ func wizardPromptAgent(providerNames, mcpNames []string) (wizardAgent, error) {
 		huh.NewOption("Search", "search").Selected(true),
 		huh.NewOption("Git", "git").Selected(true),
 		huh.NewOption("HTTP", "http").Selected(true),
+		huh.NewOption("Browser", "browser").Selected(true),
 		huh.NewOption("State", "state").Selected(true),
 		huh.NewOption("Tasks", "tasks").Selected(true),
 		huh.NewOption("Notes", "notes").Selected(true),
