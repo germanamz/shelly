@@ -1,91 +1,232 @@
-We should improve how messages are displayed for the user to be able to take better decisions.
+# User Input
+The user input is displayed at the bottom of the screen. Below the user input there is the totak sum of used tokens of the session.
 
-User messages should display in the following way:
-
-| 🧑‍💻 User > The actual message the user sent to the agent, and when is multi line, all lines should stay grouped |
-| together without any space in between the lines.                                                               |
+## Simple User Input
 |                                                                                                                |
 |                                                                                                                |
-| 🤖 Agent name > Thinking messages from the agent in light gray, and when is multi line, all lines should stay  |
-| grouped together without any space in between the lines.                                                       |
-| ─ Thought for 2s, used 123 tokens                                                                              |
+| -------------------------------------------------------------------------------------------------------------- |
+| >  (placeholder for the user input)                                                                            |
+| -------------------------------------------------------------------------------------------------------------- |
+| 19000 tokens                                                                                                   |
+|                                                                                                                |
+|                                                                                                                |
+
+## File Input
+When the user types @ the file picker is displayed, the user can select a file from the file system and the file path is inserted into the user input.
+|                                                                                                                |
+|                                                                                                                |
+| -------------------------------------------------------------------------------------------------------------- |
+| >  @filename.txt                                                                                               |
+| -------------------------------------------------------------------------------------------------------------- |
+| filename.txt                                                                                                   |
+| filename.json                                                                                                  |
+|                                                                                                                |
+|                                                                                                                |
+
+## Command Input
+When the user types / the command picker is displayed, the user can select a command from the command list and the command is executed.
+|                                                                                                                |
+|                                                                                                                |
+| -------------------------------------------------------------------------------------------------------------- |
+| > /command command arg                                                                                         |
+| -------------------------------------------------------------------------------------------------------------- |
+| 19000 tokens                                                                                                   |
+|                                                                                                                |
+|                                                                                                                |
+
+## Command picker
+The command picker is displayed as a list of commands, the user can select a command using the up and down arrow keys, and confirm the command using the enter key.
+|                                                                                                                |
+|                                                                                                                |
+| -------------------------------------------------------------------------------------------------------------- |
+| > /                                                                                                            |
+| -------------------------------------------------------------------------------------------------------------- |
+| /help                                                                                                          |
+| /clear                                                                                                         |
+| /exit                                                                                                          |
+|                                                                                                                |
+|                                                                                                                |
+
+# Messages
+Messages can be displayes as markdown.
+There must be at least 1 line of padding between messages.
+
+
+## User message
+|                                                                                                                |
+|                                                                                                                |
+| 🧑‍💻 User                                                                                                        |
+|  └ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque rutrum convallis risus. Pellentesque  |
+|    sit amet ipsum erat. Nulla aliquam elit feugiat, ornare est sed, semper augue. Suspendisse et               |
+|    neque rhoncus, bibendum lacus eleifend, scelerisque augue. Nam ut est dolor. Mauris ullamcorper, neque      |
+|    seddignissim ornare, neque mauris auctor ex, ac lobortis elit sem eget purus. Sed eleifend mattis sem in    |
+|    fringilla. Fusce condimentum risus ut maximus feugiat.                                                      |
+|                                                                                                                |
+|                                                                                                                |
+
+## Agent thinking message
 |                                                                                                                |
 |                                                                                                                |
 | 🤖 <agent name> is thinking...                                                                                 |
 |                                                                                                                |
 |                                                                                                                |
-| 🔧 Tool name (with this arguments)                                                                              |
-| └ The result of the tool call.                                                                                 |
+
+## Agent reasoning message
 |                                                                                                                |
 |                                                                                                                |
-| 🔧 Multiple Tool calls to the same tool                                                                        |
-| │  Tool call 1 (with this arguments)                                                                           |
-| │  Tool call 2 (with this arguments)                                                                           |
-| │  Tool call N (with this arguments)                                                                           |
-| └ Summary of the tool calls. Runned 2s for 2s                                                                  |
+| 🤖 <agent name>                                                                                                |
+|  └ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque rutrum convallis risus. Pellentesque  |
+|    sit amet ipsum erat. Nulla aliquam elit feugiat, ornare est sed, semper augue. Suspendisse et               |
+|    neque rhoncus, bibendum lacus eleifend, scelerisque augue. Nam ut est dolor. Mauris ullamcorper, neque      |
+|    seddignissim ornare, neque mauris auctor ex, ac lobortis elit sem eget purus. Sed eleifend mattis sem in    |
+|    fringilla. Fusce condimentum risus ut maximus feugiat.                                                      |
 |                                                                                                                |
 |                                                                                                                |
-| 📝 <Agent name> plan:                                                                                          |
-| The actual plan from the agent in formatted markdown.                                                          |
+
+## Tool call message
+### While running
+The tool call message is displayed with the time and tokens used so far.
 |                                                                                                                |
 |                                                                                                                |
-| 🙋 <Agent name> interview to the user:                                                                         |
+| 🔧 <tool name>(with, arguments, separated, by, commas) 2s, 900 tokens                                          |
 |                                                                                                                |
-| `A short tab title` | The second tab title | The answer confirmation tab                                       |
 |                                                                                                                |
-| **The agent question wirtten in bold**                                                                         |
+
+### After finished
+The tool call message is displayed with the result of the tool call.
+|                                                                                                                |
+|                                                                                                                |
+| 🔧 <tool name>(with, arguments, separated, by, commas)                                                         |
+|  └ Read 200 lines from file /path/to/file.txt in 2s, 900 tokens                                                |
+|                                                                                                                |
+|                                                                                                                |
+
+## Multiple tool calls
+### While running
+Multiple tool calls are displayed as a tree of tool calls, the root node is the tool call message and the child nodes are the tool calls of the tool call message.
+Only concurrent tool executions are displayed as a tree.
+
+|                                                                                                                |
+|                                                                                                                |
+| 🔧 Using tools                                                                                                 |
+| ├─ <tool name>(with, arguments, separated, by, commas)                                                         |
+| │  └ Read 200 lines from file /path/to/file.txt in 2s, 900 tokens                                              |
+| ├─ <another tool name>(with, arguments, separated, by, commas) 0.1s, 150 tokens                                |
+| └ 1050 tokens                                                                                                  |
+|                                                                                                                |
+|                                                                                                                |
+
+### After finished
+The tree of tool calls is collapsed and the total time and tokens are displayed.
+|                                                                                                                |
+|                                                                                                                |
+| 🔧 Used tools                                                                                                  |
+| └ Finished with 2 tools in 2.2s, 1250 tokens                                                                   |
+|                                                                                                                |
+|                                                                                                                |
+
+## Sub agents
+Sub agents are displayed as a list of agent containers, each container displayes agent reasoning messages and tool calls.
+To be able to display the sub agents each container should limit the number of lines it displays to 4.
+
+|                                                                                                                |
+|                                                                                                                |
+| 🤖 <sub agent 1 name>                                                                                           |
+|   🔧 Used tools                                                                                                |
+|    └ Finished with 2 tools in 2.2s, 1250 tokens                                                                |
+|                                                                                                                |
+|   🔧 Using tools                                                                                               |
+|    ├─ <tool name>(with, arguments, separated, by, commas)                                                      |
+|    │  └ Read 200 lines from file /path/to/file.txt in 2s, 900 tokens                                           |
+|    ├─ <another tool name>(with, arguments, separated, by, commas) 0.1s, 150 tokens                             |
+|    └ 1050 tokens                                                                                               |
+|                                                                                                                |
+|    🤖 <sub agent 1 name>                                                                                        |
+|    └ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque rutrum convallis risus. Pellentesque|
+|    sit amet ipsum erat. Nulla aliquam elit feugiat, ornare est sed, semper augue. Suspendisse et               |
+|    neque rhoncus, bibendum lacus eleifend, scelerisque augue. Nam ut est dolor. Mauris ullamcorper, neque      |
+|    seddignissim ornare, neque mauris auctor ex, ac lobortis elit sem eget purus. Sed eleifend mattis sem in    |
+|    fringilla. Fusce condimentum risus ut maximus feugiat.                                                      |
+|                                                                                                                |
+|                                                                                                                |
+| 🤖 <sub agent 2 name>                                                                                          |
+|   🔧 Used tools                                                                                                |
+|    └ Finished with 2 tools in 2.2s, 1250 tokens                                                                |
+|                                                                                                                |
+|   🔧 Using tools                                                                                               |
+|    ├─ <tool name>(with, arguments, separated, by, commas)                                                      |
+|    │  └ Read 200 lines from file /path/to/file.txt in 2s, 900 tokens                                           |
+|    ├─ <another tool name>(with, arguments, separated, by, commas) 0.1s, 150 tokens                             |
+|    └ 1050 tokens                                                                                               |
+|                                                                                                                |
+|    🤖 <sub agent 2 name>                                                                                        |
+|    └ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque rutrum convallis risus. Pellentesque|
+|    sit amet ipsum erat. Nulla aliquam elit feugiat, ornare est sed, semper augue. Suspendisse et               |
+|    neque rhoncus, bibendum lacus eleifend, scelerisque augue. Nam ut est dolor. Mauris ullamcorper, neque      |
+|    seddignissim ornare, neque mauris auctor ex, ac lobortis elit sem eget purus. Sed eleifend mattis sem in    |
+|    fringilla. Fusce condimentum risus ut maximus feugiat.                                                      |
+|                                                                                                                |
+|                                                                                                                |
+
+# Questions
+
+The user is expected to answer questions in a sequential batch, each question and answers are displayed in tabs, each tab title is a single word related to the question and the content of the tab is the question and the answers options.
+The user can navigate through the tabs using the left and right arrow keys, and select an answer using the up and down arrow keys, then the user can confirm the answer using the enter key.
+When the user confirms an answer, the ui moves to the next question tab, until all questions are answered.
+When the user confirms the last question, the ui moves to the Confirm tab. On this tab the user can review the answers and confirm them to finish the interview.
+When the user enters a custom answer in the Confirm tab is considered as acceptance of the answers and the interview is finished with all selected answers and the custom answer.
+
+## Single Choice Answer
+|                                                                                                                |
+|                                                                                                                |
+| *One* [Word] [Per] [Question] [Confirm]                                                                        |
+|                                                                                                                |
+|                                                                                                                |
+| What is your anwser for question One?                                                                          |
+|                                                                                                                |
 | 1. The first answer option                                                                                     |
 | 2. The second answer option                                                                                    |
-| (... N. The Nth answer option)                                                                                 |
+| 3. (Place holder for a multiple line text input, for a free form answer)                                       |
 |                                                                                                                |
-| -------------------------------------------------------------------------------------------------------------- |
+| ← Left tab, → Right tab, ↑ Up, ↓ Down, ↵ Confirm Answer                                                        |
 |                                                                                                                |
-| Custom answer: The user's answer to the agent's question.                                                      |
+
+## Multiple Choice Answers
 |                                                                                                                |
 |                                                                                                                |
-| 🦾 <sub agent name> a message of what the sub agent is working on.                                             |
-| └ Summary of the sub agent's work.                                                                             |
+| [One] *Word* [Per] [Question] [Confirm]                                                                        |
 |                                                                                                                |
-| ╭────────────────────────────────────────────────────────────────────────────────────────────────────────────╮ |
-| │ > this is the user input and will allways be displayed at the bottom of the screen.                        | |
-| ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ |
-| 20,123 total, 989 tokens last message, 12.3s total time                                                        |
+|                                                                                                                |
+| What are your anwsers for question Word? ()                                                                    |
+|                                                                                                                |
+| 1. [X] The first answer option                                                                                 |
+| 2. [ ] The second answer option                                                                                |
+| 3. [X] The third answer option                                                                                 |
+|                                                                                                                |
+| ← Left tab, → Right tab, ↑ Up, ↓ Down, ↵ Confirm Answer                                                        |
+|                                                                                                                |
 
-* Agen thinking messages should be displayed in light gray.
-* Tool calls should be displayed in bold.
-* Tool results should be displayed in light gray.
-* Multiple tool calls to the same tool should be displayed in the same way but they should display at most 4 messages at a time with new messages replacing the oldest ones.
-* Sub agents should display thinking, tools calls and results in the same way but they should display at most 4 messages at a time with new messages replacing the oldest ones.
-
-Behavior descriptions:
-
-* User messages:
-  * Are simple text messages with the prefix "🧑‍💻 User >" on blue color and the message content displayed in black.
-* Agent thinking messages:
-  * Are simple text messages with the prefix "🤖 <agent name> >" on light gray color and the message content displayed in black.
-* Tool calls:
-  * Are simple text messages with the prefix "🔧 <tool name> (with this arguments)" on bold color and the message content displayed in black.
-* Tool results:
-  * Are simple text messages with the prefix "└ <tool result>" on light gray color and the message content displayed in black.
-* Multiple tool calls to the same tool:
-  * Are simple text messages with the prefix "🔧 Multiple Tool calls to the same tool" on bold color and the message content displayed in black.
-  * The tool calls should be displayed in the same way but they should display at most 4 messages at a time with new messages replacing the oldest ones.
-* Sub agents:
-  * Should display thinking, tools calls and results in the same way but they should display at most 4 messages at a time with new messages replacing the oldest ones.
-
-Rational:
-You could at this as comparmentalized structures each representing a different agent and messages as a component that displayes within.
-
-Example:
---------------------------------
-| Agent chain of thought       |
-| Tool call                    |
-| Thinking message             |
-| Agent reasoning message      |
-| Agent plan                   |
-| Agent interview to the user  |
---------------------------------
-
-This box represents an agent own chat with all of the available messages.
-
-Messages need to share a base data type that standardizes how the are displayed, and special cases for each message type implement their own behavior and rendering logic.
+## Questions Confirm tab
+|                                                                                                                |
+|                                                                                                                |
+| [One] [Word] [Per] [Question] *Confirm*                                                                        |
+|                                                                                                                |
+|                                                                                                                |
+| Confirm your answers:                                                                                          |
+|                                                                                                                |
+| 1. This is the question one?                                                                                   |
+|  └ This is the answer to the question one.                                                                     |
+| 2. This is the question word?                                                                                  |
+|  └ This is the answer to the question word.                                                                    |
+| 3. This is the question per?                                                                                   |
+|  └ This is the answer to the question per.                                                                     |
+| 4. This is the question question?                                                                              |
+|  └ This is the answer to the question question.                                                                |
+|                                                                                                                |
+| Are you happy with your answers?                                                                               |
+| 1. Yes                                                                                                         |
+| 2. No                                                                                                          |
+| 3. (Place holder for a multiple line text input, for a free form answer)                                       |
+|                                                                                                                |
+| ← Left tab, → Right tab, ↑ Up, ↓ Down, ↵ Confirm Answer                                                        |
+|                                                                                                                | 
