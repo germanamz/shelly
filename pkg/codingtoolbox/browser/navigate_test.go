@@ -14,7 +14,7 @@ import (
 
 func TestNavigate_EmptyURL(t *testing.T) {
 	store := newTestStore(t)
-	b := New(context.Background(), store, autoApprove, WithHeadless())
+	b := New(store, autoApprove, WithHeadless())
 	t.Cleanup(b.Close)
 	tb := b.Tools()
 

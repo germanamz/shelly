@@ -76,6 +76,7 @@ func (m *spinnerMessage) Kind() string { return "spinner" }
 // --- toolCallMessage ---
 
 type toolCallMessage struct {
+	callID    string // tool call ID for matching results
 	toolName  string
 	args      string
 	result    string
@@ -158,8 +159,9 @@ func (m *toolGroupMessage) IsLive() bool {
 
 func (m *toolGroupMessage) Kind() string { return "tool_group" }
 
-func (m *toolGroupMessage) addCall(args string) *toolCallMessage {
+func (m *toolGroupMessage) addCall(callID, args string) *toolCallMessage {
 	tc := &toolCallMessage{
+		callID:   callID,
 		toolName: m.toolName,
 		args:     args,
 		spinMsg:  randomThinkingMessage(),

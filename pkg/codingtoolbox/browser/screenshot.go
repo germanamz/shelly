@@ -37,7 +37,7 @@ func (b *Browser) handleScreenshot(ctx context.Context, input json.RawMessage) (
 		return "", fmt.Errorf("browser_screenshot: invalid input: %w", err)
 	}
 
-	bCtx, err := b.ensureBrowser()
+	bCtx, err := b.ensureBrowser(ctx)
 	if err != nil {
 		return "", err
 	}

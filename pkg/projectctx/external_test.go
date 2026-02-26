@@ -130,6 +130,16 @@ func TestStripFrontmatter(t *testing.T) {
 			raw:  "---\nkey: val\n---\nContent with --- in it.",
 			want: "Content with --- in it.",
 		},
+		{
+			name: "windows line endings",
+			raw:  "---\r\ntitle: Test\r\n---\r\nBody content.",
+			want: "Body content.",
+		},
+		{
+			name: "windows line endings no frontmatter",
+			raw:  "Just plain\r\ncontent.",
+			want: "Just plain\ncontent.",
+		},
 	}
 
 	for _, tt := range tests {

@@ -74,8 +74,8 @@ func TestEndAgent_TopLevel(t *testing.T) {
 	cv := newChatView(false)
 	cv.startAgent("agent-a", "🤖", "")
 	// Add a tool call so we get a summary.
-	cv.agents["agent-a"].addToolCall("read_file", `{"path":"foo.go"}`)
-	cv.agents["agent-a"].completeToolCall("contents", false)
+	cv.agents["agent-a"].addToolCall("call-1", "read_file", `{"path":"foo.go"}`)
+	cv.agents["agent-a"].completeToolCall("call-1", "contents", false)
 
 	cmd := cv.endAgent("agent-a", "")
 
@@ -113,8 +113,8 @@ func TestEndAgent_NotFound(t *testing.T) {
 
 func TestSubAgentMessageView(t *testing.T) {
 	ac := newAgentContainer("worker", "🦾", 4)
-	ac.addToolCall("exec", `{"cmd":"ls"}`)
-	ac.completeToolCall("file.go", false)
+	ac.addToolCall("call-1", "exec", `{"cmd":"ls"}`)
+	ac.completeToolCall("call-1", "file.go", false)
 
 	sa := &subAgentMessage{container: ac}
 	view := sa.View(80)
@@ -136,7 +136,7 @@ func TestAdvanceSpinners_Recursion(t *testing.T) {
 	cv.startAgent("child", "🦾", "parent")
 
 	childAC := cv.subAgents["child"].container
-	childAC.addToolCall("exec", `{"cmd":"test"}`)
+	childAC.addToolCall("call-1", "exec", `{"cmd":"test"}`)
 
 	// Advance spinners on the chatView — should recurse into sub-agents.
 	cv.advanceSpinners()

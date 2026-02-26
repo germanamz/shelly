@@ -112,6 +112,11 @@ func delegateTool(a *Agent) toolbox.Tool {
 
 			var wg sync.WaitGroup
 
+			// Snapshot toolboxes before spawning goroutines to avoid a data
+			// race on the parent's a.toolboxes slice.
+			toolboxSnapshot := make([]*toolbox.ToolBox, len(a.toolboxes))
+			copy(toolboxSnapshot, a.toolboxes)
+
 			for i, t := range di.Tasks {
 				wg.Go(func() {
 					child, ok := a.registry.Spawn(t.Agent, a.depth+1)
@@ -128,7 +133,7 @@ func delegateTool(a *Agent) toolbox.Tool {
 					child.options.EventFunc = a.options.EventFunc
 					child.options.ReflectionDir = a.options.ReflectionDir
 					child.options.TaskBoard = a.options.TaskBoard
-					child.AddToolBoxes(a.toolboxes...)
+					child.AddToolBoxes(toolboxSnapshot...)
 					prependContext(child, t.Context)
 
 					if reflections := searchReflections(a.options.ReflectionDir, t.Task); reflections != "" {
@@ -139,7 +144,13 @@ func delegateTool(a *Agent) toolbox.Tool {
 
 					// Auto-claim task if task_id is provided and TaskBoard is available.
 					if t.TaskID != "" && a.options.TaskBoard != nil {
-						_ = a.options.TaskBoard.ClaimTask(t.TaskID, child.name)
+						if claimErr := a.options.TaskBoard.ClaimTask(t.TaskID, child.name); claimErr != nil {
+							results[i] = delegateResult{
+								Agent: t.Agent,
+								Error: fmt.Sprintf("failed to claim task %q: %v", t.TaskID, claimErr),
+							}
+							return
+						}
 					}
 
 					if a.options.EventNotifier != nil {

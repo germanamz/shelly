@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -37,7 +38,10 @@ var thinkingMessages = []string{
 var spinnerFrames = []string{"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"}
 
 // mdRenderer renders markdown to terminal-formatted output.
-var mdRenderer *glamour.TermRenderer
+var (
+	mdRenderer   *glamour.TermRenderer
+	mdRendererMu sync.RWMutex
+)
 
 func initMarkdownRenderer(width int) {
 	if width <= 0 {
@@ -50,15 +54,20 @@ func initMarkdownRenderer(width int) {
 	if err != nil {
 		return
 	}
+	mdRendererMu.Lock()
 	mdRenderer = r
+	mdRendererMu.Unlock()
 }
 
 // renderMarkdown converts markdown text to terminal-formatted output.
 func renderMarkdown(text string) string {
-	if mdRenderer == nil {
+	mdRendererMu.RLock()
+	r := mdRenderer
+	mdRendererMu.RUnlock()
+	if r == nil {
 		return text
 	}
-	out, err := mdRenderer.Render(text)
+	out, err := r.Render(text)
 	if err != nil {
 		return text
 	}

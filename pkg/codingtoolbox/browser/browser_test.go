@@ -65,7 +65,7 @@ func newTestBrowser(t *testing.T, askFn AskFunc) (*Browser, *permissions.Store) 
 	skipIfNoChrome(t)
 
 	store := newTestStore(t)
-	b := New(context.Background(), store, askFn, WithHeadless())
+	b := New(store, askFn, WithHeadless())
 	t.Cleanup(b.Close)
 
 	return b, store
@@ -73,7 +73,7 @@ func newTestBrowser(t *testing.T, askFn AskFunc) (*Browser, *permissions.Store) 
 
 func TestTools_Count(t *testing.T) {
 	store := newTestStore(t)
-	b := New(context.Background(), store, autoApprove, WithHeadless())
+	b := New(store, autoApprove, WithHeadless())
 	t.Cleanup(b.Close)
 
 	tb := b.Tools()
@@ -83,14 +83,14 @@ func TestTools_Count(t *testing.T) {
 
 func TestClose_NoStart(t *testing.T) {
 	store := newTestStore(t)
-	b := New(context.Background(), store, autoApprove, WithHeadless())
+	b := New(store, autoApprove, WithHeadless())
 	// Close without ever starting should not panic.
 	b.Close()
 }
 
 func TestCheckPermission_Denied(t *testing.T) {
 	store := newTestStore(t)
-	b := New(context.Background(), store, autoDeny, WithHeadless())
+	b := New(store, autoDeny, WithHeadless())
 	t.Cleanup(b.Close)
 
 	err := b.checkPermission(context.Background(), "https://example.com")
@@ -100,7 +100,7 @@ func TestCheckPermission_Denied(t *testing.T) {
 
 func TestCheckPermission_Trust(t *testing.T) {
 	store := newTestStore(t)
-	b := New(context.Background(), store, autoTrust, WithHeadless())
+	b := New(store, autoTrust, WithHeadless())
 	t.Cleanup(b.Close)
 
 	err := b.checkPermission(context.Background(), "https://example.com")

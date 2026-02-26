@@ -60,8 +60,13 @@ func globSorted(pattern string) []string {
 
 // stripFrontmatter removes YAML frontmatter delimited by --- lines from the
 // beginning of a string. If no frontmatter is found, the original string is
-// returned unchanged.
+// returned unchanged. Windows-style \r\n line endings are normalised to \n
+// before processing.
 func stripFrontmatter(raw string) string {
+	// Normalise Windows line endings so the delimiter matching works
+	// regardless of line-ending style.
+	raw = strings.ReplaceAll(raw, "\r\n", "\n")
+
 	if !strings.HasPrefix(raw, "---") {
 		return raw
 	}

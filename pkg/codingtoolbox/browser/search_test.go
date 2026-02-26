@@ -10,7 +10,7 @@ import (
 
 func TestSearch_EmptyQuery(t *testing.T) {
 	store := newTestStore(t)
-	b := New(context.Background(), store, autoApprove, WithHeadless())
+	b := New(store, autoApprove, WithHeadless())
 	t.Cleanup(b.Close)
 	tb := b.Tools()
 
@@ -26,7 +26,7 @@ func TestSearch_EmptyQuery(t *testing.T) {
 
 func TestSearch_InvalidInput(t *testing.T) {
 	store := newTestStore(t)
-	b := New(context.Background(), store, autoApprove, WithHeadless())
+	b := New(store, autoApprove, WithHeadless())
 	t.Cleanup(b.Close)
 	tb := b.Tools()
 
@@ -42,7 +42,7 @@ func TestSearch_InvalidInput(t *testing.T) {
 
 func TestSearch_ToolRegistered(t *testing.T) {
 	store := newTestStore(t)
-	b := New(context.Background(), store, autoApprove, WithHeadless())
+	b := New(store, autoApprove, WithHeadless())
 	t.Cleanup(b.Close)
 
 	tb := b.Tools()

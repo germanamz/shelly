@@ -40,7 +40,7 @@ func (b *Browser) handleSearch(ctx context.Context, input json.RawMessage) (stri
 		return "", fmt.Errorf("browser_search: query is required")
 	}
 
-	bCtx, err := b.ensureBrowser()
+	bCtx, err := b.ensureBrowser(ctx)
 	if err != nil {
 		return "", err
 	}

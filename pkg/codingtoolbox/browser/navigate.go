@@ -43,7 +43,7 @@ func (b *Browser) handleNavigate(ctx context.Context, input json.RawMessage) (st
 		return "", err
 	}
 
-	bCtx, err := b.ensureBrowser()
+	bCtx, err := b.ensureBrowser(ctx)
 	if err != nil {
 		return "", err
 	}

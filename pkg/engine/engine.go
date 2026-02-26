@@ -50,6 +50,8 @@ type Engine struct {
 	mu       sync.Mutex
 	sessions map[string]*Session
 	nextID   int
+	closed   bool
+	wg       sync.WaitGroup
 }
 
 // New creates an Engine from the given configuration. It validates the config,
@@ -225,7 +227,7 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 			if cfg.Browser.Headless {
 				browserOpts = append(browserOpts, shellybrowser.WithHeadless())
 			}
-			bt := shellybrowser.New(ctx, permStore, e.responder.Ask, browserOpts...)
+			bt := shellybrowser.New(permStore, e.responder.Ask, browserOpts...)
 			e.toolboxes["browser"] = bt.Tools()
 			e.browserToolbox = bt
 		}
@@ -268,17 +270,19 @@ func (e *Engine) NewSession(agentName string) (*Session, error) {
 	}
 
 	e.mu.Lock()
+	if e.closed {
+		e.mu.Unlock()
+		return nil, fmt.Errorf("engine: closed")
+	}
 	e.nextID++
 	id := fmt.Sprintf("session-%d", e.nextID)
-	e.mu.Unlock()
 
 	a := factory()
 	a.SetRegistry(e.registry)
 	a.Init()
 
-	s := newSession(id, a, e.events, e.responder)
+	s := newSession(id, a, e, e.events, e.responder)
 
-	e.mu.Lock()
 	e.sessions[id] = s
 	e.mu.Unlock()
 
@@ -343,6 +347,13 @@ func (e *Engine) connectMCPClients(ctx context.Context, servers []MCPConfig) err
 // calling Close, as session cancellation depends on the caller-provided
 // context passed to Send/SendParts.
 func (e *Engine) Close() error {
+	e.mu.Lock()
+	e.closed = true
+	e.mu.Unlock()
+
+	// Wait for all in-flight session sends to finish before tearing down.
+	e.wg.Wait()
+
 	if e.cancel != nil {
 		e.cancel()
 	}
@@ -587,7 +598,10 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 		// Build fresh effects for each agent instance so stateful effects
 		// (e.g. SlidingWindowEffect, ReflectionEffect, LoopDetectEffect)
 		// are not shared across agents created by the same factory.
-		agentEffects, _ := buildEffects(effectConfigs, wctx)
+		agentEffects, bErr := buildEffects(effectConfigs, wctx)
+		if bErr != nil {
+			panic(fmt.Sprintf("engine: agent %q: buildEffects failed after validation: %v", name, bErr))
+		}
 
 		opts := agent.Options{
 			MaxIterations:      ac.Options.MaxIterations,

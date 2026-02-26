@@ -17,8 +17,9 @@ import (
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
-// DefaultBaseURL is the base URL for the xAI API.
-const DefaultBaseURL = "https://api.x.ai/v1"
+// DefaultBaseURL is the base URL for the xAI API (without version prefix,
+// consistent with the OpenAI and Anthropic providers).
+const DefaultBaseURL = "https://api.x.ai"
 
 // GrokAdapter sends chat completions to xAI's Grok API.
 type GrokAdapter struct {
@@ -55,7 +56,7 @@ func (g *GrokAdapter) Complete(ctx context.Context, c *chat.Chat, tools []toolbo
 	}
 
 	var resp chatResponse
-	if err := g.PostJSON(ctx, "/chat/completions", req, &resp); err != nil {
+	if err := g.PostJSON(ctx, "/v1/chat/completions", req, &resp); err != nil {
 		return message.Message{}, fmt.Errorf("grok: %w", err)
 	}
 

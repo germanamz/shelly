@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/germanamz/shelly/pkg/agent"
@@ -12,14 +13,16 @@ import (
 
 // startBridge launches the event watcher and chat watcher goroutines.
 // Both goroutines only call p.Send() — they never touch model state directly.
-// Returns a cancel function that stops both goroutines.
+// Returns a cancel function that cancels the bridge context and waits for
+// both goroutines to exit, ensuring no stale messages are sent after return.
 func startBridge(ctx context.Context, p *tea.Program, c *chat.Chat, events *engine.EventBus) context.CancelFunc {
 	bridgeCtx, cancel := context.WithCancel(ctx)
 
+	var wg sync.WaitGroup
 	sub := events.Subscribe(64)
 
 	// Event watcher: converts engine events to bubbletea messages.
-	go func() {
+	wg.Go(func() {
 		defer events.Unsubscribe(sub)
 		for {
 			select {
@@ -54,10 +57,10 @@ func startBridge(ctx context.Context, p *tea.Program, c *chat.Chat, events *engi
 				}
 			}
 		}
-	}()
+	})
 
 	// Chat watcher: detects new messages via Wait/Since and forwards them.
-	go func() {
+	wg.Go(func() {
 		cursor := c.Len()
 		for {
 			_, err := c.Wait(bridgeCtx, cursor)
@@ -73,7 +76,10 @@ func startBridge(ctx context.Context, p *tea.Program, c *chat.Chat, events *engi
 				return
 			}
 		}
-	}()
+	})
 
-	return cancel
+	return func() {
+		cancel()
+		wg.Wait()
+	}
 }

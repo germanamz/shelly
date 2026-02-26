@@ -40,7 +40,7 @@ func (b *Browser) handleClick(ctx context.Context, input json.RawMessage) (strin
 		return "", fmt.Errorf("browser_click: selector is required")
 	}
 
-	bCtx, err := b.ensureBrowser()
+	bCtx, err := b.ensureBrowser(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -62,6 +62,9 @@ func (b *Browser) handleClick(ctx context.Context, input json.RawMessage) (strin
 	}
 
 	if err := b.checkPermission(ctx, currentURL); err != nil {
+		// Domain was not trusted — undo the navigation so the browser
+		// stays on the previously approved page.
+		_ = chromedp.Run(opCtx, chromedp.NavigateBack())
 		return "", err
 	}
 
@@ -111,7 +114,7 @@ func (b *Browser) handleType(ctx context.Context, input json.RawMessage) (string
 		return "", fmt.Errorf("browser_type: text is required")
 	}
 
-	bCtx, err := b.ensureBrowser()
+	bCtx, err := b.ensureBrowser(ctx)
 	if err != nil {
 		return "", err
 	}

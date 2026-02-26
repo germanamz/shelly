@@ -31,7 +31,7 @@ func TestNew(t *testing.T) {
 
 func TestComplete_TextResponse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/chat/completions", r.URL.Path)
+		assert.Equal(t, "/v1/chat/completions", r.URL.Path)
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 		assert.Equal(t, "Bearer test-key", r.Header.Get("Authorization"))
 

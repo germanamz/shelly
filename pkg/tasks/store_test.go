@@ -13,12 +13,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// mustCreate is a test helper that calls Create and fails the test on error.
+func mustCreate(t *testing.T, s *Store, task Task) string {
+	t.Helper()
+	id, err := s.Create(task)
+	require.NoError(t, err)
+	return id
+}
+
 // --- CRUD tests ---
 
 func TestCreate(t *testing.T) {
 	s := &Store{}
 
-	id := s.Create(Task{Title: "do something"})
+	id := mustCreate(t, s, Task{Title: "do something"})
 	assert.Equal(t, "task-1", id)
 
 	task, ok := s.Get(id)
@@ -30,13 +38,43 @@ func TestCreate(t *testing.T) {
 func TestCreateSequentialIDs(t *testing.T) {
 	s := &Store{}
 
-	id1 := s.Create(Task{Title: "first"})
-	id2 := s.Create(Task{Title: "second"})
-	id3 := s.Create(Task{Title: "third"})
+	id1 := mustCreate(t, s, Task{Title: "first"})
+	id2 := mustCreate(t, s, Task{Title: "second"})
+	id3 := mustCreate(t, s, Task{Title: "third"})
 
 	assert.Equal(t, "task-1", id1)
 	assert.Equal(t, "task-2", id2)
 	assert.Equal(t, "task-3", id3)
+}
+
+func TestCreateRejectsNonPendingStatus(t *testing.T) {
+	s := &Store{}
+
+	_, err := s.Create(Task{Title: "task", Status: StatusInProgress})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not accept Status")
+}
+
+func TestCreateRejectsAssignee(t *testing.T) {
+	s := &Store{}
+
+	_, err := s.Create(Task{Title: "task", Assignee: "worker"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not accept Assignee")
+}
+
+func TestCreateAllowsZeroStatusAndEmptyAssignee(t *testing.T) {
+	s := &Store{}
+
+	// Zero-value Status ("") and empty Assignee should be fine.
+	id, err := s.Create(Task{Title: "ok task"})
+	require.NoError(t, err)
+	assert.Equal(t, "task-1", id)
+
+	// Explicit StatusPending should also be fine.
+	id2, err := s.Create(Task{Title: "also ok", Status: StatusPending})
+	require.NoError(t, err)
+	assert.Equal(t, "task-2", id2)
 }
 
 func TestGetNotFound(t *testing.T) {
@@ -49,7 +87,7 @@ func TestGetNotFound(t *testing.T) {
 func TestGetReturnsCopy(t *testing.T) {
 	s := &Store{}
 
-	s.Create(Task{Title: "original", BlockedBy: []string{"task-0"}})
+	mustCreate(t, s, Task{Title: "original", BlockedBy: []string{"task-0"}})
 
 	cp, _ := s.Get("task-1")
 	cp.BlockedBy[0] = "mutated"
@@ -62,8 +100,8 @@ func TestGetReturnsCopy(t *testing.T) {
 func TestListAll(t *testing.T) {
 	s := &Store{}
 
-	s.Create(Task{Title: "a"})
-	s.Create(Task{Title: "b"})
+	mustCreate(t, s, Task{Title: "a"})
+	mustCreate(t, s, Task{Title: "b"})
 
 	tasks := s.List(Filter{})
 	assert.Len(t, tasks, 2)
@@ -74,8 +112,8 @@ func TestListAll(t *testing.T) {
 func TestListFilterByStatus(t *testing.T) {
 	s := &Store{}
 
-	s.Create(Task{Title: "pending"})
-	id2 := s.Create(Task{Title: "done"})
+	mustCreate(t, s, Task{Title: "pending"})
+	id2 := mustCreate(t, s, Task{Title: "done"})
 	completed := StatusCompleted
 	require.NoError(t, s.Update(id2, Update{Status: &completed}))
 
@@ -88,8 +126,8 @@ func TestListFilterByStatus(t *testing.T) {
 func TestListFilterByAssignee(t *testing.T) {
 	s := &Store{}
 
-	s.Create(Task{Title: "unassigned"})
-	id2 := s.Create(Task{Title: "assigned"})
+	mustCreate(t, s, Task{Title: "unassigned"})
+	id2 := mustCreate(t, s, Task{Title: "assigned"})
 	require.NoError(t, s.Claim(id2, "worker"))
 
 	assignee := "worker"
@@ -101,8 +139,8 @@ func TestListFilterByAssignee(t *testing.T) {
 func TestListFilterByBlocked(t *testing.T) {
 	s := &Store{}
 
-	s.Create(Task{Title: "blocker"})
-	s.Create(Task{Title: "blocked", BlockedBy: []string{"task-1"}})
+	mustCreate(t, s, Task{Title: "blocker"})
+	mustCreate(t, s, Task{Title: "blocked", BlockedBy: []string{"task-1"}})
 
 	notBlocked := false
 	tasks := s.List(Filter{Blocked: &notBlocked})
@@ -118,7 +156,7 @@ func TestListFilterByBlocked(t *testing.T) {
 func TestUpdate(t *testing.T) {
 	s := &Store{}
 
-	id := s.Create(Task{Title: "task"})
+	id := mustCreate(t, s, Task{Title: "task"})
 
 	newDesc := "updated description"
 	completed := StatusCompleted
@@ -146,7 +184,7 @@ func TestUpdateNotFound(t *testing.T) {
 func TestUpdateBlockedBy(t *testing.T) {
 	s := &Store{}
 
-	id := s.Create(Task{Title: "task"})
+	id := mustCreate(t, s, Task{Title: "task"})
 
 	newBlockedBy := []string{"task-x"}
 	require.NoError(t, s.Update(id, Update{BlockedBy: &newBlockedBy}))
@@ -158,7 +196,7 @@ func TestUpdateBlockedBy(t *testing.T) {
 func TestUpdateMetadataMerges(t *testing.T) {
 	s := &Store{}
 
-	id := s.Create(Task{Title: "task", Metadata: map[string]any{"a": 1}})
+	id := mustCreate(t, s, Task{Title: "task", Metadata: map[string]any{"a": 1}})
 
 	require.NoError(t, s.Update(id, Update{Metadata: map[string]any{"b": 2}}))
 
@@ -171,7 +209,7 @@ func TestUpdateMetadataMerges(t *testing.T) {
 func TestClaimSuccess(t *testing.T) {
 	s := &Store{}
 
-	id := s.Create(Task{Title: "task"})
+	id := mustCreate(t, s, Task{Title: "task"})
 
 	require.NoError(t, s.Claim(id, "worker"))
 
@@ -183,7 +221,7 @@ func TestClaimSuccess(t *testing.T) {
 func TestClaimAlreadyAssigned(t *testing.T) {
 	s := &Store{}
 
-	id := s.Create(Task{Title: "task"})
+	id := mustCreate(t, s, Task{Title: "task"})
 	require.NoError(t, s.Claim(id, "worker-1"))
 
 	err := s.Claim(id, "worker-2")
@@ -194,7 +232,7 @@ func TestClaimAlreadyAssigned(t *testing.T) {
 func TestClaimSameAgentIdempotent(t *testing.T) {
 	s := &Store{}
 
-	id := s.Create(Task{Title: "task"})
+	id := mustCreate(t, s, Task{Title: "task"})
 	require.NoError(t, s.Claim(id, "worker"))
 	require.NoError(t, s.Claim(id, "worker"))
 }
@@ -202,8 +240,8 @@ func TestClaimSameAgentIdempotent(t *testing.T) {
 func TestClaimBlocked(t *testing.T) {
 	s := &Store{}
 
-	s.Create(Task{Title: "blocker"})
-	id := s.Create(Task{Title: "blocked", BlockedBy: []string{"task-1"}})
+	mustCreate(t, s, Task{Title: "blocker"})
+	id := mustCreate(t, s, Task{Title: "blocked", BlockedBy: []string{"task-1"}})
 
 	err := s.Claim(id, "worker")
 	require.Error(t, err)
@@ -213,7 +251,7 @@ func TestClaimBlocked(t *testing.T) {
 func TestClaimTerminal(t *testing.T) {
 	s := &Store{}
 
-	id := s.Create(Task{Title: "task"})
+	id := mustCreate(t, s, Task{Title: "task"})
 	completed := StatusCompleted
 	require.NoError(t, s.Update(id, Update{Status: &completed}))
 
@@ -235,7 +273,7 @@ func TestClaimNotFound(t *testing.T) {
 func TestReassign(t *testing.T) {
 	s := &Store{}
 
-	id := s.Create(Task{Title: "task"})
+	id := mustCreate(t, s, Task{Title: "task"})
 	require.NoError(t, s.Claim(id, "worker-1"))
 
 	require.NoError(t, s.Reassign(id, "worker-2"))
@@ -248,7 +286,7 @@ func TestReassign(t *testing.T) {
 func TestReassignSameAgent(t *testing.T) {
 	s := &Store{}
 
-	id := s.Create(Task{Title: "task"})
+	id := mustCreate(t, s, Task{Title: "task"})
 	require.NoError(t, s.Claim(id, "worker"))
 
 	require.NoError(t, s.Reassign(id, "worker"))
@@ -260,7 +298,7 @@ func TestReassignSameAgent(t *testing.T) {
 func TestReassignFromUnassigned(t *testing.T) {
 	s := &Store{}
 
-	id := s.Create(Task{Title: "task"})
+	id := mustCreate(t, s, Task{Title: "task"})
 
 	require.NoError(t, s.Reassign(id, "worker"))
 
@@ -272,7 +310,7 @@ func TestReassignFromUnassigned(t *testing.T) {
 func TestReassignTerminal(t *testing.T) {
 	s := &Store{}
 
-	id := s.Create(Task{Title: "task"})
+	id := mustCreate(t, s, Task{Title: "task"})
 	completed := StatusCompleted
 	require.NoError(t, s.Update(id, Update{Status: &completed}))
 
@@ -284,8 +322,8 @@ func TestReassignTerminal(t *testing.T) {
 func TestReassignBlocked(t *testing.T) {
 	s := &Store{}
 
-	s.Create(Task{Title: "blocker"})
-	id := s.Create(Task{Title: "blocked", BlockedBy: []string{"task-1"}})
+	mustCreate(t, s, Task{Title: "blocker"})
+	id := mustCreate(t, s, Task{Title: "blocked", BlockedBy: []string{"task-1"}})
 
 	err := s.Reassign(id, "worker")
 	require.Error(t, err)
@@ -305,8 +343,8 @@ func TestReassignNotFound(t *testing.T) {
 func TestIsBlocked(t *testing.T) {
 	s := &Store{}
 
-	s.Create(Task{Title: "blocker"})
-	s.Create(Task{Title: "blocked", BlockedBy: []string{"task-1"}})
+	mustCreate(t, s, Task{Title: "blocker"})
+	mustCreate(t, s, Task{Title: "blocked", BlockedBy: []string{"task-1"}})
 
 	assert.True(t, s.IsBlocked("task-2"))
 
@@ -320,7 +358,7 @@ func TestIsBlocked(t *testing.T) {
 func TestIsBlockedNonexistentDep(t *testing.T) {
 	s := &Store{}
 
-	s.Create(Task{Title: "task", BlockedBy: []string{"task-999"}})
+	mustCreate(t, s, Task{Title: "task", BlockedBy: []string{"task-999"}})
 
 	// Nonexistent deps are not blocking.
 	assert.False(t, s.IsBlocked("task-1"))
@@ -331,7 +369,7 @@ func TestIsBlockedNonexistentDep(t *testing.T) {
 func TestWatchAlreadyDone(t *testing.T) {
 	s := &Store{}
 
-	id := s.Create(Task{Title: "task"})
+	id := mustCreate(t, s, Task{Title: "task"})
 	completed := StatusCompleted
 	require.NoError(t, s.Update(id, Update{Status: &completed}))
 
@@ -343,7 +381,7 @@ func TestWatchAlreadyDone(t *testing.T) {
 func TestWatchBlocksUntilDone(t *testing.T) {
 	s := &Store{}
 
-	id := s.Create(Task{Title: "task"})
+	id := mustCreate(t, s, Task{Title: "task"})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -369,7 +407,7 @@ func TestWatchBlocksUntilDone(t *testing.T) {
 func TestWatchFailed(t *testing.T) {
 	s := &Store{}
 
-	id := s.Create(Task{Title: "task"})
+	id := mustCreate(t, s, Task{Title: "task"})
 	failed := StatusFailed
 	require.NoError(t, s.Update(id, Update{Status: &failed}))
 
@@ -381,7 +419,7 @@ func TestWatchFailed(t *testing.T) {
 func TestWatchContextCancelled(t *testing.T) {
 	s := &Store{}
 
-	id := s.Create(Task{Title: "task"})
+	id := mustCreate(t, s, Task{Title: "task"})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -403,7 +441,7 @@ func TestWatchNotFound(t *testing.T) {
 func TestConcurrentClaim(t *testing.T) {
 	s := &Store{}
 
-	id := s.Create(Task{Title: "contested"})
+	id := mustCreate(t, s, Task{Title: "contested"})
 
 	var wg sync.WaitGroup
 	successes := make(chan string, 10)
@@ -435,7 +473,7 @@ func TestConcurrentCreateAndList(t *testing.T) {
 	for i := range 20 {
 		title := fmt.Sprintf("task-%d", i)
 		wg.Go(func() {
-			s.Create(Task{Title: title})
+			_, _ = s.Create(Task{Title: title})
 		})
 	}
 
@@ -485,8 +523,8 @@ func TestToolCreateMissingTitle(t *testing.T) {
 func TestToolList(t *testing.T) {
 	s := &Store{}
 
-	s.Create(Task{Title: "a"})
-	s.Create(Task{Title: "b"})
+	mustCreate(t, s, Task{Title: "a"})
+	mustCreate(t, s, Task{Title: "b"})
 
 	tb := s.Tools("ns")
 	tool, ok := tb.Get("ns_tasks_list")
@@ -503,8 +541,8 @@ func TestToolList(t *testing.T) {
 func TestToolListWithFilter(t *testing.T) {
 	s := &Store{}
 
-	s.Create(Task{Title: "a"})
-	id2 := s.Create(Task{Title: "b"})
+	mustCreate(t, s, Task{Title: "a"})
+	id2 := mustCreate(t, s, Task{Title: "b"})
 	completed := StatusCompleted
 	require.NoError(t, s.Update(id2, Update{Status: &completed}))
 
@@ -523,7 +561,7 @@ func TestToolListWithFilter(t *testing.T) {
 func TestToolGet(t *testing.T) {
 	s := &Store{}
 
-	s.Create(Task{Title: "my task"})
+	mustCreate(t, s, Task{Title: "my task"})
 
 	tb := s.Tools("ns")
 	tool, ok := tb.Get("ns_tasks_get")
@@ -550,7 +588,7 @@ func TestToolGetNotFound(t *testing.T) {
 func TestToolClaim(t *testing.T) {
 	s := &Store{}
 
-	s.Create(Task{Title: "task"})
+	mustCreate(t, s, Task{Title: "task"})
 
 	tb := s.Tools("ns")
 	tool, ok := tb.Get("ns_tasks_claim")
@@ -569,7 +607,7 @@ func TestToolClaim(t *testing.T) {
 func TestToolUpdate(t *testing.T) {
 	s := &Store{}
 
-	s.Create(Task{Title: "task"})
+	mustCreate(t, s, Task{Title: "task"})
 
 	tb := s.Tools("ns")
 	tool, ok := tb.Get("ns_tasks_update")
@@ -586,7 +624,7 @@ func TestToolUpdate(t *testing.T) {
 func TestToolWatch(t *testing.T) {
 	s := &Store{}
 
-	id := s.Create(Task{Title: "task"})
+	id := mustCreate(t, s, Task{Title: "task"})
 
 	tb := s.Tools("ns")
 	tool, ok := tb.Get("ns_tasks_watch")
@@ -631,7 +669,7 @@ func TestCreateDoesNotNotify(t *testing.T) {
 	sigBefore := s.signal
 	s.mu.RUnlock()
 
-	s.Create(Task{Title: "task"})
+	mustCreate(t, s, Task{Title: "task"})
 
 	// The signal channel should be the same (not closed/replaced) because
 	// Create should not call notify.
@@ -645,7 +683,7 @@ func TestCreateDoesNotNotify(t *testing.T) {
 func TestWatchCompletedRaceSafe(t *testing.T) {
 	s := &Store{}
 
-	id := s.Create(Task{Title: "race-test"})
+	id := mustCreate(t, s, Task{Title: "race-test"})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

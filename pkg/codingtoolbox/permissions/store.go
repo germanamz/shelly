@@ -75,11 +75,11 @@ func (s *Store) IsDirApproved(dir string) bool {
 // ApproveDir marks dir as approved and persists the change.
 func (s *Store) ApproveDir(dir string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.dirs[dir] = struct{}{}
+	snap := s.snapshot()
+	s.mu.Unlock()
 
-	return s.persist()
+	return s.persistSnapshot(snap)
 }
 
 // IsCommandTrusted reports whether a command has been trusted.
@@ -95,11 +95,11 @@ func (s *Store) IsCommandTrusted(cmd string) bool {
 // TrustCommand marks a command as trusted and persists the change.
 func (s *Store) TrustCommand(cmd string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.commands[cmd] = struct{}{}
+	snap := s.snapshot()
+	s.mu.Unlock()
 
-	return s.persist()
+	return s.persistSnapshot(snap)
 }
 
 // IsDomainTrusted reports whether a domain has been trusted.
@@ -115,11 +115,11 @@ func (s *Store) IsDomainTrusted(domain string) bool {
 // TrustDomain marks a domain as trusted and persists the change.
 func (s *Store) TrustDomain(domain string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	s.domains[domain] = struct{}{}
+	snap := s.snapshot()
+	s.mu.Unlock()
 
-	return s.persist()
+	return s.persistSnapshot(snap)
 }
 
 // --- persistence ---
@@ -174,7 +174,9 @@ func (s *Store) load() error {
 	return nil
 }
 
-func (s *Store) persist() error {
+// snapshot returns a copy of the current permission data. Must be called
+// while s.mu is held.
+func (s *Store) snapshot() fileFormat {
 	ff := fileFormat{
 		FsDirectories:   make([]string, 0, len(s.dirs)),
 		TrustedCommands: make([]string, 0, len(s.commands)),
@@ -193,6 +195,12 @@ func (s *Store) persist() error {
 		ff.TrustedDomains = append(ff.TrustedDomains, d)
 	}
 
+	return ff
+}
+
+// persistSnapshot writes the given snapshot to disk. It must be called
+// outside the lock so that blocking I/O does not hold the mutex.
+func (s *Store) persistSnapshot(ff fileFormat) error {
 	data, err := json.MarshalIndent(ff, "", "  ")
 	if err != nil {
 		return fmt.Errorf("permissions: marshal: %w", err)

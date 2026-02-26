@@ -136,12 +136,21 @@ func (e *CompactEffect) summarize(ctx context.Context, ic agent.IterationContext
 // handleCompactError asks the user what to do on compaction failure if AskFunc
 // is available. Otherwise it returns nil to continue silently.
 func (e *CompactEffect) handleCompactError(ctx context.Context, ic agent.IterationContext, compactErr error) error {
+	// Propagate context errors (cancellation, deadline) regardless of AskFunc.
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	if e.cfg.AskFunc == nil {
 		return nil
 	}
 
 	answer, err := e.cfg.AskFunc(ctx, fmt.Sprintf("Context compaction failed: %v. What should I do?", compactErr), []string{"Continue without compaction", "Retry compaction"})
 	if err != nil {
+		// Propagate context errors from AskFunc; swallow other errors.
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		return nil
 	}
 
@@ -154,7 +163,11 @@ func (e *CompactEffect) handleCompactError(ctx context.Context, ic agent.Iterati
 
 		summary, retryErr := ic.Completer.Complete(ctx, tempChat, nil)
 		if retryErr != nil {
-			return nil // Give up silently on second failure.
+			// Propagate context errors; give up silently on other failures.
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return nil
 		}
 
 		sysPrompt := ic.Chat.SystemPrompt()

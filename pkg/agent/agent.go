@@ -104,12 +104,25 @@ func New(name, description, instructions string, completer modeladapter.Complete
 	}
 }
 
-// Init builds the system prompt and appends it to the chat. Call this after
+// Init builds the system prompt and sets it in the chat. Call this after
 // SetRegistry and AddToolBoxes so the prompt includes all available agents.
+// Safe to call multiple times — the system prompt message is replaced each time.
 func (a *Agent) Init() {
-	if a.chat.SystemPrompt() == "" {
-		a.chat.Append(message.NewText(a.name, role.System, a.buildSystemPrompt()))
+	newPrompt := message.NewText(a.name, role.System, a.buildSystemPrompt())
+
+	if a.chat.Len() == 0 {
+		a.chat.Append(newPrompt)
+		return
 	}
+
+	// Replace the existing system prompt message (always at index 0).
+	msgs := a.chat.Messages()
+	if msgs[0].Role == role.System {
+		msgs[0] = newPrompt
+	} else {
+		msgs = append([]message.Message{newPrompt}, msgs...)
+	}
+	a.chat.Replace(msgs...)
 }
 
 // Name returns the agent's name.

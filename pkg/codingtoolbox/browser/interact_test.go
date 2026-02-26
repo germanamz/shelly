@@ -14,7 +14,7 @@ import (
 
 func TestClick_EmptySelector(t *testing.T) {
 	store := newTestStore(t)
-	b := New(context.Background(), store, autoApprove, WithHeadless())
+	b := New(store, autoApprove, WithHeadless())
 	t.Cleanup(b.Close)
 	tb := b.Tools()
 
@@ -67,7 +67,7 @@ func TestClick_Success(t *testing.T) {
 
 func TestType_EmptySelector(t *testing.T) {
 	store := newTestStore(t)
-	b := New(context.Background(), store, autoApprove, WithHeadless())
+	b := New(store, autoApprove, WithHeadless())
 	t.Cleanup(b.Close)
 	tb := b.Tools()
 
@@ -83,7 +83,7 @@ func TestType_EmptySelector(t *testing.T) {
 
 func TestType_EmptyText(t *testing.T) {
 	store := newTestStore(t)
-	b := New(context.Background(), store, autoApprove, WithHeadless())
+	b := New(store, autoApprove, WithHeadless())
 	t.Cleanup(b.Close)
 	tb := b.Tools()
 

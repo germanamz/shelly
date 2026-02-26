@@ -36,8 +36,7 @@ type Browser struct {
 	store *permissions.Store
 	ask   AskFunc
 
-	headless  bool
-	parentCtx context.Context
+	headless bool
 
 	mu          sync.Mutex
 	started     bool
@@ -48,13 +47,10 @@ type Browser struct {
 
 // New creates a Browser that checks the given permissions store for trusted
 // domains and prompts the user via askFn when a domain is not yet trusted.
-// The parentCtx is used as the root context for the Chrome process; cancelling
-// it will tear down Chrome.
-func New(parentCtx context.Context, store *permissions.Store, askFn AskFunc, opts ...Option) *Browser {
+func New(store *permissions.Store, askFn AskFunc, opts ...Option) *Browser {
 	b := &Browser{
-		store:     store,
-		ask:       askFn,
-		parentCtx: parentCtx,
+		store: store,
+		ask:   askFn,
 	}
 	for _, o := range opts {
 		o(b)
@@ -93,8 +89,10 @@ func (b *Browser) Close() {
 	b.started = false
 }
 
-// ensureBrowser lazily starts the Chrome process on first call.
-func (b *Browser) ensureBrowser() (context.Context, error) {
+// ensureBrowser lazily starts the Chrome process on first call. The provided
+// ctx is used as the root context for the Chrome process on first
+// initialization; cancelling it will tear down Chrome.
+func (b *Browser) ensureBrowser(ctx context.Context) (context.Context, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -114,7 +112,7 @@ func (b *Browser) ensureBrowser() (context.Context, error) {
 		chromedp.Flag("disable-gpu", true),
 	)
 
-	allocCtx, allocCancel := chromedp.NewExecAllocator(b.parentCtx, opts...)
+	allocCtx, allocCancel := chromedp.NewExecAllocator(ctx, opts...)
 	browserCtx, browserCancel := chromedp.NewContext(allocCtx)
 
 	// Force Chrome to start by running a noop.

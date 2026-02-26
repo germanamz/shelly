@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"sort"
 	"sync"
 
@@ -34,13 +33,19 @@ func (s *Store) init() {
 }
 
 // Get returns the value for key and whether it was found.
+// If the value is a json.RawMessage or []byte, a deep copy is returned
+// to prevent callers from mutating the stored byte slice.
 func (s *Store) Get(key string) (any, bool) {
 	s.init()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	v, ok := s.data[key]
-	return v, ok
+	if !ok {
+		return v, false
+	}
+
+	return copyValue(v), true
 }
 
 // Set stores a value under key and notifies any goroutines blocked in Watch.
@@ -81,16 +86,36 @@ func (s *Store) Keys() []string {
 	return keys
 }
 
-// Snapshot returns a shallow copy of the entire store.
+// Snapshot returns a copy of the entire store. Values that are
+// json.RawMessage or []byte are deep-copied to prevent aliasing.
 func (s *Store) Snapshot() map[string]any {
 	s.init()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	cp := make(map[string]any, len(s.data))
-	maps.Copy(cp, s.data)
+	for k, v := range s.data {
+		cp[k] = copyValue(v)
+	}
 
 	return cp
+}
+
+// copyValue returns a deep copy of v if it is a json.RawMessage or []byte,
+// otherwise it returns v unchanged.
+func copyValue(v any) any {
+	switch raw := v.(type) {
+	case json.RawMessage:
+		cp := make(json.RawMessage, len(raw))
+		copy(cp, raw)
+		return cp
+	case []byte:
+		cp := make([]byte, len(raw))
+		copy(cp, raw)
+		return cp
+	default:
+		return v
+	}
 }
 
 // Watch blocks until key exists in the store or ctx is cancelled.

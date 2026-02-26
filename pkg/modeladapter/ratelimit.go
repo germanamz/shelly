@@ -186,13 +186,23 @@ func (r *RateLimitedCompleter) Complete(ctx context.Context, c *chat.Chat, tools
 
 	var lastErr error
 	for attempt := range r.maxRetries + 1 {
+		// Snapshot total tokens before the call so we can compute the delta
+		// afterwards. Using Total() instead of Last() avoids a race where
+		// concurrent calls append entries and Last() returns the wrong one.
+		var beforeTotal usage.TokenCount
+		if ur, ok := r.inner.(UsageReporter); ok {
+			beforeTotal = ur.UsageTracker().Total()
+		}
+
 		msg, err := r.inner.Complete(ctx, c, tools)
 		if err == nil {
-			// Record token usage from the inner completer's tracker.
+			// Record token usage delta from the inner completer's tracker.
 			if ur, ok := r.inner.(UsageReporter); ok {
-				if tc, found := ur.UsageTracker().Last(); found {
-					r.recordTokens(tc.InputTokens, tc.OutputTokens)
-				}
+				afterTotal := ur.UsageTracker().Total()
+				r.recordTokens(
+					afterTotal.InputTokens-beforeTotal.InputTokens,
+					afterTotal.OutputTokens-beforeTotal.OutputTokens,
+				)
 			}
 			// Preemptively sleep if the server reports near-zero remaining capacity.
 			if sleepErr := r.adaptFromServerInfo(ctx); sleepErr != nil {

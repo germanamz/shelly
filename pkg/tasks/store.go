@@ -78,8 +78,22 @@ func (s *Store) notify() {
 	s.signal = make(chan struct{})
 }
 
-// Create adds a new task to the board with status "pending" and returns its ID.
-func (s *Store) Create(task Task) string {
+// Create adds a new task to the board with status "pending" and returns its
+// auto-generated ID. The following fields are always overridden by Create:
+//   - ID: auto-assigned as "task-N" (sequential).
+//   - Status: forced to StatusPending regardless of the supplied value.
+//
+// Callers must not set Status to a non-zero value or Assignee to a non-empty
+// string; doing so returns an error because those fields would be silently
+// discarded and likely indicate a caller bug.
+func (s *Store) Create(task Task) (string, error) {
+	if task.Status != "" && task.Status != StatusPending {
+		return "", fmt.Errorf("tasks: Create does not accept Status %q; new tasks always start as %q", task.Status, StatusPending)
+	}
+	if task.Assignee != "" {
+		return "", fmt.Errorf("tasks: Create does not accept Assignee %q; use Claim or Reassign after creation", task.Assignee)
+	}
+
 	s.init()
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -91,7 +105,7 @@ func (s *Store) Create(task Task) string {
 	cp := task
 	s.tasks[cp.ID] = &cp
 
-	return cp.ID
+	return cp.ID, nil
 }
 
 // Get returns a copy of the task with the given ID, or false if not found.
@@ -408,7 +422,10 @@ func (s *Store) handleCreate(ctx context.Context, input json.RawMessage) (string
 		CreatedBy:   agentctx.AgentNameFromContext(ctx),
 	}
 
-	id := s.Create(task)
+	id, err := s.Create(task)
+	if err != nil {
+		return "", err
+	}
 
 	b, err := json.Marshal(map[string]string{"id": id})
 	if err != nil {

@@ -289,7 +289,7 @@ func (g *Git) handleCommit(ctx context.Context, input json.RawMessage) (string, 
 
 	// Stage specific files if provided.
 	if len(in.Files) > 0 {
-		addArgs := append([]string{"add"}, in.Files...)
+		addArgs := append([]string{"add", "--"}, in.Files...)
 		if _, err := g.runGit(ctx, addArgs...); err != nil {
 			return "", fmt.Errorf("git_commit: stage files: %w", err)
 		}

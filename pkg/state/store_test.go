@@ -86,6 +86,57 @@ func TestSnapshot(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestGetDeepCopiesRawMessage(t *testing.T) {
+	s := &Store{}
+
+	original := json.RawMessage(`{"key":"value"}`)
+	s.Set("raw", original)
+
+	v, ok := s.Get("raw")
+	require.True(t, ok)
+
+	got := v.(json.RawMessage)
+	// Mutate the returned copy.
+	got[0] = 'X'
+
+	// Original in store should be unchanged.
+	v2, _ := s.Get("raw")
+	assert.JSONEq(t, `{"key":"value"}`, string(v2.(json.RawMessage)))
+}
+
+func TestSnapshotDeepCopiesRawMessage(t *testing.T) {
+	s := &Store{}
+
+	original := json.RawMessage(`{"key":"value"}`)
+	s.Set("raw", original)
+
+	snap := s.Snapshot()
+	got := snap["raw"].(json.RawMessage)
+	// Mutate the snapshot copy.
+	got[0] = 'X'
+
+	// Original in store should be unchanged.
+	v, _ := s.Get("raw")
+	assert.JSONEq(t, `{"key":"value"}`, string(v.(json.RawMessage)))
+}
+
+func TestGetDeepCopiesByteSlice(t *testing.T) {
+	s := &Store{}
+
+	original := []byte("hello")
+	s.Set("bytes", original)
+
+	v, ok := s.Get("bytes")
+	require.True(t, ok)
+
+	got := v.([]byte)
+	got[0] = 'X'
+
+	// Original in store should be unchanged.
+	v2, _ := s.Get("bytes")
+	assert.Equal(t, []byte("hello"), v2.([]byte))
+}
+
 func TestWatchKeyExists(t *testing.T) {
 	s := &Store{}
 	s.Set("ready", "yes")

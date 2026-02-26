@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
@@ -20,15 +21,24 @@ import (
 // AskFunc asks the user a question and blocks until a response is received.
 type AskFunc func(ctx context.Context, question string, options []string) (string, error)
 
+// pendingResult holds the outcome of a single in-flight permission prompt so
+// that concurrent callers waiting on the same directory can share the result.
+type pendingResult struct {
+	done chan struct{}
+	err  error
+}
+
 // Search provides search tools with permission gating.
 type Search struct {
-	store *permissions.Store
-	ask   AskFunc
+	store      *permissions.Store
+	ask        AskFunc
+	pendingMu  sync.Mutex
+	pendingDir map[string]*pendingResult
 }
 
 // New creates a Search backed by the given shared permissions store.
 func New(store *permissions.Store, askFn AskFunc) *Search {
-	return &Search{store: store, ask: askFn}
+	return &Search{store: store, ask: askFn, pendingDir: make(map[string]*pendingResult)}
 }
 
 // Tools returns a ToolBox containing the search tools.
@@ -39,27 +49,72 @@ func (s *Search) Tools() *toolbox.ToolBox {
 	return tb
 }
 
-// checkPermission ensures the directory is approved.
+// checkPermission ensures the directory is approved. Concurrent calls for the
+// same directory coalesce into a single prompt so the user is never asked the
+// same question multiple times.
 func (s *Search) checkPermission(ctx context.Context, dir string) error {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return fmt.Errorf("search: resolve path: %w", err)
 	}
 
+	// Fast path: already approved (no lock contention).
 	if s.store.IsDirApproved(abs) {
 		return nil
 	}
 
-	resp, err := s.ask(ctx, fmt.Sprintf("Allow search access to %s?", abs), []string{"yes", "no"})
+	s.pendingMu.Lock()
+	// Re-check after acquiring lock — another goroutine may have approved.
+	if s.store.IsDirApproved(abs) {
+		s.pendingMu.Unlock()
+		return nil
+	}
+
+	// If a prompt is already in-flight for this dir, wait for its result.
+	if pr, ok := s.pendingDir[abs]; ok {
+		s.pendingMu.Unlock()
+		<-pr.done
+
+		if pr.err != nil {
+			return pr.err
+		}
+
+		if s.store.IsDirApproved(abs) {
+			return nil
+		}
+
+		return fmt.Errorf("search: access denied to %s", abs)
+	}
+
+	// We are the first — create a pending entry and release the lock.
+	pr := &pendingResult{done: make(chan struct{})}
+	s.pendingDir[abs] = pr
+	s.pendingMu.Unlock()
+
+	// Ask the user (blocking).
+	pr.err = s.askAndApproveDir(ctx, abs)
+
+	// Signal waiters and clean up.
+	close(pr.done)
+	s.pendingMu.Lock()
+	delete(s.pendingDir, abs)
+	s.pendingMu.Unlock()
+
+	return pr.err
+}
+
+// askAndApproveDir prompts the user and approves the directory on "yes".
+func (s *Search) askAndApproveDir(ctx context.Context, dir string) error {
+	resp, err := s.ask(ctx, fmt.Sprintf("Allow search access to %s?", dir), []string{"yes", "no"})
 	if err != nil {
 		return fmt.Errorf("search: ask permission: %w", err)
 	}
 
 	if !strings.EqualFold(resp, "yes") {
-		return fmt.Errorf("search: access denied to %s", abs)
+		return fmt.Errorf("search: access denied to %s", dir)
 	}
 
-	return s.store.ApproveDir(abs)
+	return s.store.ApproveDir(dir)
 }
 
 // --- search_content ---

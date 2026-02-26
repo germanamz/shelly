@@ -191,34 +191,6 @@ func (e *SlidingWindowEffect) manage(ctx context.Context, ic agent.IterationCont
 		}
 	}
 
-	// Trim tool results in medium zone.
-	for i := range mediumMsgs {
-		if mediumMsgs[i].Role != role.Tool {
-			continue
-		}
-
-		if _, ok := mediumMsgs[i].GetMeta("sw_trimmed"); ok {
-			continue
-		}
-
-		trimmed := false
-
-		for j, p := range mediumMsgs[i].Parts {
-			tr, ok := p.(content.ToolResult)
-			if !ok || tr.IsError || utf8.RuneCountInString(tr.Content) <= e.cfg.TrimLength {
-				continue
-			}
-
-			tr.Content = string([]rune(tr.Content)[:e.cfg.TrimLength]) + "… [trimmed]"
-			mediumMsgs[i].Parts[j] = tr
-			trimmed = true
-		}
-
-		if trimmed {
-			mediumMsgs[i].SetMeta("sw_trimmed", true)
-		}
-	}
-
 	// Reconstruct the chat: system prompt + optional summary + medium + recent.
 	e.mu.Lock()
 	currentSummary := e.runningSummary
@@ -229,10 +201,42 @@ func (e *SlidingWindowEffect) manage(ctx context.Context, ic agent.IterationCont
 
 	if !summarized {
 		// Summarization failed — keep old messages to avoid data loss.
+		// Skip medium-zone trimming as well since zone boundaries are invalid.
 		newMsgs = append(newMsgs, oldMsgs...)
-	} else if currentSummary != "" {
-		summaryMsg := fmt.Sprintf("[Context summary — earlier conversation condensed below.]\n\n%s", currentSummary)
-		newMsgs = append(newMsgs, message.NewText("", role.User, summaryMsg))
+	} else {
+		// Trim tool results in medium zone only when summarization succeeded,
+		// since zone boundaries are only valid after old messages are evicted.
+		for i := range mediumMsgs {
+			if mediumMsgs[i].Role != role.Tool {
+				continue
+			}
+
+			if _, ok := mediumMsgs[i].GetMeta("sw_trimmed"); ok {
+				continue
+			}
+
+			trimmed := false
+
+			for j, p := range mediumMsgs[i].Parts {
+				tr, ok := p.(content.ToolResult)
+				if !ok || tr.IsError || utf8.RuneCountInString(tr.Content) <= e.cfg.TrimLength {
+					continue
+				}
+
+				tr.Content = string([]rune(tr.Content)[:e.cfg.TrimLength]) + "… [trimmed]"
+				mediumMsgs[i].Parts[j] = tr
+				trimmed = true
+			}
+
+			if trimmed {
+				mediumMsgs[i].SetMeta("sw_trimmed", true)
+			}
+		}
+
+		if currentSummary != "" {
+			summaryMsg := fmt.Sprintf("[Context summary — earlier conversation condensed below.]\n\n%s", currentSummary)
+			newMsgs = append(newMsgs, message.NewText("", role.User, summaryMsg))
+		}
 	}
 
 	newMsgs = append(newMsgs, mediumMsgs...)

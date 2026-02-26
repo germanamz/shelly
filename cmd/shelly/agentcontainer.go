@@ -51,8 +51,9 @@ func (ac *agentContainer) addPlan(text string) {
 }
 
 // addToolCall adds a single tool call item.
-func (ac *agentContainer) addToolCall(toolName, args string) *toolCallMessage {
+func (ac *agentContainer) addToolCall(callID, toolName, args string) *toolCallMessage {
 	tc := &toolCallMessage{
+		callID:   callID,
 		toolName: toolName,
 		args:     args,
 		spinMsg:  randomThinkingMessage(),
@@ -98,15 +99,42 @@ func (ac *agentContainer) findLastToolGroup(toolName string) *toolGroupMessage {
 	return nil
 }
 
-// completeToolCall marks the last pending call as done with the given result.
-func (ac *agentContainer) completeToolCall(result string, isError bool) {
-	tc := ac.findPendingCall()
+// completeToolCall marks the pending call with the given ID as done. If callID
+// is empty or no match is found, it falls back to the first pending call.
+func (ac *agentContainer) completeToolCall(callID, result string, isError bool) {
+	tc := ac.findCallByID(callID)
+	if tc == nil {
+		tc = ac.findPendingCall()
+	}
 	if tc == nil {
 		return
 	}
 	tc.completed = true
 	tc.result = result
 	tc.isError = isError
+}
+
+// findCallByID returns the pending toolCallMessage with the given ID, searching
+// both standalone items and tool groups. Returns nil if callID is empty or not found.
+func (ac *agentContainer) findCallByID(callID string) *toolCallMessage {
+	if callID == "" {
+		return nil
+	}
+	for i := len(ac.items) - 1; i >= 0; i-- {
+		switch item := ac.items[i].(type) {
+		case *toolCallMessage:
+			if !item.completed && item.callID == callID {
+				return item
+			}
+		case *toolGroupMessage:
+			for _, c := range item.calls {
+				if !c.completed && c.callID == callID {
+					return c
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // View renders visible items with windowing.

@@ -34,7 +34,7 @@ func (b *Browser) handleExtract(ctx context.Context, input json.RawMessage) (str
 		return "", fmt.Errorf("browser_extract: invalid input: %w", err)
 	}
 
-	bCtx, err := b.ensureBrowser()
+	bCtx, err := b.ensureBrowser(ctx)
 	if err != nil {
 		return "", err
 	}

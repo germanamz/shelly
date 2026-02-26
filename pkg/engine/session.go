@@ -22,6 +22,7 @@ import (
 type Session struct {
 	id           string
 	agent        *agent.Agent
+	engine       *Engine
 	events       *EventBus
 	responder    *ask.Responder
 	sessionTrust *filesystem.SessionTrust
@@ -30,11 +31,12 @@ type Session struct {
 	active bool
 }
 
-// newSession creates a session with the given ID, agent, event bus, and responder.
-func newSession(id string, a *agent.Agent, events *EventBus, responder *ask.Responder) *Session {
+// newSession creates a session with the given ID, agent, engine, event bus, and responder.
+func newSession(id string, a *agent.Agent, eng *Engine, events *EventBus, responder *ask.Responder) *Session {
 	return &Session{
 		id:           id,
 		agent:        a,
+		engine:       eng,
 		events:       events,
 		responder:    responder,
 		sessionTrust: &filesystem.SessionTrust{},
@@ -59,6 +61,16 @@ func (s *Session) Send(ctx context.Context, text string) (message.Message, error
 // SendParts appends a user message with the given parts and runs the agent's
 // ReAct loop. Only one Send may be active per session.
 func (s *Session) SendParts(ctx context.Context, parts ...content.Part) (message.Message, error) {
+	// Check whether the engine has been closed before starting work.
+	s.engine.mu.Lock()
+	if s.engine.closed {
+		s.engine.mu.Unlock()
+		return message.Message{}, fmt.Errorf("engine: closed")
+	}
+	s.engine.wg.Add(1)
+	s.engine.mu.Unlock()
+	defer s.engine.wg.Done()
+
 	if err := s.acquire(); err != nil {
 		return message.Message{}, err
 	}
@@ -92,6 +104,7 @@ func (s *Session) SendParts(ctx context.Context, parts ...content.Part) (message
 			SessionID: s.id,
 			Agent:     s.agent.Name(),
 			Timestamp: time.Now(),
+			Data:      agent.AgentEventData{Prefix: s.agent.Prefix()},
 		})
 		return message.Message{}, err
 	}
@@ -101,6 +114,7 @@ func (s *Session) SendParts(ctx context.Context, parts ...content.Part) (message
 		SessionID: s.id,
 		Agent:     s.agent.Name(),
 		Timestamp: time.Now(),
+		Data:      agent.AgentEventData{Prefix: s.agent.Prefix()},
 	})
 
 	return reply, nil
