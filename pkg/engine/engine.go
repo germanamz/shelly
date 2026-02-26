@@ -150,7 +150,7 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 
 	// Create notes store if referenced. Notes persist in .shelly/notes/.
 	if _, ok := refs["notes"]; ok {
-		notesDir := filepath.Join(dir.Root(), "notes")
+		notesDir := dir.NotesDir()
 		notesStore := notes.New(notesDir)
 		e.toolboxes["notes"] = notesStore.Tools()
 	}

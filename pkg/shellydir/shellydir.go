@@ -47,6 +47,9 @@ func (d Dir) PermissionsPath() string { return filepath.Join(d.root, "local", "p
 // ContextCachePath returns the path to the auto-generated context cache.
 func (d Dir) ContextCachePath() string { return filepath.Join(d.root, "local", "context-cache.json") }
 
+// NotesDir returns the path to the notes directory inside local/.
+func (d Dir) NotesDir() string { return filepath.Join(d.root, "local", "notes") }
+
 // ReflectionsDir returns the path to the reflections directory inside local/.
 func (d Dir) ReflectionsDir() string { return filepath.Join(d.root, "local", "reflections") }
 
