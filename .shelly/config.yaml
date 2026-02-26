@@ -36,6 +36,7 @@ agents:
       - tasks
       - notes
       - brightdata
+      - browser
     skills:
       - orchestrator-workflow
     options:
@@ -53,6 +54,7 @@ agents:
       - tasks
       - notes
       - brightdata
+      - browser
     skills:
       - planner-workflow
     options:
@@ -68,6 +70,7 @@ agents:
       - search
       - git
       - http
+      - browser
       - state
       - tasks
       - notes

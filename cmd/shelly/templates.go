@@ -195,7 +195,7 @@ var devTeamTemplate = configTemplate{
 			ProviderSlot:       "primary",
 			MaxIterations:      15,
 			MaxDelegationDepth: 3,
-			Toolboxes:          []string{"state", "tasks", "notes"},
+			Toolboxes:          []string{"state", "tasks", "notes", "browser"},
 			Skills:             []string{"orchestrator-workflow"},
 		},
 		{
@@ -205,7 +205,7 @@ var devTeamTemplate = configTemplate{
 			ProviderSlot:       "primary",
 			MaxIterations:      10,
 			MaxDelegationDepth: 0,
-			Toolboxes:          []string{"filesystem", "search", "git", "state", "tasks", "notes"},
+			Toolboxes:          []string{"filesystem", "search", "git", "state", "browser", "tasks", "notes"},
 			Skills:             []string{"planner-workflow"},
 		},
 		{
