@@ -27,17 +27,13 @@ func (m *thinkingMessage) View(width int) string {
 	if prefix == "" {
 		prefix = "🤖"
 	}
-	header := thinkingTextStyle.Render(fmt.Sprintf("%s %s >", prefix, m.agent))
+	header := thinkingTextStyle.Render(fmt.Sprintf("  %s %s thinking:", prefix, m.agent))
 
+	rendered := renderMarkdown(m.text)
 	var sb strings.Builder
-	first := true
-	for line := range strings.SplitSeq(strings.TrimRight(m.text, "\n"), "\n") {
-		if first {
-			fmt.Fprintf(&sb, "  %s %s", header, thinkingTextStyle.Render(line))
-			first = false
-		} else {
-			fmt.Fprintf(&sb, "\n  %s", thinkingTextStyle.Render("  "+line))
-		}
+	sb.WriteString(header)
+	for line := range strings.SplitSeq(rendered, "\n") {
+		fmt.Fprintf(&sb, "\n  %s", thinkingTextStyle.Render("  "+line))
 	}
 	if m.elapsed > 0 {
 		footer := thinkingFooterStyle.Render(fmt.Sprintf("── Thought for %s", fmtDuration(m.elapsed)))
@@ -48,30 +44,6 @@ func (m *thinkingMessage) View(width int) string {
 
 func (m *thinkingMessage) IsLive() bool { return false }
 func (m *thinkingMessage) Kind() string { return "thinking" }
-
-// --- spinnerMessage ---
-
-type spinnerMessage struct {
-	agent    string
-	prefix   string
-	text     string
-	frameIdx int
-}
-
-func (m *spinnerMessage) View(width int) string {
-	prefix := m.prefix
-	if prefix == "" {
-		prefix = "🤖"
-	}
-	frame := spinnerFrames[m.frameIdx%len(spinnerFrames)]
-	return fmt.Sprintf("  %s %s",
-		spinnerStyle.Render(frame),
-		spinnerStyle.Render(fmt.Sprintf("%s %s > %s", prefix, m.agent, m.text)),
-	)
-}
-
-func (m *spinnerMessage) IsLive() bool { return true }
-func (m *spinnerMessage) Kind() string { return "spinner" }
 
 // --- toolCallMessage ---
 

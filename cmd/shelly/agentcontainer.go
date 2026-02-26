@@ -13,8 +13,10 @@ type agentContainer struct {
 	agent     string
 	prefix    string // configurable emoji prefix (e.g. "🤖", "📝", "🦾")
 	items     []displayItem
+	callIndex map[string]*toolCallMessage // callID → toolCallMessage for O(1) lookup
 	startTime time.Time
-	maxShow   int // 0 = show all (root), >0 = windowed (sub-agent)
+	spinMsg   string // random message picked once at creation, used for initial spinner
+	maxShow   int    // 0 = show all (root), >0 = windowed (sub-agent)
 	done      bool
 	frameIdx  int
 }
@@ -27,7 +29,9 @@ func newAgentContainer(agentName, prefix string, maxShow int) *agentContainer {
 	return &agentContainer{
 		agent:     agentName,
 		prefix:    prefix,
+		callIndex: make(map[string]*toolCallMessage),
 		startTime: time.Now(),
+		spinMsg:   randomThinkingMessage(),
 		maxShow:   maxShow,
 	}
 }
@@ -59,7 +63,18 @@ func (ac *agentContainer) addToolCall(callID, toolName, args string) *toolCallMe
 		spinMsg:  randomThinkingMessage(),
 	}
 	ac.items = append(ac.items, tc)
+	if callID != "" {
+		ac.callIndex[callID] = tc
+	}
 	return tc
+}
+
+// addGroupCall adds a call to an existing tool group and indexes it.
+func (ac *agentContainer) addGroupCall(tg *toolGroupMessage, callID, args string) {
+	tc := tg.addCall(callID, args)
+	if callID != "" {
+		ac.callIndex[callID] = tc
+	}
 }
 
 // addToolGroup adds a tool group for parallel calls of the same tool.
@@ -114,25 +129,15 @@ func (ac *agentContainer) completeToolCall(callID, result string, isError bool) 
 	tc.isError = isError
 }
 
-// findCallByID returns the pending toolCallMessage with the given ID, searching
-// both standalone items and tool groups. Returns nil if callID is empty or not found.
+// findCallByID returns the pending toolCallMessage with the given ID using the
+// callIndex for O(1) lookup. Returns nil if callID is empty or not found.
 func (ac *agentContainer) findCallByID(callID string) *toolCallMessage {
 	if callID == "" {
 		return nil
 	}
-	for i := len(ac.items) - 1; i >= 0; i-- {
-		switch item := ac.items[i].(type) {
-		case *toolCallMessage:
-			if !item.completed && item.callID == callID {
-				return item
-			}
-		case *toolGroupMessage:
-			for _, c := range item.calls {
-				if !c.completed && c.callID == callID {
-					return c
-				}
-			}
-		}
+	tc, ok := ac.callIndex[callID]
+	if ok && !tc.completed {
+		return tc
 	}
 	return nil
 }
@@ -144,7 +149,7 @@ func (ac *agentContainer) View(width int) string {
 		frame := spinnerFrames[ac.frameIdx%len(spinnerFrames)]
 		return fmt.Sprintf("  %s %s\n",
 			spinnerStyle.Render(frame),
-			spinnerStyle.Render(fmt.Sprintf("%s %s > %s", ac.prefix, ac.agent, randomThinkingMessage())),
+			spinnerStyle.Render(fmt.Sprintf("%s %s > %s", ac.prefix, ac.agent, ac.spinMsg)),
 		)
 	}
 
@@ -231,8 +236,6 @@ func (ac *agentContainer) advanceSpinners() {
 			}
 		case *subAgentMessage:
 			it.container.advanceSpinners()
-		case *spinnerMessage:
-			it.frameIdx++
 		}
 	}
 }

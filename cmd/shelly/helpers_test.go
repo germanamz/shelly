@@ -32,48 +32,6 @@ func TestTruncate(t *testing.T) {
 	}
 }
 
-func TestMoveCursorWordLeft(t *testing.T) {
-	line := []rune("hello world")
-	tests := []struct {
-		name     string
-		cursor   int
-		expected int
-	}{
-		{name: "middle of word", cursor: 5, expected: 0},
-		{name: "start of word", cursor: 6, expected: 0},
-		{name: "middle of second word", cursor: 7, expected: 6},
-		{name: "end of second word", cursor: 11, expected: 6},
-		{name: "start of line", cursor: 0, expected: 0},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, moveCursorWordLeft(line, tt.cursor))
-		})
-	}
-}
-
-func TestMoveCursorWordRight(t *testing.T) {
-	line := []rune("hello world")
-	tests := []struct {
-		name     string
-		cursor   int
-		expected int
-	}{
-		{name: "middle of word", cursor: 5, expected: 6},
-		{name: "start of word", cursor: 6, expected: 11},
-		{name: "middle of second word", cursor: 7, expected: 11},
-		{name: "end of line", cursor: 11, expected: 11},
-		{name: "in space", cursor: 5, expected: 6},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, moveCursorWordRight(line, tt.cursor))
-		})
-	}
-}
-
 func TestFmtTokens(t *testing.T) {
 	tests := []struct {
 		name string
@@ -108,13 +66,6 @@ func TestFmtDuration(t *testing.T) {
 			assert.Equal(t, tt.want, fmtDuration(tt.d))
 		})
 	}
-}
-
-func TestDeleteWordBackward(t *testing.T) {
-	line := []rune("hello world")
-	newLine, cursor := deleteWordBackward(line, 11)
-	assert.Equal(t, "hello ", string(newLine))
-	assert.Equal(t, 6, cursor)
 }
 
 func TestRandomThinkingMessage(t *testing.T) {

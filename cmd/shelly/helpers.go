@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/joho/godotenv"
@@ -39,13 +38,19 @@ var spinnerFrames = []string{"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "�
 
 // mdRenderer renders markdown to terminal-formatted output.
 var (
-	mdRenderer   *glamour.TermRenderer
-	mdRendererMu sync.RWMutex
+	mdRenderer      *glamour.TermRenderer
+	mdRendererMu    sync.Mutex
+	mdRendererWidth int
 )
 
 func initMarkdownRenderer(width int) {
 	if width <= 0 {
 		width = 100
+	}
+	mdRendererMu.Lock()
+	defer mdRendererMu.Unlock()
+	if width == mdRendererWidth && mdRenderer != nil {
+		return
 	}
 	r, err := glamour.NewTermRenderer(
 		glamour.WithAutoStyle(),
@@ -54,16 +59,15 @@ func initMarkdownRenderer(width int) {
 	if err != nil {
 		return
 	}
-	mdRendererMu.Lock()
 	mdRenderer = r
-	mdRendererMu.Unlock()
+	mdRendererWidth = width
 }
 
 // renderMarkdown converts markdown text to terminal-formatted output.
 func renderMarkdown(text string) string {
-	mdRendererMu.RLock()
+	mdRendererMu.Lock()
 	r := mdRenderer
-	mdRendererMu.RUnlock()
+	mdRendererMu.Unlock()
 	if r == nil {
 		return text
 	}
@@ -105,37 +109,6 @@ func fmtDuration(d time.Duration) string {
 	min := int(d.Minutes())
 	sec := int(d.Seconds()) % 60
 	return fmt.Sprintf("%dm %ds", min, sec)
-}
-
-// moveCursorWordLeft moves the cursor to the start of the previous word.
-func moveCursorWordLeft(line []rune, cursor int) int {
-	for cursor > 0 && unicode.IsSpace(line[cursor-1]) {
-		cursor--
-	}
-	for cursor > 0 && !unicode.IsSpace(line[cursor-1]) {
-		cursor--
-	}
-	return cursor
-}
-
-// moveCursorWordRight moves the cursor to the start of the next word.
-func moveCursorWordRight(line []rune, cursor int) int {
-	lineLen := len(line)
-	if cursor < lineLen && !unicode.IsSpace(line[cursor]) {
-		for cursor < lineLen && !unicode.IsSpace(line[cursor]) {
-			cursor++
-		}
-	}
-	for cursor < lineLen && unicode.IsSpace(line[cursor]) {
-		cursor++
-	}
-	return cursor
-}
-
-// deleteWordBackward deletes the word backward from the cursor.
-func deleteWordBackward(line []rune, cursor int) ([]rune, int) {
-	newCursor := moveCursorWordLeft(line, cursor)
-	return append(line[:newCursor], line[cursor:]...), newCursor
 }
 
 // loadDotEnv loads environment variables from path. Missing files are ignored.

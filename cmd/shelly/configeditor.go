@@ -43,6 +43,9 @@ type editorAgent struct {
 	MaxIterations      int
 	MaxDelegationDepth int
 	Toolboxes          []string
+	Skills             []string
+	Effects            []effectYAML
+	Prefix             string
 }
 
 type editorConfig struct {
@@ -83,6 +86,9 @@ type editorAgentYAML struct {
 	Instructions string        `yaml:"instructions"`
 	Provider     string        `yaml:"provider"`
 	Toolboxes    []string      `yaml:"toolboxes,omitempty"`
+	Skills       []string      `yaml:"skills,omitempty"`
+	Effects      []effectYAML  `yaml:"effects,omitempty"`
+	Prefix       string        `yaml:"prefix,omitempty"`
 	Options      agentOptsYAML `yaml:"options"`
 }
 
@@ -201,6 +207,10 @@ func configToEditor(cfg engine.Config) editorConfig {
 	}
 
 	for _, a := range cfg.Agents {
+		var effects []effectYAML
+		for _, e := range a.Effects {
+			effects = append(effects, effectYAML{Kind: e.Kind, Params: e.Params})
+		}
 		ec.Agents = append(ec.Agents, editorAgent{
 			Name:               a.Name,
 			Description:        a.Description,
@@ -209,6 +219,9 @@ func configToEditor(cfg engine.Config) editorConfig {
 			MaxIterations:      a.Options.MaxIterations,
 			MaxDelegationDepth: a.Options.MaxDelegationDepth,
 			Toolboxes:          a.Toolboxes,
+			Skills:             a.Skills,
+			Effects:            effects,
+			Prefix:             a.Prefix,
 		})
 	}
 
@@ -264,12 +277,19 @@ func editorToEngineConfig(ec editorConfig) engine.Config {
 	}
 
 	for _, a := range ec.Agents {
+		var effects []engine.EffectConfig
+		for _, e := range a.Effects {
+			effects = append(effects, engine.EffectConfig{Kind: e.Kind, Params: e.Params})
+		}
 		cfg.Agents = append(cfg.Agents, engine.AgentConfig{
 			Name:         a.Name,
 			Description:  a.Description,
 			Instructions: a.Instructions,
 			Provider:     a.Provider,
 			Toolboxes:    a.Toolboxes,
+			Skills:       a.Skills,
+			Effects:      effects,
+			Prefix:       a.Prefix,
 			Options: engine.AgentOptions{
 				MaxIterations:      a.MaxIterations,
 				MaxDelegationDepth: a.MaxDelegationDepth,
@@ -341,6 +361,9 @@ func marshalEditorConfig(ec editorConfig) ([]byte, error) {
 			Instructions: a.Instructions,
 			Provider:     a.Provider,
 			Toolboxes:    a.Toolboxes,
+			Skills:       a.Skills,
+			Effects:      a.Effects,
+			Prefix:       a.Prefix,
 			Options: agentOptsYAML{
 				MaxIterations:      a.MaxIterations,
 				MaxDelegationDepth: a.MaxDelegationDepth,

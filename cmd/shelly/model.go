@@ -124,6 +124,12 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case askBatchAnsweredMsg:
 		return m.handleBatchAnswered(msg)
 
+	case respondErrorMsg:
+		errLine := errorBlockStyle.Render(
+			lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render("error responding: " + msg.err.Error()),
+		)
+		return m, tea.Println(errLine)
+
 	case tickMsg:
 		if m.state == stateProcessing || m.chatView.hasActiveChains() {
 			m.chatView.advanceSpinners()
@@ -309,16 +315,6 @@ func (m *appModel) drainAskBatch() (tea.Model, tea.Cmd) {
 }
 
 func (m *appModel) handleBatchAnswered(msg askBatchAnsweredMsg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-	for _, ans := range msg.answers {
-		if err := m.sess.Respond(ans.questionID, ans.response); err != nil {
-			errLine := errorBlockStyle.Render(
-				lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render("error responding: " + err.Error()),
-			)
-			cmds = append(cmds, tea.Println(errLine))
-		}
-	}
-
 	m.askActive = nil
 
 	// Check if more questions arrived during answering.
@@ -332,10 +328,19 @@ func (m *appModel) handleBatchAnswered(msg askBatchAnsweredMsg) (tea.Model, tea.
 		m.inputBox.disable()
 	}
 
-	if len(cmds) > 0 {
-		return m, tea.Batch(cmds...)
+	// Deliver responses asynchronously via tea.Cmd to avoid blocking Update.
+	sess := m.sess
+	answers := msg.answers
+	respondCmd := func() tea.Msg {
+		for _, ans := range answers {
+			if err := sess.Respond(ans.questionID, ans.response); err != nil {
+				return respondErrorMsg{err: err}
+			}
+		}
+		return nil
 	}
-	return m, nil
+
+	return m, respondCmd
 }
 
 func tickCmd() tea.Cmd {

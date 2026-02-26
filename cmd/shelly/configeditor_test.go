@@ -49,6 +49,9 @@ func TestConfigToEditor_RoundTrip(t *testing.T) {
 			{
 				Name: "a1", Description: "desc", Instructions: "inst", Provider: "p1",
 				Toolboxes: []string{"search", "filesystem"},
+				Skills:    []string{"coding", "review"},
+				Effects:   []engine.EffectConfig{{Kind: "compact", Params: map[string]any{"threshold": 0.8}}},
+				Prefix:    "📝",
 				Options:   engine.AgentOptions{MaxIterations: 10, MaxDelegationDepth: 3},
 			},
 		},
@@ -92,6 +95,10 @@ func TestConfigToEditor_RoundTrip(t *testing.T) {
 	assert.Equal(t, cfg.Agents[0].Toolboxes, got.Agents[0].Toolboxes)
 	assert.Equal(t, cfg.Agents[0].Options.MaxIterations, got.Agents[0].Options.MaxIterations)
 	assert.Equal(t, cfg.Agents[0].Options.MaxDelegationDepth, got.Agents[0].Options.MaxDelegationDepth)
+	assert.Equal(t, cfg.Agents[0].Skills, got.Agents[0].Skills)
+	assert.Len(t, got.Agents[0].Effects, 1)
+	assert.Equal(t, "compact", got.Agents[0].Effects[0].Kind)
+	assert.Equal(t, "📝", got.Agents[0].Prefix)
 	assert.Equal(t, cfg.EntryAgent, got.EntryAgent)
 	assert.Equal(t, cfg.Filesystem.PermissionsFile, got.Filesystem.PermissionsFile)
 	assert.Equal(t, cfg.Git.WorkDir, got.Git.WorkDir)

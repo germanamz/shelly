@@ -46,6 +46,11 @@ type askBatchAnsweredMsg struct {
 	answers []askAnswer
 }
 
+// respondErrorMsg is sent when a sess.Respond call fails asynchronously.
+type respondErrorMsg struct {
+	err error
+}
+
 // inputSubmitMsg carries the text the user submitted from the input box.
 type inputSubmitMsg struct {
 	text string

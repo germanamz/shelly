@@ -109,7 +109,7 @@ func (m *chatViewModel) processAssistantMessage(msg message.Message) tea.Cmd {
 				if tg == nil {
 					tg = ac.addToolGroup(tc.Name, 4)
 				}
-				tg.addCall(tc.ID, tc.Arguments)
+				ac.addGroupCall(tg, tc.ID, tc.Arguments)
 			} else {
 				ac.addToolCall(tc.ID, tc.Name, tc.Arguments)
 			}
