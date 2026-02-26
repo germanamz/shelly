@@ -16,7 +16,13 @@ type Config struct {
 	EntryAgent            string           `yaml:"entry_agent"`
 	Filesystem            FilesystemConfig `yaml:"filesystem"`
 	Git                   GitConfig        `yaml:"git"`
+	Browser               BrowserConfig    `yaml:"browser"`
 	DefaultContextWindows map[string]int   `yaml:"default_context_windows"` // Per-kind context window overrides (e.g. anthropic: 200000).
+}
+
+// BrowserConfig holds browser tool settings.
+type BrowserConfig struct {
+	Headless bool `yaml:"headless"`
 }
 
 // FilesystemConfig holds filesystem tool settings.
