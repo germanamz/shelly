@@ -18,6 +18,7 @@ type Config struct {
 	Git                   GitConfig        `yaml:"git"`
 	Browser               BrowserConfig    `yaml:"browser"`
 	DefaultContextWindows map[string]int   `yaml:"default_context_windows"` // Per-kind context window overrides (e.g. anthropic: 200000).
+	StatusFunc            func(string)     `yaml:"-"`                       // Called with progress messages during initialization. Nil means silent.
 }
 
 // BrowserConfig holds browser tool settings.

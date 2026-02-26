@@ -156,11 +156,16 @@ func run(configPath, shellyDirPath, agentName string, verbose bool) error {
 	}
 
 	cfg.ShellyDir = shellyDirPath
+	cfg.StatusFunc = func(msg string) {
+		fmt.Fprintf(os.Stderr, "\r\033[K  %s", msg)
+	}
 
 	eng, err := engine.New(ctx, cfg)
 	if err != nil {
+		fmt.Fprintln(os.Stderr)
 		return err
 	}
+	fmt.Fprintln(os.Stderr)
 	defer func() { _ = eng.Close() }()
 
 	sess, err := eng.NewSession(agentName)

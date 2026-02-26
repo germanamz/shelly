@@ -63,6 +63,12 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		return nil, err
 	}
 
+	status := func(msg string) {
+		if cfg.StatusFunc != nil {
+			cfg.StatusFunc(msg)
+		}
+	}
+
 	// Resolve .shelly/ directory.
 	shellyDirPath := cfg.ShellyDir
 	if shellyDirPath == "" {
@@ -98,18 +104,25 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 	// Load skills once at engine level from .shelly/skills/.
 	skillsDir := dir.SkillsDir()
 	if _, err := os.Stat(skillsDir); err == nil {
+		status("Loading skills...")
+		start := time.Now()
 		skills, err := skill.LoadDir(skillsDir)
 		if err != nil {
 			return nil, fmt.Errorf("engine: skills: %w", err)
 		}
 		e.skills = skills
+		status(fmt.Sprintf("Loaded %d skills (%s)", len(skills), time.Since(start).Round(time.Millisecond)))
 	}
 
 	// Load project context (best-effort).
+	status("Loading project context...")
+	start := time.Now()
 	e.projectCtx = projectctx.Load(dir, filepath.Dir(dir.Root()))
+	status(fmt.Sprintf("Project context ready (%s)", time.Since(start).Round(time.Millisecond)))
 
 	// Build provider completers.
 	for _, pc := range cfg.Providers {
+		status(fmt.Sprintf("Initializing provider %q...", pc.Name))
 		c, err := buildCompleter(pc)
 		if err != nil {
 			return nil, fmt.Errorf("engine: provider %q: %w", pc.Name, err)
@@ -118,7 +131,7 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 	}
 
 	// Connect MCP clients and build toolboxes.
-	if err := e.connectMCPClients(ctx, cfg.MCPServers); err != nil {
+	if err := e.connectMCPClients(ctx, cfg.MCPServers, status); err != nil {
 		return nil, err
 	}
 
@@ -235,12 +248,15 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 	}
 
 	// Register agent factories.
+	status("Registering agents...")
 	for _, ac := range cfg.Agents {
 		if err := e.registerAgent(ac); err != nil {
 			_ = e.Close()
 			return nil, err
 		}
 	}
+
+	status("Ready")
 
 	return e, nil
 }
@@ -315,8 +331,11 @@ func (e *Engine) RemoveSession(id string) bool {
 }
 
 // connectMCPClients connects to all configured MCP servers and populates toolboxes.
-func (e *Engine) connectMCPClients(ctx context.Context, servers []MCPConfig) error {
+func (e *Engine) connectMCPClients(ctx context.Context, servers []MCPConfig, status func(string)) error {
 	for _, mc := range servers {
+		status(fmt.Sprintf("Connecting MCP server %q...", mc.Name))
+		start := time.Now()
+
 		var client *mcpclient.MCPClient
 		var err error
 		if mc.URL != "" {
@@ -339,6 +358,8 @@ func (e *Engine) connectMCPClients(ctx context.Context, servers []MCPConfig) err
 		tb := toolbox.New()
 		tb.Register(tools...)
 		e.toolboxes[mc.Name] = tb
+
+		status(fmt.Sprintf("MCP server %q ready — %d tools (%s)", mc.Name, len(tools), time.Since(start).Round(time.Millisecond)))
 	}
 	return nil
 }
