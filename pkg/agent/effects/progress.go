@@ -13,7 +13,8 @@ const defaultProgressInterval = 5
 
 // ProgressConfig holds parameters for the ProgressEffect.
 type ProgressConfig struct {
-	Interval int // Inject progress prompt every N iterations (default: 5).
+	Interval     int  // Inject progress prompt every N iterations (default: 5).
+	HasNotesTool bool // Whether the write_note tool is available.
 }
 
 // ProgressEffect periodically prompts the agent to write a progress note,
@@ -35,6 +36,10 @@ func NewProgressEffect(cfg ProgressConfig) *ProgressEffect {
 
 // Eval implements agent.Effect.
 func (e *ProgressEffect) Eval(_ context.Context, ic agent.IterationContext) error {
+	if !e.cfg.HasNotesTool {
+		return nil
+	}
+
 	if ic.Phase != agent.PhaseBeforeComplete || ic.Iteration == 0 {
 		return nil
 	}

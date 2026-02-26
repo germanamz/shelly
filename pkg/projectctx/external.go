@@ -67,12 +67,12 @@ func stripFrontmatter(raw string) string {
 	// regardless of line-ending style.
 	raw = strings.ReplaceAll(raw, "\r\n", "\n")
 
-	if !strings.HasPrefix(raw, "---") {
+	if !strings.HasPrefix(raw, "---\n") {
 		return raw
 	}
 
 	// Find the closing --- after the opening one.
-	rest := raw[3:]
+	rest := raw[4:]
 	_, after, found := strings.Cut(rest, "\n---")
 	if !found {
 		return raw

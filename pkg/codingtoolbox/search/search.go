@@ -168,6 +168,11 @@ func (s *Search) handleContent(ctx context.Context, input json.RawMessage) (stri
 		return "", fmt.Errorf("search_content: %w", err)
 	}
 
+	absReal, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", fmt.Errorf("search_content: %w", err)
+	}
+
 	maxResults := in.MaxResults
 	if maxResults <= 0 {
 		maxResults = 100
@@ -189,15 +194,23 @@ func (s *Search) handleContent(ctx context.Context, input json.RawMessage) (stri
 			return nil
 		}
 
+		realPath, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return nil
+		}
+		if !strings.HasPrefix(realPath, absReal) {
+			return nil
+		}
+
 		if len(matches) >= maxResults || totalBytes >= maxTotalBytes {
 			return filepath.SkipAll
 		}
 
-		if !isTextFile(path) {
+		if !isTextFile(realPath) {
 			return nil
 		}
 
-		file, err := os.Open(path) //nolint:gosec // path is approved by user
+		file, err := os.Open(realPath) //nolint:gosec // path is approved by user
 		if err != nil {
 			return nil // skip unreadable files
 		}
@@ -285,6 +298,11 @@ func (s *Search) handleFiles(ctx context.Context, input json.RawMessage) (string
 		return "", fmt.Errorf("search_files: %w", err)
 	}
 
+	absReal, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", fmt.Errorf("search_files: %w", err)
+	}
+
 	maxResults := in.MaxResults
 	if maxResults <= 0 {
 		maxResults = 100
@@ -298,6 +316,14 @@ func (s *Search) handleFiles(ctx context.Context, input json.RawMessage) (string
 		}
 
 		if d.IsDir() {
+			return nil
+		}
+
+		realPath, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return nil
+		}
+		if !strings.HasPrefix(realPath, absReal) {
 			return nil
 		}
 

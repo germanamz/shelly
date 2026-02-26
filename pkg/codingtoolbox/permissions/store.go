@@ -210,14 +210,25 @@ func (s *Store) persistSnapshot(ff fileFormat) error {
 		return fmt.Errorf("permissions: create dir: %w", err)
 	}
 
-	// Atomic write: write to a temp file first, then rename so a crash
-	// mid-write does not leave a corrupted (truncated) permissions file.
-	tmp := s.filePath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(s.filePath), ".perms-*.tmp")
+	if err != nil {
+		return fmt.Errorf("permissions: create temp file: %w", err)
+	}
+	tmpName := tmp.Name()
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName) //nolint:gosec // tmpName comes from os.CreateTemp in a known directory
 		return fmt.Errorf("permissions: write temp file: %w", err)
 	}
 
-	if err := os.Rename(tmp, s.filePath); err != nil {
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName) //nolint:gosec // tmpName comes from os.CreateTemp in a known directory
+		return fmt.Errorf("permissions: close temp file: %w", err)
+	}
+
+	if err := os.Rename(tmpName, s.filePath); err != nil { //nolint:gosec // tmpName comes from os.CreateTemp in a known directory
+		_ = os.Remove(tmpName) //nolint:gosec // tmpName comes from os.CreateTemp in a known directory
 		return fmt.Errorf("permissions: rename temp file: %w", err)
 	}
 

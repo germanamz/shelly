@@ -97,7 +97,17 @@ func (b *Browser) ensureBrowser(ctx context.Context) (context.Context, error) {
 	defer b.mu.Unlock()
 
 	if b.started {
-		return b.browserCtx, nil
+		select {
+		case <-b.browserCtx.Done():
+			b.browserDone()
+			b.allocDone()
+			b.browserDone = nil
+			b.allocDone = nil
+			b.browserCtx = nil
+			b.started = false
+		default:
+			return b.browserCtx, nil
+		}
 	}
 
 	// Build allocator options: start from defaults, then adjust for headed/headless.

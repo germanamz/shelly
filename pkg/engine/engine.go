@@ -47,11 +47,12 @@ type Engine struct {
 	projectCtx     projectctx.Context
 	skills         []skill.Skill
 
-	mu       sync.Mutex
-	sessions map[string]*Session
-	nextID   int
-	closed   bool
-	wg       sync.WaitGroup
+	mu        sync.RWMutex
+	sessions  map[string]*Session
+	nextID    int
+	closed    bool
+	wg        sync.WaitGroup
+	closeOnce sync.Once
 }
 
 // New creates an Engine from the given configuration. It validates the config,
@@ -291,8 +292,8 @@ func (e *Engine) NewSession(agentName string) (*Session, error) {
 
 // Session returns an existing session by ID.
 func (e *Engine) Session(id string) (*Session, bool) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 
 	s, ok := e.sessions[id]
 	return s, ok
@@ -347,27 +348,29 @@ func (e *Engine) connectMCPClients(ctx context.Context, servers []MCPConfig) err
 // calling Close, as session cancellation depends on the caller-provided
 // context passed to Send/SendParts.
 func (e *Engine) Close() error {
-	e.mu.Lock()
-	e.closed = true
-	e.mu.Unlock()
-
-	// Wait for all in-flight session sends to finish before tearing down.
-	e.wg.Wait()
-
-	if e.cancel != nil {
-		e.cancel()
-	}
-
-	if e.browserToolbox != nil {
-		e.browserToolbox.Close()
-	}
-
 	var firstErr error
-	for _, c := range e.mcpClients {
-		if err := c.Close(); err != nil && firstErr == nil {
-			firstErr = err
+	e.closeOnce.Do(func() {
+		e.mu.Lock()
+		e.closed = true
+		e.mu.Unlock()
+
+		// Wait for all in-flight session sends to finish before tearing down.
+		e.wg.Wait()
+
+		if e.cancel != nil {
+			e.cancel()
 		}
-	}
+
+		if e.browserToolbox != nil {
+			e.browserToolbox.Close()
+		}
+
+		for _, c := range e.mcpClients {
+			if err := c.Close(); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+	})
 	return firstErr
 }
 

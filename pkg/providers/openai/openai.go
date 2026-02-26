@@ -47,14 +47,14 @@ func (a *Adapter) Complete(ctx context.Context, c *chat.Chat, tools []toolbox.To
 		return message.Message{}, fmt.Errorf("openai: %w", err)
 	}
 
+	if len(resp.Choices) == 0 {
+		return message.Message{}, fmt.Errorf("openai: empty choices in response")
+	}
+
 	a.Usage.Add(usage.TokenCount{
 		InputTokens:  resp.Usage.PromptTokens,
 		OutputTokens: resp.Usage.CompletionTokens,
 	})
-
-	if len(resp.Choices) == 0 {
-		return message.Message{}, fmt.Errorf("openai: empty choices in response")
-	}
 
 	return a.parseChoice(resp.Choices[0]), nil
 }

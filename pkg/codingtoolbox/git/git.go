@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	osexec "os/exec"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -287,8 +289,16 @@ func (g *Git) handleCommit(ctx context.Context, input json.RawMessage) (string, 
 		return "", err
 	}
 
-	// Stage specific files if provided.
 	if len(in.Files) > 0 {
+		for _, f := range in.Files {
+			if strings.HasPrefix(f, "/") {
+				return "", fmt.Errorf("git_commit: absolute paths are not allowed: %s", f)
+			}
+			if slices.Contains(strings.Split(filepath.Clean(f), string(filepath.Separator)), "..") {
+				return "", fmt.Errorf("git_commit: path traversal is not allowed: %s", f)
+			}
+		}
+
 		addArgs := append([]string{"add", "--"}, in.Files...)
 		if _, err := g.runGit(ctx, addArgs...); err != nil {
 			return "", fmt.Errorf("git_commit: stage files: %w", err)

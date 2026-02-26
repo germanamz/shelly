@@ -155,30 +155,11 @@ func (e *CompactEffect) handleCompactError(ctx context.Context, ic agent.Iterati
 	}
 
 	if answer == "Retry compaction" {
-		transcript := renderConversation(ic.Chat)
-		tempChat := chat.New(
-			message.NewText("", role.System, summarizationPrompt),
-			message.NewText("", role.User, transcript),
-		)
-
-		summary, retryErr := ic.Completer.Complete(ctx, tempChat, nil)
-		if retryErr != nil {
-			// Propagate context errors; give up silently on other failures.
+		if retryErr := e.summarize(ctx, ic); retryErr != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
 			return nil
-		}
-
-		sysPrompt := ic.Chat.SystemPrompt()
-		compactedMsg := fmt.Sprintf("[Conversation compacted — previous context summarized below.]\n\n%s\n\n[Continue executing the next steps listed above. Do not re-read files or repeat work already marked as completed.]", summary.TextContent())
-		ic.Chat.Replace(
-			message.NewText(ic.AgentName, role.System, sysPrompt),
-			message.NewText("", role.User, compactedMsg),
-		)
-
-		if e.cfg.NotifyFunc != nil {
-			e.cfg.NotifyFunc(ctx, "Context window compacted")
 		}
 	}
 

@@ -44,8 +44,24 @@ func TestProgressEffect_SkipsIteration0(t *testing.T) {
 	assert.Equal(t, 1, c.Len())
 }
 
-func TestProgressEffect_InjectsAtInterval(t *testing.T) {
+func TestProgressEffect_SkipsWithoutNotesTool(t *testing.T) {
 	e := NewProgressEffect(ProgressConfig{Interval: 5})
+
+	c := chat.New(message.NewText("", role.System, "sys"))
+
+	ic := agent.IterationContext{
+		Phase:     agent.PhaseBeforeComplete,
+		Iteration: 5,
+		Chat:      c,
+	}
+
+	err := e.Eval(context.Background(), ic)
+	require.NoError(t, err)
+	assert.Equal(t, 1, c.Len())
+}
+
+func TestProgressEffect_InjectsAtInterval(t *testing.T) {
+	e := NewProgressEffect(ProgressConfig{Interval: 5, HasNotesTool: true})
 
 	c := chat.New(message.NewText("", role.System, "sys"))
 
@@ -66,7 +82,7 @@ func TestProgressEffect_InjectsAtInterval(t *testing.T) {
 }
 
 func TestProgressEffect_InjectsAtMultipleIntervals(t *testing.T) {
-	e := NewProgressEffect(ProgressConfig{Interval: 3})
+	e := NewProgressEffect(ProgressConfig{Interval: 3, HasNotesTool: true})
 
 	c := chat.New(message.NewText("", role.System, "sys"))
 

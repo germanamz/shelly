@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -133,6 +134,7 @@ func delegateTool(a *Agent) toolbox.Tool {
 					child.options.EventFunc = a.options.EventFunc
 					child.options.ReflectionDir = a.options.ReflectionDir
 					child.options.TaskBoard = a.options.TaskBoard
+					child.options.MaxDelegationDepth = a.options.MaxDelegationDepth
 					child.AddToolBoxes(toolboxSnapshot...)
 					prependContext(child, t.Context)
 
@@ -371,12 +373,20 @@ func searchReflections(dir string, task string) string {
 		return ""
 	}
 
+	sort.Slice(entries, func(i, j int) bool {
+		fi, errI := entries[i].Info()
+		fj, errJ := entries[j].Info()
+		if errI != nil || errJ != nil {
+			return false
+		}
+		return fi.ModTime().After(fj.ModTime())
+	})
+
 	var reflections []string
 	var totalBytes int
 	taskLower := strings.ToLower(task)
 
-	for i := len(entries) - 1; i >= 0; i-- {
-		e := entries[i]
+	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
 			continue
 		}

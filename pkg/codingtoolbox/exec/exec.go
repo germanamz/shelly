@@ -186,12 +186,9 @@ func (e *Exec) checkPermission(ctx context.Context, command string, args []strin
 		if pr.err != nil {
 			return pr.err
 		}
-		// The prompt succeeded; the command should now be trusted or was
-		// allowed as a one-shot. Re-check trust for subsequent calls.
-		if e.store.IsCommandTrusted(command) {
-			if e.onExec != nil {
-				e.onExec(ctx, display)
-			}
+
+		if e.onExec != nil {
+			e.onExec(ctx, display)
 		}
 
 		return nil

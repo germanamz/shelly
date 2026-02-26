@@ -55,12 +55,6 @@ func (m inputModel) Update(msg tea.Msg) (inputModel, tea.Cmd) {
 		return m, nil
 	}
 
-	// Handle file picker entries arriving.
-	if entries, ok := msg.(filePickerEntriesMsg); ok {
-		m.filePicker.setEntries(entries.entries)
-		return m, nil
-	}
-
 	keyMsg, isKey := msg.(tea.KeyMsg)
 
 	// Route keys to file picker when active.

@@ -45,7 +45,7 @@ func NewTrimToolResultsEffect(cfg TrimToolResultsConfig) *TrimToolResultsEffect 
 
 // Eval implements agent.Effect.
 func (e *TrimToolResultsEffect) Eval(_ context.Context, ic agent.IterationContext) error {
-	if ic.Phase != agent.PhaseAfterComplete || ic.Iteration == 0 {
+	if ic.Phase != agent.PhaseAfterComplete {
 		return nil
 	}
 

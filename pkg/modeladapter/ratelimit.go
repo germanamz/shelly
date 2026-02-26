@@ -28,6 +28,7 @@ type tokenEntry struct {
 type RateLimitedCompleter struct {
 	inner           Completer
 	mu              sync.Mutex
+	completeMu      sync.Mutex
 	window          []tokenEntry
 	inputTPM        int           // input tokens-per-minute limit (0 = no limit)
 	outputTPM       int           // output tokens-per-minute limit (0 = no limit)
@@ -186,9 +187,7 @@ func (r *RateLimitedCompleter) Complete(ctx context.Context, c *chat.Chat, tools
 
 	var lastErr error
 	for attempt := range r.maxRetries + 1 {
-		// Snapshot total tokens before the call so we can compute the delta
-		// afterwards. Using Total() instead of Last() avoids a race where
-		// concurrent calls append entries and Last() returns the wrong one.
+		r.completeMu.Lock()
 		var beforeTotal usage.TokenCount
 		if ur, ok := r.inner.(UsageReporter); ok {
 			beforeTotal = ur.UsageTracker().Total()
@@ -196,7 +195,6 @@ func (r *RateLimitedCompleter) Complete(ctx context.Context, c *chat.Chat, tools
 
 		msg, err := r.inner.Complete(ctx, c, tools)
 		if err == nil {
-			// Record token usage delta from the inner completer's tracker.
 			if ur, ok := r.inner.(UsageReporter); ok {
 				afterTotal := ur.UsageTracker().Total()
 				r.recordTokens(
@@ -204,12 +202,13 @@ func (r *RateLimitedCompleter) Complete(ctx context.Context, c *chat.Chat, tools
 					afterTotal.OutputTokens-beforeTotal.OutputTokens,
 				)
 			}
-			// Preemptively sleep if the server reports near-zero remaining capacity.
+			r.completeMu.Unlock()
 			if sleepErr := r.adaptFromServerInfo(ctx); sleepErr != nil {
 				return message.Message{}, sleepErr
 			}
 			return msg, nil
 		}
+		r.completeMu.Unlock()
 
 		var rle *RateLimitError
 		if !errors.As(err, &rle) {

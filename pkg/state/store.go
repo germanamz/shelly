@@ -130,7 +130,7 @@ func (s *Store) Watch(ctx context.Context, key string) (any, error) {
 		s.mu.RUnlock()
 
 		if ok {
-			return v, nil
+			return copyValue(v), nil
 		}
 
 		select {

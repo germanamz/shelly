@@ -88,23 +88,47 @@ func (f *FS) checkPermission(ctx context.Context, target string) error {
 	if statErr == nil && !info.IsDir() {
 		dir = filepath.Dir(abs)
 	} else if statErr != nil {
-		// Path doesn't exist yet — use parent directory.
 		dir = filepath.Dir(abs)
 	}
 
-	// Fast path: already approved (no lock contention).
+	if err := f.approveDir(ctx, dir); err != nil {
+		return err
+	}
+
+	realAbs, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("filesystem: resolve symlink: %w", err)
+		}
+		return nil
+	}
+
+	if realAbs == abs {
+		return nil
+	}
+
+	realDir := realAbs
+	realInfo, statErr := os.Stat(realAbs)
+	if statErr == nil && !realInfo.IsDir() {
+		realDir = filepath.Dir(realAbs)
+	} else if statErr != nil {
+		realDir = filepath.Dir(realAbs)
+	}
+
+	return f.approveDir(ctx, realDir)
+}
+
+func (f *FS) approveDir(ctx context.Context, dir string) error {
 	if f.store.IsDirApproved(dir) {
 		return nil
 	}
 
 	f.pendingMu.Lock()
-	// Re-check after acquiring lock — another goroutine may have approved.
 	if f.store.IsDirApproved(dir) {
 		f.pendingMu.Unlock()
 		return nil
 	}
 
-	// If a prompt is already in-flight for this dir, wait for its result.
 	if pr, ok := f.pendingDir[dir]; ok {
 		f.pendingMu.Unlock()
 		<-pr.done
@@ -112,7 +136,6 @@ func (f *FS) checkPermission(ctx context.Context, target string) error {
 		if pr.err != nil {
 			return pr.err
 		}
-		// The prompt succeeded; the dir should now be approved.
 		if f.store.IsDirApproved(dir) {
 			return nil
 		}
@@ -120,15 +143,12 @@ func (f *FS) checkPermission(ctx context.Context, target string) error {
 		return fmt.Errorf("filesystem: access denied to %s", dir)
 	}
 
-	// We are the first — create a pending entry and release the lock.
 	pr := &pendingResult{done: make(chan struct{})}
 	f.pendingDir[dir] = pr
 	f.pendingMu.Unlock()
 
-	// Ask the user (blocking).
 	pr.err = f.askAndApproveDir(ctx, dir)
 
-	// Signal waiters and clean up.
 	close(pr.done)
 	f.pendingMu.Lock()
 	delete(f.pendingDir, dir)

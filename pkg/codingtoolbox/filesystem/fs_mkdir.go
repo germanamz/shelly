@@ -41,6 +41,10 @@ func (f *FS) handleMkdir(ctx context.Context, input json.RawMessage) (string, er
 	f.locker.Lock(abs)
 	defer f.locker.Unlock(abs)
 
+	if err := f.confirmChange(ctx, abs, fmt.Sprintf("Create directory: %s", abs)); err != nil {
+		return "", fmt.Errorf("fs_mkdir: %w", err)
+	}
+
 	if err := os.MkdirAll(abs, 0o750); err != nil {
 		return "", fmt.Errorf("fs_mkdir: %w", err)
 	}

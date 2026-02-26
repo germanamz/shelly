@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"sync"
 
@@ -103,6 +104,12 @@ func (s *Store) Create(task Task) (string, error) {
 	task.Status = StatusPending
 
 	cp := task
+	if cp.BlockedBy != nil {
+		cp.BlockedBy = slices.Clone(cp.BlockedBy)
+	}
+	if cp.Metadata != nil {
+		cp.Metadata = maps.Clone(cp.Metadata)
+	}
 	s.tasks[cp.ID] = &cp
 
 	return cp.ID, nil

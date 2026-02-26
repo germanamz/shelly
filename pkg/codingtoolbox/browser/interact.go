@@ -62,9 +62,9 @@ func (b *Browser) handleClick(ctx context.Context, input json.RawMessage) (strin
 	}
 
 	if err := b.checkPermission(ctx, currentURL); err != nil {
-		// Domain was not trusted — undo the navigation so the browser
-		// stays on the previously approved page.
-		_ = chromedp.Run(opCtx, chromedp.NavigateBack())
+		if navErr := chromedp.Run(opCtx, chromedp.NavigateBack()); navErr != nil {
+			b.Close()
+		}
 		return "", err
 	}
 

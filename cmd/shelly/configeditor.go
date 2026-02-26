@@ -672,7 +672,7 @@ func editAgentForm(a *editorAgent, providerNames []string) error {
 
 // editAgentToolboxes shows a multi-select form for editing an agent's toolboxes.
 func editAgentToolboxes(a *editorAgent, mcpNames []string) error {
-	builtinToolboxes := []string{"filesystem", "exec", "search", "git", "http", "state", "tasks"}
+	builtinToolboxes := []string{"filesystem", "exec", "search", "git", "http", "browser", "notes", "state", "tasks"}
 
 	selectedSet := make(map[string]bool, len(a.Toolboxes))
 	for _, tb := range a.Toolboxes {

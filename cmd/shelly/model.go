@@ -224,7 +224,9 @@ func (m *appModel) handleSubmit(msg inputSubmitMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if text == "/clear" {
-		m.cancelBridge()
+		if m.cancelBridge != nil {
+			m.cancelBridge()
+		}
 		m.eng.RemoveSession(m.sess.ID())
 		newSess, err := m.eng.NewSession("")
 		if err != nil {
@@ -244,6 +246,18 @@ func (m *appModel) handleSubmit(msg inputSubmitMsg) (tea.Model, tea.Cmd) {
 	// Print user message to terminal scrollback with a leading blank line.
 	userLine := "\n" + renderUserMessage(text)
 	printCmd := tea.Println(userLine)
+
+	m.statusBar.message = ""
+
+	if m.state == stateProcessing {
+		return m, tea.Batch(printCmd, func() tea.Msg {
+			sess := m.sess
+			ctx := m.ctx
+			sendStart := time.Now()
+			_, err := sess.Send(ctx, text)
+			return sendCompleteMsg{err: err, duration: time.Since(sendStart)}
+		})
+	}
 
 	m.state = stateProcessing
 	m.inputBox.disable()
