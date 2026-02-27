@@ -1,0 +1,26 @@
+template:
+  name: simple-assistant
+  description: Minimal single-agent assistant with Anthropic provider
+
+config:
+  providers:
+    - name: default
+      kind: anthropic
+      api_key: ${ANTHROPIC_API_KEY}
+      model: claude-sonnet-4-20250514
+
+  agents:
+    - name: assistant
+      description: A helpful assistant
+      instructions: You are a helpful assistant. Be concise and accurate.
+      provider: default
+      toolboxes:
+        - filesystem
+        - exec
+        - search
+        - git
+      options:
+        max_iterations: 10
+        max_delegation_depth: 2
+
+  entry_agent: assistant

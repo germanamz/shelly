@@ -19,16 +19,25 @@ import (
 
 func main() {
 	// Subcommand dispatch: check os.Args before flag.Parse().
-	if len(os.Args) > 1 && os.Args[1] == "config" {
-		if err := runConfig(os.Args[2:]); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "init":
+			if err := runInit(os.Args[2:]); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "config":
+			if err := runConfig(os.Args[2:]); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		}
-		return
 	}
 
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: shelly [command] [flags]\n\nCommands:\n  config    Interactive configuration wizard\n\nFlags:\n")
+		fmt.Fprintf(os.Stderr, "Usage: shelly [command] [flags]\n\nCommands:\n  init      Initialize a new project from a template\n  config    Interactive configuration wizard\n\nFlags:\n")
 		flag.PrintDefaults()
 	}
 

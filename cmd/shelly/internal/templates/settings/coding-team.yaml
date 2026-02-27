@@ -1,0 +1,71 @@
+template:
+  name: coding-team
+  description: Multi-agent team with orchestrator, planner, and coder
+
+config:
+  providers:
+    - name: default
+      kind: anthropic
+      api_key: ${ANTHROPIC_API_KEY}
+      model: claude-sonnet-4-20250514
+
+  agents:
+    - name: orchestrator
+      description: Delegates tasks to planner and coder
+      instructions: You are a task orchestrator. Break down user requests into planning and coding tasks, then delegate to the appropriate agent.
+      provider: default
+      toolboxes:
+        - state
+        - tasks
+        - notes
+      skills:
+        - orchestrator-workflow
+      options:
+        max_iterations: 15
+        max_delegation_depth: 3
+
+    - name: planner
+      description: Analyzes code and creates implementation plans
+      instructions: You are a code planner. Analyze the codebase, understand the architecture, and create detailed implementation plans.
+      provider: default
+      toolboxes:
+        - filesystem
+        - search
+        - git
+        - state
+        - tasks
+        - notes
+      skills:
+        - planner-workflow
+      options:
+        max_iterations: 10
+
+    - name: coder
+      description: Implements code changes
+      instructions: You are a coder. Implement changes based on plans, write clean code, and run tests to verify your work.
+      provider: default
+      toolboxes:
+        - filesystem
+        - exec
+        - search
+        - git
+        - http
+        - state
+        - tasks
+        - notes
+      skills:
+        - coder-workflow
+      effects:
+        - kind: trim_tool_results
+        - kind: compact
+          params:
+            threshold: 0.8
+      options:
+        max_iterations: 20
+
+  entry_agent: orchestrator
+
+embedded_skills:
+  - name: orchestrator-workflow
+  - name: planner-workflow
+  - name: coder-workflow
