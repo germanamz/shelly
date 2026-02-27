@@ -7,6 +7,7 @@ import (
 
 	"github.com/germanamz/shelly/pkg/modeladapter"
 	"github.com/germanamz/shelly/pkg/providers/anthropic"
+	"github.com/germanamz/shelly/pkg/providers/gemini"
 	"github.com/germanamz/shelly/pkg/providers/grok"
 	"github.com/germanamz/shelly/pkg/providers/openai"
 )
@@ -17,6 +18,7 @@ var BuiltinContextWindows = map[string]int{
 	"anthropic": 200000,
 	"openai":    128000,
 	"grok":      131072,
+	"gemini":    1048576,
 }
 
 // resolveContextWindow returns the effective context window for a provider.
@@ -47,6 +49,7 @@ func ensureDefaults() {
 		factories["anthropic"] = newAnthropic
 		factories["openai"] = newOpenAI
 		factories["grok"] = newGrok
+		factories["gemini"] = newGemini
 	})
 }
 
@@ -100,6 +103,15 @@ func newGrok(cfg ProviderConfig) (modeladapter.Completer, error) {
 	}
 
 	return a, nil
+}
+
+func newGemini(cfg ProviderConfig) (modeladapter.Completer, error) {
+	baseURL := cfg.BaseURL
+	if baseURL == "" {
+		baseURL = "https://generativelanguage.googleapis.com"
+	}
+
+	return gemini.New(baseURL, cfg.APIKey, cfg.Model), nil
 }
 
 // buildCompleter creates a Completer from a ProviderConfig using the registered

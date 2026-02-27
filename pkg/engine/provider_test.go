@@ -14,6 +14,7 @@ func TestResolveContextWindow_DefaultsForKnownKinds(t *testing.T) {
 		{"anthropic", 200000},
 		{"openai", 128000},
 		{"grok", 131072},
+		{"gemini", 1048576},
 	}
 	for _, tt := range tests {
 		t.Run(tt.kind, func(t *testing.T) {

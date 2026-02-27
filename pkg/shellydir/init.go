@@ -10,7 +10,7 @@ const gitignoreContent = "local/\n"
 
 const skeletonConfig = `providers:
   - name: default
-    kind: anthropic        # anthropic | openai | grok
+    kind: anthropic        # anthropic | openai | grok | gemini
     api_key: ${ANTHROPIC_API_KEY}
     model: claude-sonnet-4-20250514
 
