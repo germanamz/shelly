@@ -18,7 +18,7 @@ type screen interface {
 
 // WizardModel is the root bubbletea model for the config wizard.
 type WizardModel struct {
-	cfg           engine.Config
+	cfg           *engine.Config
 	configPath    string
 	shellyDir     string
 	stack         []screen
@@ -35,7 +35,7 @@ type WizardModel struct {
 // NewWizardModel creates a wizard, optionally pre-filled from an existing config.
 func NewWizardModel(cfg engine.Config, configPath, shellyDir string) WizardModel {
 	return WizardModel{
-		cfg:           cfg,
+		cfg:           &cfg,
 		configPath:    configPath,
 		shellyDir:     shellyDir,
 		providerKinds: engine.KnownProviderKinds(),
@@ -128,20 +128,20 @@ func (m WizardModel) handleMainMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m WizardModel) selectMenuItem() (tea.Model, tea.Cmd) {
 	switch menuItems[m.cursor] {
 	case "Providers":
-		s := newProviderListScreen(&m.cfg, m.providerKinds)
+		s := newProviderListScreen(m.cfg, m.providerKinds)
 		m.stack = append(m.stack, s)
 	case "Agents":
-		s := newAgentListScreen(&m.cfg, m.providerKinds, m.toolboxNames, m.effectKinds)
+		s := newAgentListScreen(m.cfg, m.providerKinds, m.toolboxNames, m.effectKinds)
 		m.stack = append(m.stack, s)
 	case "MCP Servers":
-		s := newMCPListScreen(&m.cfg)
+		s := newMCPListScreen(m.cfg)
 		m.stack = append(m.stack, s)
 	case "Settings":
-		s := newSettingsScreen(&m.cfg, m.providerKinds)
+		s := newSettingsScreen(m.cfg, m.providerKinds)
 		m.stack = append(m.stack, s)
 		return m, s.init()
 	case "Review & Save":
-		s := newReviewScreen(&m.cfg, m.configPath, m.shellyDir)
+		s := newReviewScreen(m.cfg, m.configPath, m.shellyDir)
 		m.stack = append(m.stack, s)
 	case "Quit":
 		return m, tea.Quit

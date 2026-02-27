@@ -35,6 +35,18 @@ providers:
         rpm: 0
         max_retries: 3
         base_delay: 1s
+    - name: gemini
+      kind: gemini
+      base_url: ""
+      api_key: ${GEMINI_API_KEY}
+      model: gemini-3.1-pro-preview
+      context_window: null
+      rate_limit:
+        input_tpm: 0
+        output_tpm: 0
+        rpm: 0
+        max_retries: 3
+        base_delay: 1s
 mcp_servers:
     - name: brightdata
       command: ""
