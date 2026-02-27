@@ -10,6 +10,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	lipgloss "charm.land/lipgloss/v2"
+	"github.com/germanamz/shelly/cmd/shelly/internal/app"
+	"github.com/germanamz/shelly/cmd/shelly/internal/format"
+	"github.com/germanamz/shelly/cmd/shelly/internal/msgs"
+	"github.com/germanamz/shelly/cmd/shelly/internal/tty"
 	"github.com/germanamz/shelly/pkg/engine"
 )
 
@@ -66,21 +70,31 @@ func run(configPath, shellyDirPath, agentName string) error {
 		return err
 	}
 
-	model := newAppModel(ctx, sess, eng)
+	model := app.NewAppModel(ctx, sess, eng)
 
 	// Force the OSC 11 background-color query and consume its response
 	// synchronously before bubbletea starts. This prevents the response from
 	// leaking into the textarea as garbage text when the virtual cursor
 	// triggers the same query later. The result is stored so glamour can use
 	// a fixed style without issuing its own query.
-	isDarkBG = lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
-	flushStdinBuffer()
+	format.IsDarkBG = lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
+	tty.FlushStdinBuffer()
 
-	p := tea.NewProgram(model, tea.WithFilter(filterStaleEscapes))
+	staleFilter := tty.NewStaleEscapeFilter(func(m tea.Model) bool {
+		switch v := m.(type) {
+		case app.AppModel:
+			return v.InputEnabled()
+		case *app.AppModel:
+			return v.InputEnabled()
+		default:
+			return true
+		}
+	})
+	p := tea.NewProgram(model, tea.WithFilter(staleFilter))
 
 	// Send the program reference so the model can start bridge goroutines.
 	go func() {
-		p.Send(programReadyMsg{program: p})
+		p.Send(msgs.ProgramReadyMsg{Program: p})
 	}()
 
 	_, err = p.Run()
