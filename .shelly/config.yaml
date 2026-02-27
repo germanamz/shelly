@@ -1,88 +1,118 @@
 providers:
-  - name: grok
-    kind: grok
-    api_key: ${GROK_API_KEY}
-    model: grok-4-1-fast-reasoning
-    context_window: 920000
-    rate_limit:
-      max_retries: 3
-      base_delay: 1s
-  - name: openai
-    kind: openai
-    api_key: ${OPENAI_API_KEY}
-    model: gpt-5.1
-    context_window: 156000
-    rate_limit:
-      max_retries: 3
-      base_delay: 1s
-  - name: anthropic
-    kind: anthropic
-    api_key: ${ANTHROPIC_API_KEY}
-    model: claude-opus-4-6
-    context_window: 165000
-    rate_limit:
-      max_retries: 3
-      base_delay: 1s
+    - name: grok
+      kind: grok
+      base_url: ""
+      api_key: ${GROK_API_KEY}
+      model: grok-4-1-fast-reasoning
+      context_window: 920000
+      rate_limit:
+        input_tpm: 0
+        output_tpm: 0
+        rpm: 0
+        max_retries: 3
+        base_delay: 1s
+    - name: openai
+      kind: openai
+      base_url: ""
+      api_key: ${OPENAI_API_KEY}
+      model: gpt-5.1
+      context_window: 156000
+      rate_limit:
+        input_tpm: 0
+        output_tpm: 0
+        rpm: 0
+        max_retries: 3
+        base_delay: 1s
+    - name: anthropic
+      kind: anthropic
+      base_url: ""
+      api_key: ${ANTHROPIC_API_KEY}
+      model: claude-opus-4-6
+      context_window: 165000
+      rate_limit:
+        input_tpm: 0
+        output_tpm: 0
+        rpm: 0
+        max_retries: 3
+        base_delay: 1s
 mcp_servers:
-  - name: brightdata
-    url: https://mcp.brightdata.com/mcp?token=${BRIGHTDATA_API_KEY}&groups=advanced_scraping
+    - name: brightdata
+      command: ""
+      args: []
+      url: https://mcp.brightdata.com/mcp?token=${BRIGHTDATA_API_KEY}&groups=advanced_scraping
 agents:
-  - name: orchestrator
-    description: Delegates tasks to planner and coder
-    instructions: You are a task orchestrator. Break down user requests into planning and coding tasks, then delegate to the appropriate agent.
-    provider: grok
-    toolboxes:
-      - state
-      - tasks
-      - notes
-      - brightdata
-      - browser
-    skills:
-      - orchestrator-workflow
-    options:
-      max_iterations: 15
-      max_delegation_depth: 3
-  - name: planner
-    description: Analyzes code and creates implementation plans
-    instructions: You are a code planner. Analyze the codebase, understand the architecture, and create detailed implementation plans.
-    provider: grok
-    toolboxes:
-      - filesystem
-      - search
-      - git
-      - state
-      - tasks
-      - notes
-      - brightdata
-      - browser
-    skills:
-      - planner-workflow
-    options:
-      max_iterations: 10
-      max_delegation_depth: 0
-  - name: coder
-    description: Implements code changes
-    instructions: You are a coder. Implement changes based on plans, write clean code, and run tests to verify your work.
-    provider: grok
-    toolboxes:
-      - filesystem
-      - exec
-      - search
-      - git
-      - http
-      - browser
-      - state
-      - tasks
-      - notes
-      - brightdata
-    skills:
-      - coder-workflow
-    effects:
-      - kind: trim_tool_results
-      - kind: compact
-        params:
-          threshold: 0.8
-    options:
-      max_iterations: 20
-      max_delegation_depth: 0
+    - name: orchestrator
+      description: Delegates tasks to planner and coder
+      instructions: You are a task orchestrator. Break down user requests into planning and coding tasks, then delegate to the appropriate agent.
+      provider: grok
+      toolboxes:
+        - state
+        - tasks
+        - notes
+        - brightdata
+        - browser
+      skills:
+        - orchestrator-workflow
+      effects: []
+      options:
+        max_iterations: 15
+        max_delegation_depth: 3
+        context_threshold: 0
+      prefix: ""
+    - name: planner
+      description: Analyzes code and creates implementation plans
+      instructions: You are a code planner. Analyze the codebase, understand the architecture, and create detailed implementation plans.
+      provider: grok
+      toolboxes:
+        - filesystem
+        - search
+        - git
+        - state
+        - tasks
+        - notes
+        - brightdata
+        - browser
+      skills:
+        - planner-workflow
+      effects: []
+      options:
+        max_iterations: 10
+        max_delegation_depth: 0
+        context_threshold: 0
+      prefix: ""
+    - name: coder
+      description: Implements code changes
+      instructions: You are a coder. Implement changes based on plans, write clean code, and run tests to verify your work.
+      provider: grok
+      toolboxes:
+        - filesystem
+        - exec
+        - search
+        - git
+        - http
+        - browser
+        - state
+        - tasks
+        - notes
+        - brightdata
+      skills:
+        - coder-workflow
+      effects:
+        - kind: trim_tool_results
+          params: {}
+        - kind: compact
+          params:
+            threshold: 0.8
+      options:
+        max_iterations: 20
+        max_delegation_depth: 0
+        context_threshold: 0
+      prefix: ""
 entry_agent: orchestrator
+filesystem:
+    permissions_file: ""
+git:
+    work_dir: ""
+browser:
+    headless: false
+default_context_windows: {}

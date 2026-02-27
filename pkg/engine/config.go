@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"os"
+	"sort"
 
 	"gopkg.in/yaml.v3"
 )
@@ -109,6 +110,50 @@ func LoadConfig(path string) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// LoadConfigRaw reads a YAML file and returns a Config without expanding
+// environment variables. This preserves ${VAR} references in fields like
+// api_key, which is useful for config editing round-trips.
+func LoadConfigRaw(path string) (Config, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // path is caller-provided configuration, not user input
+	if err != nil {
+		return Config{}, fmt.Errorf("engine: load config: %w", err)
+	}
+
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return Config{}, fmt.Errorf("engine: parse config: %w", err)
+	}
+
+	return cfg, nil
+}
+
+// KnownProviderKinds returns the list of registered provider kind strings.
+func KnownProviderKinds() []string {
+	ensureDefaults()
+
+	factoryMu.RLock()
+	defer factoryMu.RUnlock()
+
+	kinds := make([]string, 0, len(factories))
+	for k := range factories {
+		kinds = append(kinds, k)
+	}
+
+	sort.Strings(kinds)
+	return kinds
+}
+
+// KnownEffectKinds returns the list of recognised effect kind strings.
+func KnownEffectKinds() []string {
+	kinds := make([]string, 0, len(knownEffectKinds))
+	for k := range knownEffectKinds {
+		kinds = append(kinds, k)
+	}
+
+	sort.Strings(kinds)
+	return kinds
 }
 
 // knownEffectKinds lists all recognised effect kind strings.

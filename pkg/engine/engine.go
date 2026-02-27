@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -486,6 +487,16 @@ var builtinToolboxNames = map[string]struct{}{
 	"http":       {},
 	"browser":    {},
 	"notes":      {},
+}
+
+// BuiltinToolboxNames returns the sorted list of built-in toolbox names.
+func BuiltinToolboxNames() []string {
+	names := make([]string, 0, len(builtinToolboxNames))
+	for name := range builtinToolboxNames {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // referencedBuiltins returns the set of built-in toolbox names that appear in
