@@ -3,10 +3,12 @@ package main
 import (
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/ask"
 )
+
+// --- Bridge → TUI messages ---
 
 // chatMessageMsg delivers a new chat message from the bridge goroutine.
 type chatMessageMsg struct {
@@ -32,24 +34,7 @@ type askUserMsg struct {
 	agent    string
 }
 
-// askAnswer holds the response for a single question in a batch.
-type askAnswer struct {
-	questionID string
-	response   string
-}
-
-// askBatchReadyMsg signals that the batching window has closed.
-type askBatchReadyMsg struct{}
-
-// askBatchAnsweredMsg is sent after the user answers all batched questions.
-type askBatchAnsweredMsg struct {
-	answers []askAnswer
-}
-
-// respondErrorMsg is sent when a sess.Respond call fails asynchronously.
-type respondErrorMsg struct {
-	err error
-}
+// --- Internal messages ---
 
 // inputSubmitMsg carries the text the user submitted from the input box.
 type inputSubmitMsg struct {
@@ -73,3 +58,27 @@ type initDrainMsg struct{}
 
 // tickMsg drives spinner animation in active reasoning chains.
 type tickMsg time.Time
+
+// askBatchReadyMsg signals that the batching window has closed.
+type askBatchReadyMsg struct{}
+
+// askBatchAnsweredMsg is sent after the user answers all batched questions.
+type askBatchAnsweredMsg struct {
+	answers []askAnswer
+}
+
+// askAnswer holds the response for a single question in a batch.
+type askAnswer struct {
+	questionID string
+	response   string
+}
+
+// respondErrorMsg is sent when a sess.Respond call fails asynchronously.
+type respondErrorMsg struct {
+	err error
+}
+
+// filePickerEntriesMsg delivers the discovered file list.
+type filePickerEntriesMsg struct {
+	entries []string
+}

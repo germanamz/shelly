@@ -100,7 +100,7 @@ var toolFormatters = map[string]toolFormatter{
 
 	// Agent orchestration
 	"list_agents": func(_ func(string) string, _ map[string]any) string { return "Listing agents" },
-	"delegate": func(s func(string) string, args map[string]any) string {
+	"delegate": func(_ func(string) string, args map[string]any) string {
 		if tasks, ok := args["tasks"]; ok {
 			if arr, ok := tasks.([]any); ok {
 				names := make([]string, 0, len(arr))

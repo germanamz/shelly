@@ -4,42 +4,37 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textarea"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/germanamz/shelly/pkg/codingtoolbox/ask"
-)
-
-var (
-	askBorder     = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("3"))
-	askTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("3"))
-	askOptStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
-	askSelStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("3"))
-	askTabActive  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("3")).Underline(true)
-	askTabDone    = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
-	askTabInact   = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	askReviewHdr  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("5"))
+	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
 )
 
 // askEntry represents a single question within a batch.
 type askEntry struct {
-	question   ask.Question
-	agent      string
-	isChoice   bool
-	options    []string
-	cursor     int
-	textarea   textarea.Model
-	customMode bool
-	answered   bool
-	response   string
+	question    askUserMsg
+	header      string // tab label
+	isChoice    bool
+	multiSelect bool
+	options     []string
+	checked     []bool // for multi-select: which options are checked
+	cursor      int
+	textarea    textarea.Model
+	customMode  bool
+	answered    bool
+	response    string
 }
 
 // askBatchModel handles one or more batched ask-user interactions.
 type askBatchModel struct {
 	entries   []askEntry
 	activeTab int
-	reviewing bool
+	onConfirm bool // true when on the Confirm tab
 	width     int
+
+	// Confirm tab state.
+	confirmCursor int  // 0=Yes, 1=No, 2=custom
+	confirmCustom bool // true when typing custom text
+	confirmTA     textarea.Model
 }
 
 func newAskBatch(questions []askUserMsg, width int) askBatchModel {
@@ -52,16 +47,22 @@ func newAskBatch(questions []askUserMsg, width int) askBatchModel {
 		if isChoice {
 			options = make([]string, len(q.question.Options)+1)
 			copy(options, q.question.Options)
-			options[len(q.question.Options)] = "Other (custom input)"
-			ta.Blur()
+			options[len(q.question.Options)] = "(custom input)"
+		}
+
+		header := q.question.Header
+		if header == "" {
+			header = fmt.Sprintf("Q%d", i+1)
 		}
 
 		entries[i] = askEntry{
-			question: q.question,
-			agent:    q.agent,
-			isChoice: isChoice,
-			options:  options,
-			textarea: ta,
+			question:    q,
+			header:      header,
+			isChoice:    isChoice,
+			multiSelect: q.question.MultiSelect,
+			options:     options,
+			checked:     make([]bool, len(options)),
+			textarea:    ta,
 		}
 	}
 
@@ -70,9 +71,14 @@ func newAskBatch(questions []askUserMsg, width int) askBatchModel {
 		entries[0].textarea.Focus()
 	}
 
+	confirmTA := newAskTextarea()
+	confirmTA.Placeholder = "Type a custom answer..."
+	confirmTA.Blur()
+
 	return askBatchModel{
-		entries: entries,
-		width:   width,
+		entries:   entries,
+		width:     width,
+		confirmTA: confirmTA,
 	}
 }
 
@@ -82,38 +88,64 @@ func newAskTextarea() textarea.Model {
 	ta.ShowLineNumbers = false
 	ta.SetHeight(1)
 	ta.CharLimit = 0
-	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
-	ta.BlurredStyle.CursorLine = lipgloss.NewStyle()
-	ta.FocusedStyle.Prompt = lipgloss.NewStyle()
-	ta.BlurredStyle.Prompt = lipgloss.NewStyle()
+	s := ta.Styles()
+	s.Focused.CursorLine = lipgloss.NewStyle()
+	s.Blurred.CursorLine = lipgloss.NewStyle()
+	s.Focused.Prompt = lipgloss.NewStyle()
+	s.Blurred.Prompt = lipgloss.NewStyle()
+	ta.SetStyles(s)
 	ta.Focus()
 	return ta
 }
 
 func (m askBatchModel) Update(msg tea.Msg) (askBatchModel, tea.Cmd) {
-	keyMsg, isKey := msg.(tea.KeyMsg)
+	keyMsg, isKey := msg.(tea.KeyPressMsg)
 	if !isKey {
 		return m.updateTextarea(msg)
 	}
 
-	if m.reviewing {
-		return m.handleReviewKey(keyMsg)
+	k := keyMsg.Key()
+
+	// Escape dismisses the entire questions UI.
+	if k.Code == tea.KeyEsc {
+		// If in custom mode, first exit custom mode.
+		if m.onConfirm && m.confirmCustom {
+			m.confirmCustom = false
+			m.confirmTA.Blur()
+			return m, nil
+		}
+		if !m.onConfirm && m.activeTab < len(m.entries) {
+			e := &m.entries[m.activeTab]
+			if e.customMode {
+				e.customMode = false
+				e.textarea.Reset()
+				e.textarea.Blur()
+				return m, nil
+			}
+		}
+		// Dismiss: send empty rejection.
+		return m, func() tea.Msg {
+			return askBatchAnsweredMsg{answers: nil}
+		}
+	}
+
+	if m.onConfirm {
+		return m.handleConfirmKey(keyMsg)
 	}
 
 	return m.handleEntryKey(keyMsg)
 }
 
-func (m askBatchModel) handleEntryKey(msg tea.KeyMsg) (askBatchModel, tea.Cmd) {
+func (m askBatchModel) handleEntryKey(msg tea.KeyPressMsg) (askBatchModel, tea.Cmd) {
 	e := &m.entries[m.activeTab]
+	k := msg.Key()
 
-	// Tab navigation (only when multiple questions).
-	if len(m.entries) > 1 {
-		switch {
-		case msg.Type == tea.KeyTab && !e.customMode && e.isChoice:
-			return m.nextTab(), nil
-		case msg.Type == tea.KeyShiftTab:
-			return m.prevTab(), nil
-		}
+	// Tab navigation: Left/Right switch between question tabs.
+	switch k.Code {
+	case tea.KeyLeft:
+		return m.prevTab(), nil
+	case tea.KeyRight:
+		return m.nextTab(), nil
 	}
 
 	// Custom text mode.
@@ -125,20 +157,15 @@ func (m askBatchModel) handleEntryKey(msg tea.KeyMsg) (askBatchModel, tea.Cmd) {
 	return m.handleChoiceKey(msg, e)
 }
 
-func (m askBatchModel) handleTextKey(msg tea.KeyMsg, e *askEntry) (askBatchModel, tea.Cmd) {
-	if msg.Type == tea.KeyEnter && !msg.Alt {
+func (m askBatchModel) handleTextKey(msg tea.KeyPressMsg, e *askEntry) (askBatchModel, tea.Cmd) {
+	k := msg.Key()
+	if k.Code == tea.KeyEnter && k.Mod&tea.ModAlt == 0 {
 		text := strings.TrimSpace(e.textarea.Value())
 		if text != "" {
 			e.answered = true
 			e.response = text
-			return m.advanceOrReview()
+			return m.advanceOrConfirm()
 		}
-		return m, nil
-	}
-	if msg.Type == tea.KeyEsc && e.customMode {
-		e.customMode = false
-		e.textarea.Reset()
-		e.textarea.Blur()
 		return m, nil
 	}
 	var cmd tea.Cmd
@@ -146,8 +173,9 @@ func (m askBatchModel) handleTextKey(msg tea.KeyMsg, e *askEntry) (askBatchModel
 	return m, cmd
 }
 
-func (m askBatchModel) handleChoiceKey(msg tea.KeyMsg, e *askEntry) (askBatchModel, tea.Cmd) {
-	switch msg.Type {
+func (m askBatchModel) handleChoiceKey(msg tea.KeyPressMsg, e *askEntry) (askBatchModel, tea.Cmd) {
+	k := msg.Key()
+	switch k.Code {
 	case tea.KeyUp:
 		if e.cursor > 0 {
 			e.cursor--
@@ -156,41 +184,92 @@ func (m askBatchModel) handleChoiceKey(msg tea.KeyMsg, e *askEntry) (askBatchMod
 		if e.cursor < len(e.options)-1 {
 			e.cursor++
 		}
+	case tea.KeySpace:
+		// Toggle for multi-select.
+		if e.multiSelect && e.cursor < len(e.options)-1 {
+			e.checked[e.cursor] = !e.checked[e.cursor]
+		}
 	case tea.KeyEnter:
+		if e.multiSelect {
+			// For multi-select: if cursor is on custom option, enter custom mode.
+			if e.cursor == len(e.options)-1 {
+				e.customMode = true
+				e.textarea.Focus()
+				return m, nil
+			}
+			// Collect checked options as the response.
+			var selected []string
+			for i, opt := range e.options[:len(e.options)-1] {
+				if e.checked[i] {
+					selected = append(selected, opt)
+				}
+			}
+			if len(selected) > 0 {
+				e.answered = true
+				e.response = strings.Join(selected, ", ")
+				return m.advanceOrConfirm()
+			}
+			return m, nil
+		}
+
+		// Single-select.
 		choice := e.options[e.cursor]
-		if choice == "Other (custom input)" {
+		if choice == "(custom input)" {
 			e.customMode = true
 			e.textarea.Focus()
 			return m, nil
 		}
 		e.answered = true
 		e.response = choice
-		return m.advanceOrReview()
+		return m.advanceOrConfirm()
 	}
 	return m, nil
 }
 
-func (m askBatchModel) handleReviewKey(msg tea.KeyMsg) (askBatchModel, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEnter:
-		// Confirm all — emit batch answered.
-		answers := make([]askAnswer, len(m.entries))
-		for i, e := range m.entries {
-			answers[i] = askAnswer{questionID: e.question.ID, response: e.response}
-		}
-		return m, func() tea.Msg { return askBatchAnsweredMsg{answers: answers} }
-	case tea.KeyTab:
-		// Go back to edit the active tab.
-		m.reviewing = false
-		return m, nil
+func (m askBatchModel) handleConfirmKey(msg tea.KeyPressMsg) (askBatchModel, tea.Cmd) {
+	k := msg.Key()
+
+	// Tab navigation still works on confirm tab.
+	switch k.Code {
+	case tea.KeyLeft:
+		return m.prevTab(), nil
+	case tea.KeyRight:
+		return m, nil // already on last tab
 	}
 
-	// Number keys to jump to specific question.
-	if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
-		idx := int(msg.Runes[0] - '1')
-		if idx >= 0 && idx < len(m.entries) {
-			m.reviewing = false
-			m.switchToTab(idx)
+	if m.confirmCustom {
+		if k.Code == tea.KeyEnter && k.Mod&tea.ModAlt == 0 {
+			text := strings.TrimSpace(m.confirmTA.Value())
+			if text != "" {
+				return m, m.buildAnsweredCmd(text)
+			}
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.confirmTA, cmd = m.confirmTA.Update(msg)
+		return m, cmd
+	}
+
+	switch k.Code {
+	case tea.KeyUp:
+		if m.confirmCursor > 0 {
+			m.confirmCursor--
+		}
+	case tea.KeyDown:
+		if m.confirmCursor < 2 {
+			m.confirmCursor++
+		}
+	case tea.KeyEnter:
+		switch m.confirmCursor {
+		case 0: // Yes
+			return m, m.buildAnsweredCmd("")
+		case 1: // No — rejection
+			return m, func() tea.Msg {
+				return askBatchAnsweredMsg{answers: nil}
+			}
+		case 2: // Custom
+			m.confirmCustom = true
+			m.confirmTA.Focus()
 			return m, nil
 		}
 	}
@@ -198,8 +277,34 @@ func (m askBatchModel) handleReviewKey(msg tea.KeyMsg) (askBatchModel, tea.Cmd) 
 	return m, nil
 }
 
+func (m askBatchModel) buildAnsweredCmd(customText string) tea.Cmd {
+	answers := make([]askAnswer, len(m.entries))
+	for i, e := range m.entries {
+		resp := e.response
+		if customText != "" && i == len(m.entries)-1 {
+			resp += "\n" + customText
+		}
+		answers[i] = askAnswer{questionID: e.question.question.ID, response: resp}
+	}
+	if customText != "" && len(answers) > 0 {
+		answers[len(answers)-1].response = m.entries[len(m.entries)-1].response
+		if customText != "" {
+			answers[len(answers)-1].response += " (" + customText + ")"
+		}
+	}
+	return func() tea.Msg { return askBatchAnsweredMsg{answers: answers} }
+}
+
 func (m askBatchModel) updateTextarea(msg tea.Msg) (askBatchModel, tea.Cmd) {
-	if m.reviewing || m.activeTab >= len(m.entries) {
+	if m.onConfirm {
+		if m.confirmCustom {
+			var cmd tea.Cmd
+			m.confirmTA, cmd = m.confirmTA.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+	}
+	if m.activeTab >= len(m.entries) {
 		return m, nil
 	}
 	e := &m.entries[m.activeTab]
@@ -211,13 +316,13 @@ func (m askBatchModel) updateTextarea(msg tea.Msg) (askBatchModel, tea.Cmd) {
 	return m, nil
 }
 
-// advanceOrReview moves to the next unanswered question, or enters review.
-func (m askBatchModel) advanceOrReview() (askBatchModel, tea.Cmd) {
+// advanceOrConfirm moves to the next unanswered question, or enters the Confirm tab.
+func (m askBatchModel) advanceOrConfirm() (askBatchModel, tea.Cmd) {
 	// Single question — emit immediately.
 	if len(m.entries) == 1 {
 		e := m.entries[0]
 		return m, func() tea.Msg {
-			return askBatchAnsweredMsg{answers: []askAnswer{{questionID: e.question.ID, response: e.response}}}
+			return askBatchAnsweredMsg{answers: []askAnswer{{questionID: e.question.question.ID, response: e.response}}}
 		}
 	}
 
@@ -230,16 +335,20 @@ func (m askBatchModel) advanceOrReview() (askBatchModel, tea.Cmd) {
 		}
 	}
 
-	// All answered — enter review.
-	m.reviewing = true
+	// All answered — enter Confirm tab.
+	m.onConfirm = true
+	m.confirmCursor = 0
+	m.confirmCustom = false
 	return m, nil
 }
 
 func (m *askBatchModel) switchToTab(idx int) {
-	// Blur current.
-	if m.activeTab < len(m.entries) {
+	if !m.onConfirm && m.activeTab < len(m.entries) {
 		m.entries[m.activeTab].textarea.Blur()
 	}
+	m.onConfirm = false
+	m.confirmCustom = false
+	m.confirmTA.Blur()
 	m.activeTab = idx
 	e := &m.entries[idx]
 	e.answered = false // allow re-editing
@@ -249,14 +358,40 @@ func (m *askBatchModel) switchToTab(idx int) {
 }
 
 func (m askBatchModel) nextTab() askBatchModel {
-	next := (m.activeTab + 1) % len(m.entries)
-	m.switchToTab(next)
+	if m.onConfirm {
+		return m
+	}
+	if m.activeTab < len(m.entries)-1 {
+		m.switchToTab(m.activeTab + 1)
+	} else {
+		allAnswered := true
+		for _, e := range m.entries {
+			if !e.answered {
+				allAnswered = false
+				break
+			}
+		}
+		if allAnswered {
+			m.onConfirm = true
+			m.confirmCursor = 0
+		}
+	}
 	return m
 }
 
 func (m askBatchModel) prevTab() askBatchModel {
-	prev := (m.activeTab - 1 + len(m.entries)) % len(m.entries)
-	m.switchToTab(prev)
+	if m.onConfirm {
+		m.onConfirm = false
+		m.confirmCustom = false
+		m.confirmTA.Blur()
+		if len(m.entries) > 0 {
+			m.activeTab = len(m.entries) - 1
+		}
+		return m
+	}
+	if m.activeTab > 0 {
+		m.switchToTab(m.activeTab - 1)
+	}
 	return m
 }
 
@@ -265,17 +400,19 @@ func (m askBatchModel) View() string {
 
 	var sb strings.Builder
 
-	// Tab bar (only for multiple questions).
-	if len(m.entries) > 1 {
-		sb.WriteString(m.renderTabBar())
-		sb.WriteString("\n\n")
-	}
+	// Tab bar.
+	sb.WriteString(m.renderTabBar())
+	sb.WriteString("\n\n")
 
-	if m.reviewing {
-		sb.WriteString(m.renderReview())
+	if m.onConfirm {
+		sb.WriteString(m.renderConfirm(innerWidth))
 	} else {
 		sb.WriteString(m.renderEntry(innerWidth))
 	}
+
+	// Keyboard hints.
+	sb.WriteString("\n\n")
+	sb.WriteString(m.renderHints())
 
 	border := askBorder.Width(innerWidth)
 	return border.Render(sb.String())
@@ -284,16 +421,23 @@ func (m askBatchModel) View() string {
 func (m askBatchModel) renderTabBar() string {
 	var tabs []string
 	for i, e := range m.entries {
-		label := fmt.Sprintf("Q%d: %s", i+1, e.agent)
+		label := e.header
 		switch {
-		case i == m.activeTab && !m.reviewing:
-			tabs = append(tabs, askTabActive.Render("["+label+"]"))
+		case !m.onConfirm && i == m.activeTab:
+			tabs = append(tabs, askTabActive.Render("*"+label+"*"))
 		case e.answered:
-			tabs = append(tabs, askTabDone.Render("["+label+" \u2713]"))
+			tabs = append(tabs, askTabDone.Render("["+label+"]"))
 		default:
 			tabs = append(tabs, askTabInact.Render("["+label+"]"))
 		}
 	}
+
+	if m.onConfirm {
+		tabs = append(tabs, askTabActive.Render("*Confirm*"))
+	} else {
+		tabs = append(tabs, askTabInact.Render("[Confirm]"))
+	}
+
 	return strings.Join(tabs, " ")
 }
 
@@ -301,9 +445,7 @@ func (m askBatchModel) renderEntry(innerWidth int) string {
 	e := m.entries[m.activeTab]
 
 	var sb strings.Builder
-	sb.WriteString(askTitleStyle.Render(fmt.Sprintf("[%s asks]", e.agent)))
-	sb.WriteString(" ")
-	sb.WriteString(e.question.Text)
+	sb.WriteString(e.question.question.Text)
 	sb.WriteString("\n\n")
 
 	switch {
@@ -314,12 +456,23 @@ func (m askBatchModel) renderEntry(innerWidth int) string {
 		sb.WriteString(e.textarea.View())
 	case e.isChoice:
 		for i, opt := range e.options {
-			prefix := "  "
-			if i == e.cursor {
-				prefix = "> "
-				sb.WriteString(askSelStyle.Render(prefix + opt))
+			num := fmt.Sprintf("%d. ", i+1)
+			if e.multiSelect && i < len(e.options)-1 {
+				check := "[ ]"
+				if e.checked[i] {
+					check = "[X]"
+				}
+				if i == e.cursor {
+					sb.WriteString(askSelStyle.Render(fmt.Sprintf("%s%s %s", num, check, opt)))
+				} else {
+					sb.WriteString(askOptStyle.Render(fmt.Sprintf("%s%s %s", num, check, opt)))
+				}
 			} else {
-				sb.WriteString(askOptStyle.Render(prefix + opt))
+				if i == e.cursor {
+					sb.WriteString(askSelStyle.Render(num + opt))
+				} else {
+					sb.WriteString(askOptStyle.Render(num + opt))
+				}
 			}
 			sb.WriteString("\n")
 		}
@@ -331,20 +484,49 @@ func (m askBatchModel) renderEntry(innerWidth int) string {
 	return sb.String()
 }
 
-func (m askBatchModel) renderReview() string {
+func (m askBatchModel) renderConfirm(innerWidth int) string {
 	var sb strings.Builder
-	sb.WriteString(askReviewHdr.Render("Review your answers"))
+	sb.WriteString(askTitleStyle.Render("Confirm your answers:"))
 	sb.WriteString("\n\n")
 
 	for i, e := range m.entries {
-		sb.WriteString(askTitleStyle.Render(fmt.Sprintf("Q%d [%s]:", i+1, e.agent)))
-		sb.WriteString(" ")
-		sb.WriteString(truncate(e.question.Text, 80))
-		sb.WriteString("\n")
-		sb.WriteString(askSelStyle.Render("  A: " + e.response))
-		sb.WriteString("\n\n")
+		fmt.Fprintf(&sb, "%d. %s\n", i+1, e.question.question.Text)
+		fmt.Fprintf(&sb, " %s%s\n", treeCorner, askSelStyle.Render(e.response))
 	}
 
-	sb.WriteString(dimStyle.Render("Enter = confirm all · Tab = edit · 1-9 = jump to question"))
+	sb.WriteString("\nAre you happy with your answers?\n")
+
+	confirmOpts := []string{"Yes", "No", "(custom input)"}
+	for i, opt := range confirmOpts {
+		num := fmt.Sprintf("%d. ", i+1)
+		if m.confirmCustom && i == 2 {
+			sb.WriteString(askSelStyle.Render(num + opt))
+			sb.WriteString("\n")
+			m.confirmTA.SetWidth(innerWidth - 4)
+			sb.WriteString("  ")
+			sb.WriteString(m.confirmTA.View())
+			sb.WriteString("\n")
+			continue
+		}
+		if i == m.confirmCursor {
+			sb.WriteString(askSelStyle.Render(num + opt))
+		} else {
+			sb.WriteString(askOptStyle.Render(num + opt))
+		}
+		sb.WriteString("\n")
+	}
+
 	return sb.String()
+}
+
+func (m askBatchModel) renderHints() string {
+	hints := "← Left tab, → Right tab, ↑ Up, ↓ Down"
+	if !m.onConfirm && m.activeTab < len(m.entries) {
+		e := m.entries[m.activeTab]
+		if e.multiSelect && e.isChoice && !e.customMode {
+			hints += ", Space Toggle"
+		}
+	}
+	hints += ", ↵ Confirm, Esc Dismiss"
+	return askHintStyle.Render(hints)
 }

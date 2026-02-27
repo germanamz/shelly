@@ -111,6 +111,28 @@ func fmtDuration(d time.Duration) string {
 	return fmt.Sprintf("%dm %ds", min, sec)
 }
 
+// renderUserMessage formats a user message for display.
+func renderUserMessage(text string) string {
+	header := userPrefixStyle.Render("🧑‍💻 User")
+	lines := strings.Split(text, "\n")
+	var sb strings.Builder
+	sb.WriteString(header)
+	sb.WriteString("\n")
+	sb.WriteString(" ")
+	sb.WriteString(treeCorner)
+	sb.WriteString(lines[0])
+	for _, line := range lines[1:] {
+		sb.WriteString("\n   ")
+		sb.WriteString(line)
+	}
+	return sb.String()
+}
+
+// randomThinkingMessage returns a random thinking message.
+func randomThinkingMessage() string {
+	return thinkingMessages[rand.IntN(len(thinkingMessages))] //nolint:gosec // cosmetic randomness
+}
+
 // loadDotEnv loads environment variables from path. Missing files are ignored.
 func loadDotEnv(path string) error {
 	err := godotenv.Load(path)
@@ -118,29 +140,6 @@ func loadDotEnv(path string) error {
 		return nil
 	}
 	return err
-}
-
-// renderUserMessage formats a user message for the terminal scrollback,
-// properly indenting continuation lines to align with the first line.
-func renderUserMessage(text string) string {
-	prefix := userPrefixStyle.Render("🧑 You > ")
-	lines := strings.Split(text, "\n")
-	if len(lines) <= 1 {
-		return userBlockStyle.Render(prefix + text)
-	}
-	var sb strings.Builder
-	sb.WriteString(prefix)
-	sb.WriteString(lines[0])
-	for _, line := range lines[1:] {
-		sb.WriteString("\n  ")
-		sb.WriteString(line)
-	}
-	return userBlockStyle.Render(sb.String())
-}
-
-// randomThinkingMessage returns a random thinking message.
-func randomThinkingMessage() string {
-	return thinkingMessages[rand.IntN(len(thinkingMessages))] //nolint:gosec // cosmetic randomness
 }
 
 // resolveConfigPath returns the config file to use. Priority:

@@ -6,26 +6,13 @@ import (
 	"sort"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
 )
 
 const (
-	filePickerMaxShow    = 8
+	filePickerMaxShow    = 4
 	filePickerMaxEntries = 1000
 )
-
-var (
-	pickerBorder    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("4"))
-	pickerCurStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("4"))
-	pickerDimStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
-	pickerHintStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-)
-
-// filePickerEntriesMsg delivers the discovered file list.
-type filePickerEntriesMsg struct {
-	entries []string
-}
 
 // filePickerModel displays an autocomplete popup for @-mentions.
 type filePickerModel struct {
@@ -89,9 +76,9 @@ func (fp *filePickerModel) selected() string {
 }
 
 // handleKey processes navigation keys while the picker is active.
-// Returns true if the key was consumed.
-func (fp *filePickerModel) handleKey(msg tea.KeyMsg) (consumed bool, selected string) {
-	switch msg.Type {
+func (fp *filePickerModel) handleKey(msg tea.KeyPressMsg) (consumed bool, sel string) {
+	k := msg.Key()
+	switch k.Code {
 	case tea.KeyUp:
 		if fp.cursor > 0 {
 			fp.cursor--
@@ -129,7 +116,7 @@ func (fp filePickerModel) View() string {
 	sb.WriteString("\n")
 
 	if len(fp.filtered) == 0 {
-		sb.WriteString(pickerDimStyle.Render("  no matches"))
+		sb.WriteString(pickerDimStyle.Render("  No files"))
 	} else {
 		show := min(len(fp.filtered), fp.maxShow)
 		// Scroll window around cursor.
@@ -142,9 +129,9 @@ func (fp filePickerModel) View() string {
 		for i := start; i < end; i++ {
 			entry := fp.filtered[i]
 			if i == fp.cursor {
-				sb.WriteString(pickerCurStyle.Render("> " + entry))
+				sb.WriteString(pickerCurStyle.Render(entry))
 			} else {
-				sb.WriteString(pickerDimStyle.Render("  " + entry))
+				sb.WriteString(pickerDimStyle.Render(entry))
 			}
 			if i < end-1 {
 				sb.WriteString("\n")

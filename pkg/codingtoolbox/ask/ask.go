@@ -16,9 +16,11 @@ import (
 
 // Question represents a question posed to the user by an agent.
 type Question struct {
-	ID      string   `json:"id"`
-	Text    string   `json:"text"`
-	Options []string `json:"options,omitempty"`
+	ID          string   `json:"id"`
+	Text        string   `json:"text"`
+	Options     []string `json:"options,omitempty"`
+	Header      string   `json:"header,omitempty"`      // short tab label (single word)
+	MultiSelect bool     `json:"multiSelect,omitempty"` // true = checkboxes, false = single choice
 }
 
 // OnAskFunc is called when a new question is posed. Implementations should
