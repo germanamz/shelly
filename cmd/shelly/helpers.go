@@ -11,8 +11,13 @@ import (
 	"time"
 
 	"github.com/charmbracelet/glamour"
+	glamourstyles "github.com/charmbracelet/glamour/styles"
 	"github.com/joho/godotenv"
 )
+
+// isDarkBG is set once before bubbletea starts (in main.go) so that glamour
+// never issues its own OSC 11 query while the program is running.
+var isDarkBG bool
 
 // thinkingMessages are displayed while the agent is processing.
 var thinkingMessages = []string{
@@ -52,8 +57,16 @@ func initMarkdownRenderer(width int) {
 	if width == mdRendererWidth && mdRenderer != nil {
 		return
 	}
+	// Use a fixed style based on the pre-detected background color.
+	// glamour.WithAutoStyle() must NOT be used here — it queries the terminal
+	// (OSC 11) which races with bubbletea's input handling and leaks escape
+	// sequences into the textarea.
+	style := glamourstyles.LightStyleConfig
+	if isDarkBG {
+		style = glamourstyles.DarkStyleConfig
+	}
 	r, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
+		glamour.WithStyles(style),
 		glamour.WithWordWrap(width),
 	)
 	if err != nil {

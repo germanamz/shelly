@@ -71,8 +71,9 @@ func run(configPath, shellyDirPath, agentName string) error {
 	// Force the OSC 11 background-color query and consume its response
 	// synchronously before bubbletea starts. This prevents the response from
 	// leaking into the textarea as garbage text when the virtual cursor
-	// triggers the same query later.
-	_ = lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
+	// triggers the same query later. The result is stored so glamour can use
+	// a fixed style without issuing its own query.
+	isDarkBG = lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
 	flushStdinBuffer()
 
 	p := tea.NewProgram(model, tea.WithFilter(filterStaleEscapes))
