@@ -1,60 +1,90 @@
 # chats
 
-A provider-agnostic data model for LLM chat interactions. Chats defines the core types — roles, content parts, messages, and conversations — without coupling to any specific LLM provider or API. It serves as a foundation layer that adapters can build on.
+A provider-agnostic data model for LLM chat interactions. Chats defines the core types -- roles, content parts, messages, and conversations -- without coupling to any specific LLM provider or API. It serves as the foundation layer of Shelly that provider adapters and the agent system build on.
 
 ## Architecture
 
 ```
 chats/
+├── doc.go      Package-level documentation (no code)
 ├── role/       Conversation roles (system, user, assistant, tool)
 ├── content/    Multi-modal content parts (text, image, tool call/result)
 ├── message/    Messages composed of a sender, role, and content parts
-└── chat/       Mutable conversation container
+└── chat/       Mutable, concurrency-safe conversation container
 ```
 
-### `role` — Conversation Roles
+Sub-packages depend only on each other in a strict layering order: `role` has no dependencies, `content` has no dependencies, `message` imports `role` and `content`, and `chat` imports `message`, `content`, and `role`. The top-level `chats` package (`doc.go`) contains no code -- it exists only for documentation.
 
-Defines `Role`, a string type with four constants: `System`, `User`, `Assistant`, and `Tool`. Includes `Valid()` for validation and `String()` for the underlying value.
+### `role` -- Conversation Roles
 
-### `content` — Multi-Modal Content Parts
+Defines `Role`, a string type with four constants: `System`, `User`, `Assistant`, and `Tool`.
+
+**Exported API:**
+
+- `type Role string`
+- Constants: `System`, `User`, `Assistant`, `Tool`
+- `(r Role) Valid() bool` -- reports whether `r` is one of the four known roles
+- `(r Role) String() string` -- returns the underlying string value
+
+### `content` -- Multi-Modal Content Parts
 
 Defines the `Part` interface and four concrete implementations:
 
-| Type         | Kind            | Description                                |
-|--------------|-----------------|--------------------------------------------|
-| `Text`       | `"text"`        | Plain text                                 |
-| `Image`      | `"image"`       | Image by URL or embedded bytes             |
-| `ToolCall`   | `"tool_call"`   | Assistant's request to invoke a tool       |
-| `ToolResult` | `"tool_result"` | Output from a tool invocation              |
+| Type         | Kind            | Fields                                   | Description                                  |
+|--------------|-----------------|------------------------------------------|----------------------------------------------|
+| `Text`       | `"text"`        | `Text string`                            | Plain text content                           |
+| `Image`      | `"image"`       | `URL string`, `Data []byte`, `MediaType string` | Image by URL or embedded raw bytes     |
+| `ToolCall`   | `"tool_call"`   | `ID string`, `Name string`, `Arguments string`  | Assistant's request to invoke a tool (Arguments is raw JSON) |
+| `ToolResult` | `"tool_result"` | `ToolCallID string`, `Content string`, `IsError bool` | Output from a tool invocation          |
 
-The `Part` interface has a single method (`PartKind() string`), making it straightforward to add custom content types.
+**Exported API:**
 
-### `message` — Conversation Messages
+- `type Part interface { PartKind() string }` -- the single-method interface all content types implement
+- `type Text struct` / `type Image struct` / `type ToolCall struct` / `type ToolResult struct`
 
-A `Message` combines a `Sender`, `Role`, a slice of `Part` values, and an optional metadata map.
+The `Part` interface has a single method (`PartKind() string`), making it straightforward to add custom content types in external packages.
 
-- `New(sender, role, ...parts)` / `NewText(sender, role, text)` — constructors
-- `TextContent()` — concatenates all `Text` parts
-- `ToolCalls()` — extracts all `ToolCall` parts
-- `SetMeta(key, value)` / `GetMeta(key)` — arbitrary key-value metadata
+### `message` -- Conversation Messages
 
-The `Sender` field identifies who produced the message (e.g., an agent name), making it easy to track participants in multi-agent conversations. `Message` is a value type.
+A `Message` combines a `Sender` string, a `Role`, a slice of `Part` values, and an optional `Metadata` map. `Message` is a value type that copies cheaply.
 
-### `chat` — Conversation Container
+**Exported API:**
 
-`Chat` is a mutable, ordered collection of messages. The zero value is ready to use.
+- `type Message struct { Sender string; Role role.Role; Parts []content.Part; Metadata map[string]any }`
+- `New(sender string, r role.Role, parts ...content.Part) Message` -- constructor with arbitrary content parts
+- `NewText(sender string, r role.Role, text string) Message` -- convenience constructor for a single `Text` part
+- `(m Message) TextContent() string` -- concatenates the text of all `Text` parts in the message
+- `(m Message) ToolCalls() []content.ToolCall` -- extracts all `ToolCall` parts from the message
+- `(m *Message) SetMeta(key string, value any)` -- sets a metadata key-value pair (initializes the map if nil; pointer receiver)
+- `(m Message) GetMeta(key string) (any, bool)` -- retrieves a metadata value by key
 
-- `New(...messages)` — constructor with initial messages
-- `Append(...messages)` — add messages
-- `Replace(...messages)` — atomically swap all messages
-- `Len()` — message count
-- `At(index)` / `Last()` — access messages
-- `Messages()` — defensive copy of all messages
-- `Each(fn)` — iterate with early-stop support
-- `BySender(sender)` — filter messages by sender
-- `SystemPrompt()` — text of the first system message
+The `Sender` field identifies who produced the message (e.g., an agent name), making it easy to track participants in multi-agent conversations. Note that `SetMeta` uses a pointer receiver while all other methods use a value receiver.
 
-`Chat` is safe for concurrent use. Both `Append` and `Replace` signal waiters blocked in `Wait`.
+### `chat` -- Conversation Container
+
+`Chat` is a mutable, ordered collection of messages. The zero value is ready to use. All methods are safe for concurrent use via an internal `sync.RWMutex`.
+
+**Exported API:**
+
+- `type Chat struct` (unexported fields: `mu`, `once`, `signal`, `messages`)
+- `New(msgs ...message.Message) *Chat` -- constructor with optional initial messages
+- `(c *Chat) Append(msgs ...message.Message)` -- appends messages and notifies waiters
+- `(c *Chat) Replace(msgs ...message.Message)` -- atomically swaps all messages and notifies waiters
+- `(c *Chat) Len() int` -- returns the message count
+- `(c *Chat) At(index int) message.Message` -- returns the message at the given index (panics if out of range)
+- `(c *Chat) Last() (message.Message, bool)` -- returns the most recent message, or zero value and `false` if empty
+- `(c *Chat) Messages() []message.Message` -- returns a deep copy of all messages (Parts slices and Metadata maps are independently copied so callers cannot mutate conversation data)
+- `(c *Chat) Each(fn func(int, message.Message) bool)` -- iterates over messages with early-stop support; holds the read lock for the duration, so `fn` must not call other `Chat` methods (deadlock risk)
+- `(c *Chat) BySender(sender string) []message.Message` -- returns all messages from the given sender
+- `(c *Chat) SystemPrompt() string` -- returns the text content of the first system-role message, or empty string if none
+- `(c *Chat) Since(offset int) []message.Message` -- returns a copy of messages starting from the given offset; returns nil if offset is out of range or negative
+- `(c *Chat) Wait(ctx context.Context, n int) (int, error)` -- blocks until the chat contains more than `n` messages or the context is cancelled; returns the current message count
+
+Both `Append` and `Replace` close an internal signal channel and re-create it, which wakes up all goroutines blocked in `Wait`. The `Wait` + `Since` pair is designed for streaming-style consumers that need to react to new messages as they arrive.
+
+## Dependencies
+
+`pkg/chats` has no dependencies on other `pkg/` packages. It uses only the Go standard library (`context`, `maps`, `strings`, `sync`).
 
 ## Examples
 
@@ -88,7 +118,7 @@ assistantMsg := message.New("bot", role.Assistant,
     content.ToolCall{ID: "call_1", Name: "search", Arguments: `{"q":"golang"}`},
 )
 toolMsg := message.New("", role.Tool,
-    content.ToolResult{ToolCallID: "call_1", Content: "Go is a statically typed language..."},
+    content.ToolResult{ToolCallID: "call_1", Content: "Go is a statically typed language...", IsError: false},
 )
 c.Append(assistantMsg, toolMsg)
 ```
@@ -101,6 +131,26 @@ msg.SetMeta("model", "claude-sonnet-4-5-20250929")
 msg.SetMeta("tokens", 12)
 
 model, _ := msg.GetMeta("model") // "claude-sonnet-4-5-20250929"
+```
+
+### Streaming with Wait and Since
+
+```go
+ctx, cancel := context.WithCancel(context.Background())
+defer cancel()
+
+cursor := 0
+for {
+    cursor, err = c.Wait(ctx, cursor)
+    if err != nil {
+        break
+    }
+    newMsgs := c.Since(cursor)
+    for _, m := range newMsgs {
+        fmt.Println(m.Sender, ":", m.TextContent())
+    }
+    cursor += len(newMsgs)
+}
 ```
 
 ### Custom Content Types
@@ -147,7 +197,7 @@ shared := chat.New(
     message.NewText("user", role.User, "Propose a name for a Go testing library."),
 )
 
-// Fork into independent branches
+// Fork into independent branches (Messages() returns a deep copy)
 creative := chat.New(shared.Messages()...)
 creative.Append(message.NewText("creative", role.Assistant, "How about 'testigo'?"))
 

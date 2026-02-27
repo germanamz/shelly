@@ -31,6 +31,7 @@ tools/
 - `New()` — creates a new ToolBox
 - `Register(...Tool)` — adds tools (replaces by name)
 - `Get(name) (Tool, bool)` — retrieves a tool
+- `Merge(other *ToolBox)` — copies all tools from another ToolBox into this one (replaces by name)
 - `Tools() []Tool` — lists all tools
 - `Call(ctx, ToolCall) ToolResult` — executes a tool call and returns a result
 

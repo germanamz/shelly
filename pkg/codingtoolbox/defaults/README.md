@@ -4,7 +4,13 @@ Package `defaults` provides a plug-and-play default toolbox builder. It merges m
 
 ## Purpose
 
-Merges multiple toolboxes into one composite toolbox. This package is available for consumers that need to combine toolboxes outside the engine. The engine itself uses per-agent `toolboxes` lists in configuration — each agent declares exactly which toolboxes it needs, and the `ask` toolbox is always included implicitly.
+Merges multiple toolboxes into one composite toolbox. This package is available for consumers that need to combine toolboxes outside the engine. The engine itself uses per-agent `toolboxes` lists in configuration -- each agent declares exactly which toolboxes it needs, and the `ask` toolbox is always included implicitly.
+
+## Exported API
+
+### Functions
+
+- **`New(toolboxes ...*toolbox.ToolBox) *toolbox.ToolBox`** -- builds a default toolbox by merging the given toolboxes together. Each toolbox is merged in order so later entries overwrite earlier ones when tool names collide. Passing zero toolboxes returns an empty toolbox.
 
 ## Usage
 
@@ -15,10 +21,8 @@ import "github.com/germanamz/shelly/pkg/codingtoolbox/defaults"
 tb := defaults.New(askToolbox, filesystemToolbox, stateToolbox)
 ```
 
-Later entries overwrite earlier ones when tool names collide.
-
 ## Architecture
 
 - Depends only on `pkg/tools/toolbox`
 - Used by `pkg/engine` to compose built-in tools
-- Stateless — the returned toolbox owns the merged tools
+- Stateless -- the returned toolbox owns the merged tools

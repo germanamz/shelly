@@ -4,15 +4,79 @@ Package `agent` provides a unified agent type that runs a ReAct (Reason + Act) l
 
 ## Overview
 
-This package replaces the previous `pkg/agents/` and `pkg/reactor/` hierarchies with a single `Agent` type. An agent:
+This package implements a single `Agent` type that:
 
-- Runs a **ReAct loop**: iterates between LLM completion and tool execution until a final answer is produced.
+- Runs a **ReAct loop**: iterates between LLM completion and tool execution until a final answer is produced or the iteration limit is reached.
 - Can **discover and delegate** to other agents at runtime via a `Registry`.
-- Learns **procedures from Skills** (folder-based definitions with step-by-step processes).
-- Supports **middleware** for cross-cutting concerns (timeout, recovery, logging, guardrails).
-- Supports **effects** — pluggable, per-iteration hooks for dynamic behaviours (context compaction, cost limits, guardrails).
+- Learns **procedures from Skills** (folder-based definitions with step-by-step processes), split into inline skills (embedded in system prompt) and on-demand skills (loaded via `load_skill` tool).
+- Supports **middleware** for cross-cutting concerns (timeout, recovery, logging, output guardrails).
+- Supports **effects** -- pluggable, per-iteration hooks for dynamic behaviours (context compaction, tool result trimming, loop detection, failure reflection, progress tracking).
+- Emits **fine-grained events** (`tool_call_start`, `tool_call_end`, `message_added`) via an optional `EventFunc` callback.
+- Publishes **sub-agent lifecycle events** (`agent_start`, `agent_end`) via an optional `EventNotifier` callback.
 
-## Types
+## Exported Types and Interfaces
+
+### Agent
+
+The core type. Created via `New(name, description, instructions, completer, opts)`.
+
+```go
+type Agent struct { /* unexported fields */ }
+```
+
+**Constructor:**
+
+- `New(name, description, instructions string, completer modeladapter.Completer, opts Options) *Agent`
+
+**Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `Run(ctx) (message.Message, error)` | Executes the ReAct loop with middleware applied. |
+| `Init()` | Builds and sets the system prompt. Called automatically by `Run()`, but can be called manually after `SetRegistry` and `AddToolBoxes`. Safe to call multiple times. |
+| `SetRegistry(r *Registry)` | Enables dynamic delegation by setting the agent's registry. |
+| `AddToolBoxes(tbs ...*toolbox.ToolBox)` | Adds user-provided toolboxes, deduplicating by pointer equality. |
+| `Name() string` | Returns the agent's name. |
+| `Description() string` | Returns the agent's description. |
+| `Prefix() string` | Returns the display prefix, defaulting to the robot emoji if unset. |
+| `Chat() *chat.Chat` | Returns the agent's chat. |
+| `Completer() modeladapter.Completer` | Returns the agent's completer. |
+| `CompletionResult() *CompletionResult` | Returns structured completion data set by `task_complete`, or nil. |
+
+### Options
+
+Configures an Agent at construction time.
+
+```go
+type Options struct {
+    MaxIterations          int           // ReAct loop limit (0 = unlimited).
+    MaxDelegationDepth     int           // Prevents infinite delegation loops (0 = unlimited).
+    Skills                 []skill.Skill // Procedures the agent knows.
+    Middleware             []Middleware   // Applied around Run().
+    Effects                []Effect      // Per-iteration hooks run inside the ReAct loop.
+    Context                string        // Project context injected into the system prompt.
+    EventNotifier          EventNotifier // Publishes sub-agent lifecycle events.
+    Prefix                 string        // Display prefix (emoji + label) for the TUI.
+    TaskBoard              TaskBoard     // Optional task board for automatic task lifecycle during delegation.
+    ReflectionDir          string        // Directory for failure reflection notes (empty = disabled).
+    DisableBehavioralHints bool          // When true, omits the <behavioral_constraints> section.
+    EventFunc              EventFunc     // Optional callback for fine-grained loop events.
+}
+```
+
+### CompletionResult
+
+Carries structured completion data from a sub-agent. Set by the `task_complete` tool, read by delegation tools after `Run()` returns.
+
+```go
+type CompletionResult struct {
+    Status        string   `json:"status"`                   // "completed" or "failed"
+    Summary       string   `json:"summary"`                  // What was done or why it failed.
+    FilesModified []string `json:"files_modified,omitempty"` // Files changed.
+    TestsRun      []string `json:"tests_run,omitempty"`      // Tests executed.
+    Caveats       string   `json:"caveats,omitempty"`        // Known limitations.
+}
+```
 
 ### TaskBoard
 
@@ -25,102 +89,96 @@ type TaskBoard interface {
 }
 ```
 
-### Agent
+### EventNotifier
 
-The core type. Created via `New(name, description, instructions, completer, opts)`.
+Called by orchestration tools to publish sub-agent lifecycle events.
 
-- `Run(ctx) (message.Message, error)` — executes the ReAct loop with middleware.
-- `SetRegistry(r)` — enables dynamic delegation.
-- `AddToolBoxes(tbs...)` — adds user-provided tool registries.
-- `Name()`, `Description()`, `Chat()`, `Prefix()`, `CompletionResult()` — accessors.
+```go
+type EventNotifier func(ctx context.Context, kind string, agentName string, data any)
+```
+
+### EventFunc
+
+Called by the agent to publish fine-grained loop events.
+
+```go
+type EventFunc func(ctx context.Context, kind string, data any)
+```
+
+### ToolCallEventData / MessageAddedEventData
+
+Event payloads for `tool_call_start`/`tool_call_end` and `message_added` events respectively.
+
+```go
+type ToolCallEventData struct {
+    ToolName string `json:"tool_name"`
+    CallID   string `json:"call_id"`
+}
+
+type MessageAddedEventData struct {
+    Role string `json:"role"`
+}
+```
+
+### AgentEventData
+
+Metadata carried by `agent_start` and `agent_end` lifecycle events.
+
+```go
+type AgentEventData struct {
+    Prefix string // Display prefix (e.g. robot emoji, pencil emoji).
+    Parent string // Name of the parent agent (empty for top-level).
+}
+```
 
 ### Registry
 
 Thread-safe directory of agent factories for dynamic discovery and delegation.
 
-- `Register(name, description, factory)` — registers an agent factory.
-- `List() []Entry` — returns all entries sorted by name.
-- `Spawn(name, depth) (*Agent, bool)` — creates a fresh agent instance.
+```go
+type Registry struct { /* unexported fields */ }
+```
 
-### Middleware
+| Method | Description |
+|--------|-------------|
+| `NewRegistry() *Registry` | Creates an empty Registry. |
+| `Register(name, description string, factory Factory)` | Registers an agent factory. Replaces existing entries with the same name. |
+| `Get(name string) (Factory, bool)` | Returns the factory for the named agent. |
+| `List() []Entry` | Returns all entries sorted by name. |
+| `Spawn(name string, depth int) (*Agent, bool)` | Creates a fresh agent instance with the given delegation depth. |
 
-Composable wrappers around the agent's `Run` method.
+### Factory
 
-- `Timeout(d)` — context deadline.
-- `Recovery()` — panic-to-error conversion.
-- `Logger(log, name)` — structured logging of start/finish/errors.
-- `OutputGuardrail(check)` — validates the final message.
-
-## Built-in Orchestration Tools
-
-When a `Registry` is set, two tools are automatically injected:
-
-| Tool | Description |
-|------|-------------|
-| `list_agents` | Lists all available agents (excluding self) |
-| `delegate` | Delegates one or more tasks to other agents. All tasks run concurrently. Each task requires `agent`, `task`, and `context` fields. Optional `task_id` per task for automatic task lifecycle. |
-| `task_complete` | **(sub-agents only)** Signals task completion with structured metadata (status, summary, files modified, tests run, caveats). |
-
-The `delegate` tool requires a `context` field per task — background information (file contents, decisions, constraints) that the child agent needs. The context is prepended as a `<delegation_context>`-tagged user message before the task message, so the child sees: system prompt -> context -> task.
-
-Safety guards: self-delegation rejected, `MaxDelegationDepth` enforced.
-
-### Automatic Task Lifecycle
-
-When `Options.TaskBoard` is set, the `delegate` tool supports an optional `task_id` parameter per task:
-
-1. **Before `child.Run()`**: if `task_id` is provided, `TaskBoard.ClaimTask(taskID, childName)` is called automatically. This uses `Reassign` semantics, so it overrides any previous assignee (e.g. the orchestrator) to the actual executor. Claim errors are silently ignored.
-2. **After `child.Run()`**: if the child produced a `CompletionResult`, `TaskBoard.UpdateTaskStatus(taskID, cr.Status)` is called automatically.
-
-This eliminates 2-3 manual tool calls per delegation that the LLM would otherwise need to make (`shared_tasks_claim`, `shared_tasks_update`), making task lifecycle management reliable without relying on LLM compliance.
-
-### Structured Completion Protocol
-
-Sub-agents (depth > 0) receive a `task_complete` tool that they call to signal completion with structured metadata. The system prompt includes a `<completion_protocol>` section instructing them to always call this tool instead of simply stopping.
-
-When a sub-agent calls `task_complete`, the ReAct loop stops immediately and the `CompletionResult` is stored on the agent. The `delegate` tool checks for this structured result and includes a `completion` field in each `delegateResult` if the child set a `CompletionResult`. If no `CompletionResult` was set, the result falls back to `reply.TextContent()`.
+Creates a fresh Agent instance for delegation. Each call should return a new agent with a clean chat.
 
 ```go
-type CompletionResult struct {
-    Status        string   `json:"status"`                    // "completed" or "failed"
-    Summary       string   `json:"summary"`                   // What was done or why it failed.
-    FilesModified []string `json:"files_modified,omitempty"`   // Files changed.
-    TestsRun      []string `json:"tests_run,omitempty"`       // Tests executed.
-    Caveats       string   `json:"caveats,omitempty"`         // Known limitations.
+type Factory func() *Agent
+```
+
+### Entry
+
+Describes a registered agent in the directory.
+
+```go
+type Entry struct {
+    Name        string
+    Description string
 }
 ```
 
-Top-level agents (depth 0) do not get the `task_complete` tool or the completion protocol prompt section.
+### ErrMaxIterations
 
-### Notes Protocol
+Sentinel error returned when the ReAct loop exceeds `MaxIterations` without producing a final answer.
 
-When an agent has notes tools (detected by the presence of `list_notes` in its toolboxes), the system prompt includes a `<notes_protocol>` section. This lightweight protocol informs the agent that:
-
-- A shared notes system exists for durable cross-agent communication
-- Notes survive context compaction and agent boundaries
-- It should check `list_notes`/`read_note` when expecting context from other agents
-- It should use `write_note` to document results for downstream agents
-
-The protocol does **not** preload any notes content — it simply ensures agents are aware the system exists and know when to use it.
-
-### Sub-Agent Event Notifications
-
-When `Options.EventNotifier` is set, the `delegate` tool publishes lifecycle events for child agents:
-
-- `agent_start` — emitted before `child.Run(ctx)` with `AgentEventData{Prefix}`.
-- `agent_end` — emitted after `child.Run(ctx)` completes (success or error).
-
-The notifier is automatically propagated to children so that nested delegation chains publish events at every level. The engine wires this to the `EventBus` so frontends can observe sub-agent activity.
-
-### Display Prefix
-
-`Options.Prefix` sets a configurable emoji/label for the agent (e.g. `"🤖"`, `"📝"`, `"🦾"`). It defaults to `"🤖"` when empty. Frontends read the prefix via `Agent.Prefix()` or from `AgentEventData` in lifecycle events to render agent output with the appropriate visual treatment.
+```go
+var ErrMaxIterations = errors.New("agent: max iterations reached")
+```
 
 ## Effects System
 
 Effects are pluggable, per-iteration hooks that run inside the ReAct loop at two phases: **before** the LLM call (`PhaseBeforeComplete`) and **after** the LLM reply (`PhaseAfterComplete`). They enable configuration-driven behaviours without modifying the core loop.
 
-### Interface
+### Effect Interface
 
 ```go
 type Effect interface {
@@ -129,6 +187,45 @@ type Effect interface {
 ```
 
 Effects receive an `IterationContext` containing the current phase, iteration number, chat, completer, and agent name. Returning an error aborts the loop. Effects run synchronously in registration order.
+
+### IterationPhase
+
+```go
+const (
+    PhaseBeforeComplete IterationPhase = iota // Runs before the LLM call.
+    PhaseAfterComplete                        // Runs after the LLM reply, before tool dispatch.
+)
+```
+
+### IterationContext
+
+```go
+type IterationContext struct {
+    Phase     IterationPhase
+    Iteration int
+    Chat      *chat.Chat
+    Completer modeladapter.Completer
+    AgentName string
+}
+```
+
+### Resetter
+
+Optional interface that effects can implement to reset internal state between agent runs. Effects that track per-run state (e.g. injection guards, counters) should implement this. The agent calls `Reset()` on all effects that implement `Resetter` at the beginning of each `Run()`.
+
+```go
+type Resetter interface {
+    Reset()
+}
+```
+
+### EffectFunc
+
+Adapter that lets ordinary functions implement `Effect`.
+
+```go
+type EffectFunc func(ctx context.Context, ic IterationContext) error
+```
 
 ### Configuration
 
@@ -156,62 +253,161 @@ agents:
           threshold: 0.8
 ```
 
-### Built-in Effects
+See `pkg/agent/effects/` for available implementations.
 
-See `pkg/agent/effects/` for available implementations:
+## Middleware System
 
-| Effect | Kind | Phase | Description |
-|--------|------|-------|-------------|
-| `CompactEffect` | `compact` | BeforeComplete | Graduated context compaction: first trims old tool results (lightweight), then falls back to full summarisation when approaching context window limit |
-| `TrimToolResultsEffect` | `trim_tool_results` | AfterComplete | Trims old tool result content to a configurable length, preserving the most recent N tool messages |
+Middleware wraps the agent's `Run` method, enabling cross-cutting concerns. Middleware is applied in the order listed in `Options.Middleware`, with the first middleware being the outermost wrapper.
+
+### Runner / RunnerFunc
+
+```go
+type Runner interface {
+    Run(ctx context.Context) (message.Message, error)
+}
+
+type RunnerFunc func(ctx context.Context) (message.Message, error)
+```
+
+### Middleware Type
+
+```go
+type Middleware func(next Runner) Runner
+```
+
+### Built-in Middleware
+
+| Middleware | Description |
+|-----------|-------------|
+| `Timeout(d time.Duration)` | Wraps the runner's context with a deadline. |
+| `Recovery()` | Catches panics and converts them to errors. |
+| `Logger(log *slog.Logger, name string)` | Structured logging of start, finish, duration, and errors. |
+| `OutputGuardrail(check func(message.Message) error)` | Validates the final message; returns the check error if validation fails. Skipped when the runner itself returns an error. |
+
+## Built-in Orchestration Tools
+
+When a `Registry` is set, two tools are automatically injected:
+
+| Tool | Description |
+|------|-------------|
+| `list_agents` | Lists all available agents (excluding self). Case-insensitive self-exclusion. |
+| `delegate` | Delegates one or more tasks to other agents. All tasks run concurrently. Each task requires `agent`, `task`, and `context` fields. Optional `task_id` per task for automatic task lifecycle. |
+
+When depth > 0 (sub-agent), an additional tool is injected:
+
+| Tool | Description |
+|------|-------------|
+| `task_complete` | Signals task completion with structured metadata (status, summary, files modified, tests run, caveats). Only callable once per agent run (duplicates are silently ignored). |
+
+### Delegation Mechanics
+
+The `delegate` tool:
+
+1. Validates input (rejects self-delegation, enforces `MaxDelegationDepth`).
+2. Spawns child agents from the registry with `depth + 1`.
+3. Propagates the parent's registry, `EventNotifier`, `EventFunc`, `ReflectionDir`, `TaskBoard`, and `MaxDelegationDepth` to each child.
+4. Calls `child.AddToolBoxes(parent.toolboxes...)` for toolbox inheritance.
+5. Prepends a `<delegation_context>` user message with the provided context.
+6. Searches for relevant prior reflections and prepends them as `<prior_reflections>`.
+7. Appends the task as a user message.
+8. Runs all tasks concurrently and collects results.
+
+Safety guards: self-delegation rejected (case-insensitive), `MaxDelegationDepth` enforced.
+
+### Automatic Task Lifecycle
+
+When `Options.TaskBoard` is set, the `delegate` tool supports an optional `task_id` parameter per task:
+
+1. **Before `child.Run()`**: `TaskBoard.ClaimTask(taskID, childName)` is called. Claim errors cause the task to fail immediately.
+2. **After `child.Run()`**: if the child produced a `CompletionResult`, `TaskBoard.UpdateTaskStatus(taskID, cr.Status)` is called automatically. If the child exhausts iterations, a synthetic `CompletionResult` with status "failed" is created and the task is updated accordingly.
+
+### Structured Completion Protocol
+
+Sub-agents (depth > 0) receive a `task_complete` tool and a `<completion_protocol>` section in their system prompt instructing them to always call it. When called, the ReAct loop stops immediately. The result is stored on the agent and included in the `delegate` tool's response. If the sub-agent exhausts its iteration limit without calling `task_complete`, a synthetic failed `CompletionResult` is generated and a reflection note is written.
+
+Duplicate `task_complete` calls are safely ignored via `sync.Once`.
+
+### Failure Reflections
+
+When `Options.ReflectionDir` is set, the `delegate` tool writes markdown reflection notes when sub-agents fail. Before delegating, it searches existing reflections for keyword matches against the task description and prepends relevant ones as `<prior_reflections>`. This enables agents to learn from past failures.
+
+Reflections are capped at 5 files and 32KB total to avoid excessive context.
+
+### Notes Protocol
+
+When an agent has notes tools (detected by the presence of `list_notes` in its toolboxes), the system prompt includes a `<notes_protocol>` section informing the agent about the shared notes system for durable cross-agent communication. The protocol does not preload any notes content.
+
+### Sub-Agent Event Notifications
+
+When `Options.EventNotifier` is set, the `delegate` tool publishes lifecycle events:
+
+- `agent_start` -- emitted before `child.Run(ctx)` with `AgentEventData{Prefix, Parent}`.
+- `agent_end` -- emitted after `child.Run(ctx)` completes (success or error).
+
+The notifier is automatically propagated to children so nested delegation chains publish events at every level.
 
 ### Toolbox Inheritance
 
-When an agent delegates to or spawns a child agent, the child receives a **union** of its own configured toolboxes and the parent's toolboxes. The sequence is:
+When a parent delegates to a child, the child receives a union of its own toolboxes and the parent's toolboxes. `AddToolBoxes` deduplicates by pointer equality, so shared `*ToolBox` instances are not duplicated.
 
-1. The child's factory is called, producing a fresh agent with only its config-defined toolboxes.
-2. The parent calls `child.AddToolBoxes(a.toolboxes...)`, which adds only toolboxes not already present (pointer-based deduplication).
-3. The child's registry is set to the parent's registry, enabling further delegation.
+### Display Prefix
 
-`AddToolBoxes` deduplicates by pointer equality — if the parent and child share the same `*ToolBox` (e.g., both configured with `filesystem`), it will not be added twice. This prevents duplicate tool declarations from being sent to the LLM.
-
-**Implication**: a child agent may end up with tools beyond what its YAML config specifies. For example, if `code_reviewer` is configured with `[filesystem, search, git]` but is delegated from an `assistant` with `[filesystem, exec, search, git, http, state, tasks]`, the child will also have access to `exec`, `http`, `state`, and `tasks` via inheritance — but shared toolboxes like `filesystem`, `search`, and `git` will not be duplicated.
+`Options.Prefix` sets a configurable emoji/label for the agent. It defaults to a robot emoji when empty. Frontends read the prefix via `Agent.Prefix()` or from `AgentEventData` in lifecycle events.
 
 ## System Prompt Structure
 
 The system prompt is built by `buildSystemPrompt()` using XML tags for clear section boundaries. Sections are ordered for prompt-cache friendliness (static content first, dynamic content last):
 
-1. `<identity>` — Agent name and description (static, cacheable prefix)
-2. `<completion_protocol>` — Sub-agent completion instructions (static, depth > 0 only)
-3. `<notes_protocol>` — Cross-agent notes awareness (static, only when notes tools are present)
-4. `<instructions>` — Agent-specific instructions (static)
-5. `<project_context>` — Project context loaded at startup (semi-static)
-6. `<skills>` — Inline skill content (semi-static)
-7. `<available_skills>` — On-demand skill descriptions (semi-static)
-8. `<available_agents>` — Agent directory from registry (dynamic, last)
+1. `<identity>` -- Agent name and description (static, cacheable prefix)
+2. `<completion_protocol>` -- Sub-agent completion instructions (static, depth > 0 only)
+3. `<notes_protocol>` -- Cross-agent notes awareness (static, only when notes tools are present)
+4. `<instructions>` -- Agent-specific instructions (static)
+5. `<behavioral_constraints>` -- Heuristic behavioural hints (static, can be disabled via `DisableBehavioralHints`)
+6. `<project_context>` -- Project context loaded at startup (semi-static)
+7. `<skills>` -- Inline skill content, skills without a description (semi-static)
+8. `<available_skills>` -- On-demand skill descriptions with `load_skill` instruction, skills with a description (semi-static)
+9. `<available_agents>` -- Agent directory from registry, excluding self (dynamic, last)
 
-This ordering ensures LLM provider prompt caching can cache the stable prefix across iterations, and the XML tags help LLMs attend to section boundaries without relying on prose structure.
+## ReAct Loop Details
 
-The `Skills` slice in `Options` controls which skills appear in sections 4 and 5. The engine can filter engine-level skills per agent via the `skills` config field — see `pkg/engine/README.md` for details.
+The internal `run()` method:
 
-## Architecture
+1. Sets the agent name in the context via `agentctx.WithAgentName`.
+2. Calls `Init()` to ensure the system prompt exists.
+3. Collects all toolboxes (user + orchestration + completion) and deduplicates tool declarations by name.
+4. Resets all effects that implement `Resetter`.
+5. Enters the iteration loop (bounded by `MaxIterations` or unlimited if 0).
+6. Each iteration:
+   - Evaluates effects at `PhaseBeforeComplete`.
+   - Calls `completer.Complete()` with the chat and tools.
+   - Appends the reply to the chat, emits `message_added` event.
+   - Evaluates effects at `PhaseAfterComplete`.
+   - If no tool calls in the reply, returns the reply as the final answer.
+   - Executes all tool calls concurrently using `sync.WaitGroup.Go()`, collecting results in order.
+   - Appends tool results to the chat, emits `message_added` events.
+   - If `completionResult` is set (from `task_complete`), returns immediately.
+7. If the loop exhausts iterations, returns `ErrMaxIterations`.
+
+## File Structure
 
 ```
-agent.go        — Agent struct, New(), Run() ReAct loop, system prompt building, EventNotifier, Prefix
-effect.go       — Effect interface, EffectFunc, IterationPhase, IterationContext
-effects/        — Reusable Effect implementations (compact, etc.)
-registry.go     — Registry for dynamic agent discovery + Factory pattern
-tools.go        — Built-in orchestration tools, AgentEventData, sub-agent event publishing
-middleware.go   — Runner interface, Middleware type, built-in middleware
+agent.go        -- Agent struct, New(), Run(), Init(), system prompt building, event emission
+effect.go       -- Effect interface, EffectFunc, Resetter, IterationPhase, IterationContext
+effects/        -- Reusable Effect implementations (see pkg/agent/effects/README.md)
+registry.go     -- Registry, Factory, Entry for dynamic agent discovery and spawning
+tools.go        -- Built-in orchestration tools (list_agents, delegate, task_complete),
+                   AgentEventData, delegation context, reflection helpers
+middleware.go   -- Runner interface, Middleware type, built-in middleware
+                   (Timeout, Recovery, Logger, OutputGuardrail)
 ```
 
 ## Dependencies
 
-- `pkg/agentctx/` — shared context key helpers (agent name propagation)
-- `pkg/chats/` — chat, message, content, role types
-- `pkg/modeladapter/` — Completer interface
-- `pkg/tools/toolbox/` — ToolBox, Tool types
-- `pkg/skill/` — Skill type for procedure loading
+- `pkg/agentctx/` -- shared context key helpers (agent name propagation)
+- `pkg/chats/` -- chat, message, content, role types
+- `pkg/modeladapter/` -- `Completer` interface, `UsageReporter` (used by effects)
+- `pkg/tools/toolbox/` -- `ToolBox`, `Tool` types
+- `pkg/skill/` -- `Skill` type for procedure loading
 
 ## Usage
 
@@ -219,20 +415,21 @@ middleware.go   — Runner interface, Middleware type, built-in middleware
 // Simple agent with tools.
 a := agent.New("assistant", "Helpful bot", "Be helpful.", completer, agent.Options{
     MaxIterations: 20,
-    Prefix:        "🤖",
 })
 a.AddToolBoxes(myTools)
 reply, err := a.Run(ctx)
 
-// Agent with delegation and sub-agent event notifications.
+// Agent with delegation, middleware, and effects.
 reg := agent.NewRegistry()
 reg.Register("researcher", "Finds information", researcherFactory)
 reg.Register("coder", "Writes code", coderFactory)
 
 orch := agent.New("orchestrator", "Coordinates work", "Break tasks into subtasks.", completer, agent.Options{
+    MaxIterations:      100,
     MaxDelegationDepth: 3,
     Skills:             skills,
-    Prefix:             "🧠",
+    Middleware:         []agent.Middleware{agent.Recovery(), agent.Logger(logger, "orchestrator")},
+    Effects:            []agent.Effect{compactEffect, trimEffect},
     EventNotifier: func(ctx context.Context, kind, name string, data any) {
         fmt.Printf("sub-agent event: %s %s\n", kind, name)
     },
