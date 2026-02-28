@@ -3,6 +3,7 @@ package chatview
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -276,6 +277,7 @@ func (m *ChatViewModel) EndAgent(agentName, _ string) {
 	// Check if this is a nested sub-agent.
 	if sa, ok := m.subAgents[agentName]; ok {
 		sa.Container.Done = true
+		sa.Container.EndTime = time.Now()
 		delete(m.subAgents, agentName)
 		return
 	}
@@ -287,6 +289,7 @@ func (m *ChatViewModel) EndAgent(agentName, _ string) {
 	}
 
 	ac.Done = true
+	ac.EndTime = time.Now()
 	summary := ac.CollapsedSummary()
 
 	delete(m.agents, agentName)

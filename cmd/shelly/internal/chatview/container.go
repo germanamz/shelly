@@ -16,8 +16,9 @@ type AgentContainer struct {
 	Items     []DisplayItem
 	CallIndex map[string]*ToolCallItem // callID → ToolCallItem for O(1) lookup
 	StartTime time.Time
-	SpinMsg   string // random message picked once at creation, used for initial spinner
-	MaxShow   int    // 0 = show all (root), >0 = windowed (sub-agent)
+	EndTime   time.Time // frozen when Done is set
+	SpinMsg   string    // random message picked once at creation, used for initial spinner
+	MaxShow   int       // 0 = show all (root), >0 = windowed (sub-agent)
 	Done      bool
 	FrameIdx  int
 }
@@ -126,9 +127,26 @@ func (ac *AgentContainer) CompleteToolCall(callID, result string, isError bool) 
 	if tc == nil {
 		return
 	}
+	now := time.Now()
 	tc.Completed = true
+	tc.EndTime = now
 	tc.Result = result
 	tc.IsError = isError
+
+	// If this call belongs to a group, freeze the group's EndTime when all calls are done.
+	for _, item := range ac.Items {
+		if tg, ok := item.(*ToolGroupItem); ok && tg.EndTime.IsZero() {
+			for _, c := range tg.Calls {
+				if c == tc {
+					// tc belongs to this group — check if all calls are done.
+					if !tg.IsLive() {
+						tg.EndTime = now
+					}
+					return
+				}
+			}
+		}
+	}
 }
 
 // findCallByID returns the pending ToolCallItem with the given ID.
@@ -176,7 +194,11 @@ func (ac *AgentContainer) View(width int) string {
 
 // CollapsedSummary returns a one-line summary after agent completion.
 func (ac *AgentContainer) CollapsedSummary() string {
-	elapsed := format.FmtDuration(time.Since(ac.StartTime))
+	end := ac.EndTime
+	if end.IsZero() {
+		end = time.Now()
+	}
+	elapsed := format.FmtDuration(end.Sub(ac.StartTime))
 	prefix := ac.Prefix
 	if prefix == "" {
 		prefix = "🤖"

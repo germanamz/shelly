@@ -60,6 +60,7 @@ type ToolCallItem struct {
 	IsError   bool
 	Completed bool
 	StartTime time.Time
+	EndTime   time.Time // frozen when Completed is set
 	SpinMsg   string
 	FrameIdx  int
 }
@@ -76,7 +77,11 @@ func (m *ToolCallItem) View(width int) string {
 	if m.Completed {
 		elapsed := ""
 		if !m.StartTime.IsZero() {
-			elapsed = format.FmtDuration(time.Since(m.StartTime))
+			end := m.EndTime
+			if end.IsZero() {
+				end = time.Now()
+			}
+			elapsed = format.FmtDuration(end.Sub(m.StartTime))
 		}
 
 		fmt.Fprintf(&sb, "🔧 %s", styles.ToolNameStyle.Render(title))
@@ -143,6 +148,7 @@ type ToolGroupItem struct {
 	Calls     []*ToolCallItem
 	MaxShow   int // 0 = show all, >0 = window
 	StartTime time.Time
+	EndTime   time.Time // frozen when all calls complete
 }
 
 func (m *ToolGroupItem) View(width int) string {
@@ -153,7 +159,11 @@ func (m *ToolGroupItem) View(width int) string {
 	if allDone {
 		elapsed := ""
 		if !m.StartTime.IsZero() {
-			elapsed = format.FmtDuration(time.Since(m.StartTime))
+			end := m.EndTime
+			if end.IsZero() {
+				end = time.Now()
+			}
+			elapsed = format.FmtDuration(end.Sub(m.StartTime))
 		}
 		sb.WriteString("🔧 Used tools\n")
 		summary := fmt.Sprintf("Finished with %d tools", len(m.Calls))
@@ -195,7 +205,11 @@ func (m *ToolGroupItem) View(width int) string {
 				resultTxt := format.Truncate(call.Result, 200)
 				elapsed := ""
 				if !call.StartTime.IsZero() {
-					elapsed = fmt.Sprintf(" in %s", format.FmtDuration(time.Since(call.StartTime)))
+					end := call.EndTime
+					if end.IsZero() {
+						end = time.Now()
+					}
+					elapsed = fmt.Sprintf(" in %s", format.FmtDuration(end.Sub(call.StartTime)))
 				}
 				if call.IsError {
 					fmt.Fprintf(&sb, "\n%s%s", childPrefix, styles.ToolErrorStyle.Render(styles.TreeCorner+resultTxt+elapsed))
@@ -281,7 +295,11 @@ func (m *SubAgentItem) View(width int) string {
 	}
 
 	if m.Container.Done {
-		elapsed := format.FmtDuration(time.Since(m.Container.StartTime))
+		end := m.Container.EndTime
+		if end.IsZero() {
+			end = time.Now()
+		}
+		elapsed := format.FmtDuration(end.Sub(m.Container.StartTime))
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "%s %s\n", prefix, m.Container.Agent)
 		fmt.Fprintf(&sb, "%s%s", styles.TreeCorner, styles.DimStyle.Render(fmt.Sprintf("Finished in %s", elapsed)))
