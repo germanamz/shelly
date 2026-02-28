@@ -70,26 +70,46 @@ func (e *ReflectionEffect) Eval(_ context.Context, ic agent.IterationContext) er
 // Run() calls on a long-lived agent. Implements agent.Resetter.
 func (e *ReflectionEffect) Reset() { e.lastInjectedCount = 0 }
 
-// countConsecutiveFailures scans from the end of the chat for consecutive
-// tool-role messages with IsError == true. It skips assistant messages between
-// tool results (since tool calls always produce an assistant message followed
-// by tool results). Stops at the first non-error tool result or user message.
+// countConsecutiveFailures scans from the end of the chat backwards, grouping
+// consecutive tool messages between assistant messages into a single "step".
+// A step counts as a failure only if ALL tool results in it failed (none
+// succeeded). Stops at the first successful step or user message.
 func (e *ReflectionEffect) countConsecutiveFailures(ic agent.IterationContext) int {
 	msgs := ic.Chat.Messages()
 	count := 0
+	stepHasError := false
+	stepHasSuccess := false
+	inStep := false
 
 	for i := len(msgs) - 1; i >= 0; i-- {
-		// Skip assistant messages between tool results.
 		if msgs[i].Role == role.Assistant {
+			if inStep {
+				if stepHasError && !stepHasSuccess {
+					count++
+				} else if inStep && (stepHasSuccess || !stepHasError) {
+					break
+				}
+				stepHasError = false
+				stepHasSuccess = false
+				inStep = false
+			}
+
 			continue
 		}
 
 		if msgs[i].Role != role.Tool {
+			if inStep {
+				if stepHasError && !stepHasSuccess {
+					count++
+				} else {
+					break
+				}
+			}
+
 			break
 		}
 
-		hasError := false
-		hasSuccess := false
+		inStep = true
 
 		for _, p := range msgs[i].Parts {
 			tr, ok := p.(content.ToolResult)
@@ -98,18 +118,17 @@ func (e *ReflectionEffect) countConsecutiveFailures(ic agent.IterationContext) i
 			}
 
 			if tr.IsError {
-				hasError = true
+				stepHasError = true
 			} else {
-				hasSuccess = true
+				stepHasSuccess = true
 			}
 		}
+	}
 
-		// A message with no ToolResult parts is not a failure.
-		if !hasError || hasSuccess {
-			break
+	if inStep {
+		if stepHasError && !stepHasSuccess {
+			count++
 		}
-
-		count++
 	}
 
 	return count

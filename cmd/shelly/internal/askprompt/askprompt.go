@@ -290,6 +290,11 @@ func (m AskBatchModel) Questions() []msgs.AskUserMsg {
 }
 
 func (m AskBatchModel) buildAnsweredCmd(customText string) tea.Cmd {
+	for _, e := range m.entries {
+		if e.response == "" {
+			return nil
+		}
+	}
 	answers := make([]msgs.AskAnswer, len(m.entries))
 	for i, e := range m.entries {
 		answers[i] = msgs.AskAnswer{QuestionID: e.question.Question.ID, Response: e.response}

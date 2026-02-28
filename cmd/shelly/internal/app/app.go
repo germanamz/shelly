@@ -256,6 +256,11 @@ func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if text == "/clear" {
+		if m.cancelSend != nil {
+			m.cancelSend()
+			m.cancelSend = nil
+		}
+		m.state = StateIdle
 		if m.cancelBridge != nil {
 			m.cancelBridge()
 			m.cancelBridge = nil
@@ -279,12 +284,15 @@ func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
 	m.chatView.MarkMessageSent()
 
 	if m.state == StateProcessing {
-		// Queue message while processing.
+		if m.cancelSend != nil {
+			m.cancelSend()
+		}
+		sendCtx, cancelSend := context.WithCancel(m.ctx)
+		m.cancelSend = cancelSend
 		sess := m.sess
-		ctx := m.ctx
 		sendStart := time.Now()
 		return m, func() tea.Msg {
-			_, err := sess.Send(ctx, text)
+			_, err := sess.Send(sendCtx, text)
 			return msgs.SendCompleteMsg{Err: err, Duration: time.Since(sendStart)}
 		}
 	}
@@ -351,6 +359,9 @@ func (m *AppModel) drainAskBatch() (tea.Model, tea.Cmd) {
 }
 
 func (m *AppModel) handleBatchAnswered(msg msgs.AskBatchAnsweredMsg) (tea.Model, tea.Cmd) {
+	if m.askActive == nil {
+		return m, nil
+	}
 	dismissed := m.askActive.Questions()
 	m.askActive = nil
 

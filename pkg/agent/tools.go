@@ -118,6 +118,12 @@ func delegateTool(a *Agent) toolbox.Tool {
 			toolboxSnapshot := make([]*toolbox.ToolBox, len(a.toolboxes))
 			copy(toolboxSnapshot, a.toolboxes)
 
+			eventNotifier := a.options.EventNotifier
+			eventFunc := a.options.EventFunc
+			reflectionDir := a.options.ReflectionDir
+			taskBoard := a.options.TaskBoard
+			maxDelegationDepth := a.options.MaxDelegationDepth
+
 			for i, t := range di.Tasks {
 				wg.Go(func() {
 					child, ok := a.registry.Spawn(t.Agent, a.depth+1)
@@ -130,23 +136,23 @@ func delegateTool(a *Agent) toolbox.Tool {
 					}
 
 					child.registry = a.registry
-					child.options.EventNotifier = a.options.EventNotifier
-					child.options.EventFunc = a.options.EventFunc
-					child.options.ReflectionDir = a.options.ReflectionDir
-					child.options.TaskBoard = a.options.TaskBoard
-					child.options.MaxDelegationDepth = a.options.MaxDelegationDepth
+					child.options.EventNotifier = eventNotifier
+					child.options.EventFunc = eventFunc
+					child.options.ReflectionDir = reflectionDir
+					child.options.TaskBoard = taskBoard
+					child.options.MaxDelegationDepth = maxDelegationDepth
 					child.AddToolBoxes(toolboxSnapshot...)
 					prependContext(child, t.Context)
 
-					if reflections := searchReflections(a.options.ReflectionDir, t.Task); reflections != "" {
+					if reflections := searchReflections(reflectionDir, t.Task); reflections != "" {
 						child.chat.Append(message.NewText("user", role.User, reflections))
 					}
 
 					child.chat.Append(message.NewText("user", role.User, t.Task))
 
 					// Auto-claim task if task_id is provided and TaskBoard is available.
-					if t.TaskID != "" && a.options.TaskBoard != nil {
-						if claimErr := a.options.TaskBoard.ClaimTask(t.TaskID, child.name); claimErr != nil {
+					if t.TaskID != "" && taskBoard != nil {
+						if claimErr := taskBoard.ClaimTask(t.TaskID, child.name); claimErr != nil {
 							results[i] = delegateResult{
 								Agent: t.Agent,
 								Error: fmt.Sprintf("failed to claim task %q: %v", t.TaskID, claimErr),
@@ -155,14 +161,14 @@ func delegateTool(a *Agent) toolbox.Tool {
 						}
 					}
 
-					if a.options.EventNotifier != nil {
-						a.options.EventNotifier(ctx, "agent_start", child.name, AgentEventData{Prefix: child.Prefix(), Parent: a.name})
+					if eventNotifier != nil {
+						eventNotifier(ctx, "agent_start", child.name, AgentEventData{Prefix: child.Prefix(), Parent: a.name})
 					}
 
 					reply, err := child.Run(ctx)
 
-					if a.options.EventNotifier != nil {
-						a.options.EventNotifier(ctx, "agent_end", child.name, AgentEventData{Prefix: child.Prefix(), Parent: a.name})
+					if eventNotifier != nil {
+						eventNotifier(ctx, "agent_end", child.name, AgentEventData{Prefix: child.Prefix(), Parent: a.name})
 					}
 
 					if err != nil {
@@ -172,9 +178,9 @@ func delegateTool(a *Agent) toolbox.Tool {
 								Summary: fmt.Sprintf("Agent %q exhausted its iteration limit without completing the task.", t.Agent),
 								Caveats: "Iteration limit reached. Check progress notes for partial work.",
 							}
-							writeReflection(a.options.ReflectionDir, t.Agent, t.Task, cr)
-							if t.TaskID != "" && a.options.TaskBoard != nil {
-								_ = a.options.TaskBoard.UpdateTaskStatus(t.TaskID, cr.Status)
+							writeReflection(reflectionDir, t.Agent, t.Task, cr)
+							if t.TaskID != "" && taskBoard != nil {
+								_ = taskBoard.UpdateTaskStatus(t.TaskID, cr.Status)
 							}
 							results[i] = delegateResult{
 								Agent:      t.Agent,
@@ -192,10 +198,10 @@ func delegateTool(a *Agent) toolbox.Tool {
 					// Auto-update task status based on completion result.
 					if cr := child.CompletionResult(); cr != nil {
 						if cr.Status == "failed" {
-							writeReflection(a.options.ReflectionDir, t.Agent, t.Task, cr)
+							writeReflection(reflectionDir, t.Agent, t.Task, cr)
 						}
-						if t.TaskID != "" && a.options.TaskBoard != nil {
-							_ = a.options.TaskBoard.UpdateTaskStatus(t.TaskID, cr.Status)
+						if t.TaskID != "" && taskBoard != nil {
+							_ = taskBoard.UpdateTaskStatus(t.TaskID, cr.Status)
 						}
 					}
 

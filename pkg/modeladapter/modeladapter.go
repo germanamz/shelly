@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -89,6 +90,8 @@ type ModelAdapter struct {
 	HeaderParser RateLimitHeaderParser // Optional parser for rate limit response headers.
 
 	rateLimitInfo atomic.Pointer[RateLimitInfo]
+	clientOnce    sync.Once
+	defaultClient *http.Client
 }
 
 // New creates a ModelAdapter with the given settings.
@@ -116,13 +119,17 @@ func (a *ModelAdapter) Complete(_ context.Context, _ *chat.Chat, _ []toolbox.Too
 	return message.Message{}, errors.New("adapter: Complete not implemented")
 }
 
-// httpClient returns the configured client or a default client with a 10-minute timeout.
+// httpClient returns the configured client or a cached default client with a 10-minute timeout.
 func (a *ModelAdapter) httpClient() *http.Client {
 	if a.Client != nil {
 		return a.Client
 	}
 
-	return &http.Client{Timeout: 10 * time.Minute}
+	a.clientOnce.Do(func() {
+		a.defaultClient = &http.Client{Timeout: 10 * time.Minute}
+	})
+
+	return a.defaultClient
 }
 
 // NewRequest builds an *http.Request with the base URL, auth, and custom

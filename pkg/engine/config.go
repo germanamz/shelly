@@ -92,22 +92,22 @@ type AgentOptions struct {
 }
 
 // LoadConfig reads a YAML file and returns a Config.
-// Environment variables referenced as ${VAR} or $VAR in the YAML are expanded
-// before parsing. This allows API keys and other secrets to be kept in
-// environment variables (e.g. loaded from a .env file) rather than committed
-// in the config.
+// Environment variables referenced as ${VAR} or $VAR in string fields are
+// expanded after parsing. This allows API keys and other secrets to be kept
+// in environment variables (e.g. loaded from a .env file) rather than
+// committed in the config, without risking YAML injection from env values.
 func LoadConfig(path string) (Config, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // path is caller-provided configuration, not user input
 	if err != nil {
 		return Config{}, fmt.Errorf("engine: load config: %w", err)
 	}
 
-	expanded := os.ExpandEnv(string(data))
-
 	var cfg Config
-	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("engine: parse config: %w", err)
 	}
+
+	expandConfigStrings(&cfg)
 
 	return cfg, nil
 }
@@ -127,6 +127,50 @@ func LoadConfigRaw(path string) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func expandConfigStrings(cfg *Config) {
+	cfg.EntryAgent = os.ExpandEnv(cfg.EntryAgent)
+	cfg.Filesystem.PermissionsFile = os.ExpandEnv(cfg.Filesystem.PermissionsFile)
+	cfg.Git.WorkDir = os.ExpandEnv(cfg.Git.WorkDir)
+
+	for i := range cfg.Providers {
+		p := &cfg.Providers[i]
+		p.Name = os.ExpandEnv(p.Name)
+		p.Kind = os.ExpandEnv(p.Kind)
+		p.BaseURL = os.ExpandEnv(p.BaseURL)
+		p.APIKey = os.ExpandEnv(p.APIKey)
+		p.Model = os.ExpandEnv(p.Model)
+		p.RateLimit.BaseDelay = os.ExpandEnv(p.RateLimit.BaseDelay)
+	}
+
+	for i := range cfg.MCPServers {
+		m := &cfg.MCPServers[i]
+		m.Name = os.ExpandEnv(m.Name)
+		m.Command = os.ExpandEnv(m.Command)
+		m.URL = os.ExpandEnv(m.URL)
+		for j := range m.Args {
+			m.Args[j] = os.ExpandEnv(m.Args[j])
+		}
+	}
+
+	for i := range cfg.Agents {
+		a := &cfg.Agents[i]
+		a.Name = os.ExpandEnv(a.Name)
+		a.Description = os.ExpandEnv(a.Description)
+		a.Instructions = os.ExpandEnv(a.Instructions)
+		a.Provider = os.ExpandEnv(a.Provider)
+		a.Prefix = os.ExpandEnv(a.Prefix)
+		for j := range a.Toolboxes {
+			a.Toolboxes[j] = os.ExpandEnv(a.Toolboxes[j])
+		}
+		for j := range a.Skills {
+			a.Skills[j] = os.ExpandEnv(a.Skills[j])
+		}
+		for j := range a.Effects {
+			a.Effects[j].Kind = os.ExpandEnv(a.Effects[j].Kind)
+		}
+	}
 }
 
 // KnownProviderKinds returns the list of registered provider kind strings.

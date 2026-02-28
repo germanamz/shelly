@@ -244,6 +244,12 @@ func (g *Git) handleDiff(ctx context.Context, input json.RawMessage) (string, er
 	}
 
 	if in.Path != "" {
+		if strings.HasPrefix(in.Path, "/") {
+			return "", fmt.Errorf("git_diff: absolute paths are not allowed: %s", in.Path)
+		}
+		if slices.Contains(strings.Split(filepath.Clean(in.Path), string(filepath.Separator)), "..") {
+			return "", fmt.Errorf("git_diff: path traversal is not allowed: %s", in.Path)
+		}
 		args = append(args, "--", in.Path)
 	}
 

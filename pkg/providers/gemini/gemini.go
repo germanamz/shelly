@@ -231,6 +231,9 @@ func (a *Adapter) partToAPIPart(p content.Part, callNameMap map[string]string) *
 		}
 	case content.ToolResult:
 		name := callNameMap[v.ToolCallID]
+		if name == "" {
+			return nil
+		}
 		return &apiPart{
 			FunctionResponse: &apiFunctionResp{
 				Name:     name,

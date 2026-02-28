@@ -51,8 +51,9 @@ type OnExecFunc func(ctx context.Context, display string)
 // pendingResult holds the outcome of a single in-flight permission prompt so
 // that concurrent callers waiting on the same command can share the result.
 type pendingResult struct {
-	done chan struct{}
-	err  error
+	done    chan struct{}
+	err     error
+	trusted bool // true when the user chose "trust" (safe to coalesce); false for one-time "yes".
 }
 
 // Exec provides command execution tools with permission gating.
@@ -187,6 +188,13 @@ func (e *Exec) checkPermission(ctx context.Context, command string, args []strin
 			return pr.err
 		}
 
+		// Only coalesce if the user chose "trust". A one-time "yes"
+		// approved specific arguments that may differ from ours, so we
+		// must get our own prompt.
+		if !pr.trusted {
+			return e.promptPermission(ctx, command, display)
+		}
+
 		if e.onExec != nil {
 			e.onExec(ctx, display)
 		}
@@ -200,7 +208,7 @@ func (e *Exec) checkPermission(ctx context.Context, command string, args []strin
 	e.pendingMu.Unlock()
 
 	// Ask the user (blocking).
-	pr.err = e.askAndApproveCmd(ctx, command, display)
+	pr.trusted, pr.err = e.askAndApproveCmd(ctx, command, display)
 
 	// Signal waiters and clean up.
 	close(pr.done)
@@ -211,19 +219,36 @@ func (e *Exec) checkPermission(ctx context.Context, command string, args []strin
 	return pr.err
 }
 
+// promptPermission asks the user for permission without coalescing.
+func (e *Exec) promptPermission(ctx context.Context, command, display string) error {
+	trusted, err := e.askAndApproveCmd(ctx, command, display)
+	if err != nil {
+		return err
+	}
+
+	if trusted {
+		if e.onExec != nil {
+			e.onExec(ctx, display)
+		}
+	}
+
+	return nil
+}
+
 // askAndApproveCmd prompts the user and trusts/approves the command.
-func (e *Exec) askAndApproveCmd(ctx context.Context, command, display string) error {
+// Returns (true, nil) for trust, (false, nil) for one-time yes.
+func (e *Exec) askAndApproveCmd(ctx context.Context, command, display string) (bool, error) {
 	resp, err := e.ask(ctx, fmt.Sprintf("Allow running `%s`?\n(\"trust\" will allow `%s` with ANY arguments without future prompts)", display, command), []string{"yes", "trust", "no"})
 	if err != nil {
-		return fmt.Errorf("exec_run: ask permission: %w", err)
+		return false, fmt.Errorf("exec_run: ask permission: %w", err)
 	}
 
 	switch strings.ToLower(resp) {
 	case "trust":
-		return e.store.TrustCommand(command)
+		return true, e.store.TrustCommand(command)
 	case "yes":
-		return nil
+		return false, nil
 	default:
-		return fmt.Errorf("exec_run: permission denied for %s", command)
+		return false, fmt.Errorf("exec_run: permission denied for %s", command)
 	}
 }

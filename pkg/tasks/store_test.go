@@ -360,8 +360,8 @@ func TestIsBlockedNonexistentDep(t *testing.T) {
 
 	mustCreate(t, s, Task{Title: "task", BlockedBy: []string{"task-999"}})
 
-	// Nonexistent deps are not blocking.
-	assert.False(t, s.IsBlocked("task-1"))
+	// Nonexistent deps are conservatively treated as blocking.
+	assert.True(t, s.IsBlocked("task-1"))
 }
 
 // --- Watch tests ---

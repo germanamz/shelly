@@ -311,7 +311,7 @@ func (s *Store) isBlockedLocked(id string) bool {
 	for _, dep := range t.BlockedBy {
 		dt, ok := s.tasks[dep]
 		if !ok {
-			continue
+			return true
 		}
 		if dt.Status != StatusCompleted {
 			return true

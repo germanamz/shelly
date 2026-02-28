@@ -228,6 +228,12 @@ func (s *Store) persist() error {
 		return fmt.Errorf("permissions: write temp file: %w", err)
 	}
 
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName) //nolint:gosec // tmpName comes from os.CreateTemp in a known directory
+		return fmt.Errorf("permissions: sync temp file: %w", err)
+	}
+
 	if err := tmp.Close(); err != nil {
 		_ = os.Remove(tmpName) //nolint:gosec // tmpName comes from os.CreateTemp in a known directory
 		return fmt.Errorf("permissions: close temp file: %w", err)

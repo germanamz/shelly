@@ -167,7 +167,17 @@ func (c *Chat) Since(offset int) []message.Message {
 	}
 
 	cp := make([]message.Message, len(c.messages)-offset)
-	copy(cp, c.messages[offset:])
+	for i, m := range c.messages[offset:] {
+		cp[i] = m
+		if m.Parts != nil {
+			cp[i].Parts = make([]content.Part, len(m.Parts))
+			copy(cp[i].Parts, m.Parts)
+		}
+		if m.Metadata != nil {
+			cp[i].Metadata = make(map[string]any, len(m.Metadata))
+			maps.Copy(cp[i].Metadata, m.Metadata)
+		}
+	}
 
 	return cp
 }

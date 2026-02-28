@@ -187,28 +187,35 @@ func (r *RateLimitedCompleter) Complete(ctx context.Context, c *chat.Chat, tools
 
 	var lastErr error
 	for attempt := range r.maxRetries + 1 {
-		r.completeMu.Lock()
-		var beforeTotal usage.TokenCount
-		if ur, ok := r.inner.(UsageReporter); ok {
-			beforeTotal = ur.UsageTracker().Total()
-		}
+		msg, err := func() (message.Message, error) {
+			r.completeMu.Lock()
+			defer r.completeMu.Unlock()
 
-		msg, err := r.inner.Complete(ctx, c, tools)
-		if err == nil {
+			var beforeTotal usage.TokenCount
 			if ur, ok := r.inner.(UsageReporter); ok {
-				afterTotal := ur.UsageTracker().Total()
-				r.recordTokens(
-					afterTotal.InputTokens-beforeTotal.InputTokens,
-					afterTotal.OutputTokens-beforeTotal.OutputTokens,
-				)
+				beforeTotal = ur.UsageTracker().Total()
 			}
-			r.completeMu.Unlock()
+
+			m, e := r.inner.Complete(ctx, c, tools)
+			if e == nil {
+				if ur, ok := r.inner.(UsageReporter); ok {
+					afterTotal := ur.UsageTracker().Total()
+					r.recordTokens(
+						afterTotal.InputTokens-beforeTotal.InputTokens,
+						afterTotal.OutputTokens-beforeTotal.OutputTokens,
+					)
+				}
+			}
+
+			return m, e
+		}()
+
+		if err == nil {
 			if sleepErr := r.adaptFromServerInfo(ctx); sleepErr != nil {
 				return message.Message{}, sleepErr
 			}
 			return msg, nil
 		}
-		r.completeMu.Unlock()
 
 		var rle *RateLimitError
 		if !errors.As(err, &rle) {

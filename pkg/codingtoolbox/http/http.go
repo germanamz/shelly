@@ -251,6 +251,16 @@ type fetchOutput struct {
 // maxBodySize is the maximum response body size (1MB).
 const maxBodySize = 1 << 20
 
+var allowedHTTPMethods = map[string]bool{
+	http.MethodGet:     true,
+	http.MethodPost:    true,
+	http.MethodPut:     true,
+	http.MethodPatch:   true,
+	http.MethodDelete:  true,
+	http.MethodHead:    true,
+	http.MethodOptions: true,
+}
+
 func (h *HTTP) fetchTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "http_fetch",
@@ -277,6 +287,10 @@ func (h *HTTP) handleFetch(ctx context.Context, input json.RawMessage) (string, 
 	method := in.Method
 	if method == "" {
 		method = http.MethodGet
+	}
+
+	if !allowedHTTPMethods[method] {
+		return "", fmt.Errorf("http_fetch: unsupported HTTP method %q", method)
 	}
 
 	var bodyReader io.Reader

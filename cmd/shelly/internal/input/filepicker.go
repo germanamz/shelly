@@ -174,6 +174,11 @@ func (fp *FilePickerModel) applyFilter() {
 
 // DiscoverFilesCmd walks the working directory to discover files.
 func DiscoverFilesCmd() tea.Msg {
+	wd, err := os.Getwd()
+	if err != nil {
+		return msgs.FilePickerEntriesMsg{}
+	}
+
 	var entries []string
 	skipDirs := map[string]bool{
 		".git":         true,
@@ -182,7 +187,7 @@ func DiscoverFilesCmd() tea.Msg {
 		".shelly":      true,
 	}
 
-	_ = filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(wd, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return filepath.SkipDir
 		}
@@ -195,7 +200,11 @@ func DiscoverFilesCmd() tea.Msg {
 		if len(entries) >= FilePickerMaxEntries {
 			return filepath.SkipAll
 		}
-		entries = append(entries, path)
+		rel, relErr := filepath.Rel(wd, path)
+		if relErr != nil {
+			rel = path
+		}
+		entries = append(entries, rel)
 		return nil
 	})
 

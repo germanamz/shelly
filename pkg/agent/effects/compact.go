@@ -4,6 +4,7 @@ package effects
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -137,7 +138,7 @@ func (e *CompactEffect) summarize(ctx context.Context, ic agent.IterationContext
 // is available. Otherwise it returns nil to continue silently.
 func (e *CompactEffect) handleCompactError(ctx context.Context, ic agent.IterationContext, compactErr error) error {
 	// Propagate context errors (cancellation, deadline) regardless of AskFunc.
-	if ctx.Err() != nil {
+	if errors.Is(compactErr, context.Canceled) || errors.Is(compactErr, context.DeadlineExceeded) || ctx.Err() != nil {
 		return ctx.Err()
 	}
 
@@ -148,7 +149,7 @@ func (e *CompactEffect) handleCompactError(ctx context.Context, ic agent.Iterati
 	answer, err := e.cfg.AskFunc(ctx, fmt.Sprintf("Context compaction failed: %v. What should I do?", compactErr), []string{"Continue without compaction", "Retry compaction"})
 	if err != nil {
 		// Propagate context errors from AskFunc; swallow other errors.
-		if ctx.Err() != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
 			return ctx.Err()
 		}
 		return nil
@@ -156,7 +157,7 @@ func (e *CompactEffect) handleCompactError(ctx context.Context, ic agent.Iterati
 
 	if answer == "Retry compaction" {
 		if retryErr := e.summarize(ctx, ic); retryErr != nil {
-			if ctx.Err() != nil {
+			if errors.Is(retryErr, context.Canceled) || errors.Is(retryErr, context.DeadlineExceeded) || ctx.Err() != nil {
 				return ctx.Err()
 			}
 			if e.cfg.NotifyFunc != nil {
