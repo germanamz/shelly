@@ -103,24 +103,24 @@ var ToolFormatters = map[string]ToolFormatter{
 	"delegate": func(_ func(string) string, args map[string]any) string {
 		if tasks, ok := args["tasks"]; ok {
 			if arr, ok := tasks.([]any); ok {
-				names := make([]string, 0, len(arr))
+				var agents []string
+				var taskLines []string
 				for _, t := range arr {
 					if m, ok := t.(map[string]any); ok {
 						if agent, ok := m["agent"].(string); ok {
-							task := ""
-							if t, ok := m["task"].(string); ok {
-								task = Truncate(t, 60)
-							}
-							if task != "" {
-								names = append(names, fmt.Sprintf("%s: %s", agent, task))
-							} else {
-								names = append(names, agent)
+							agents = append(agents, agent)
+							if task, ok := m["task"].(string); ok && task != "" {
+								taskLines = append(taskLines, task)
 							}
 						}
 					}
 				}
-				if len(names) > 0 {
-					return fmt.Sprintf("Delegating to %s", strings.Join(names, ", "))
+				if len(agents) > 0 {
+					title := fmt.Sprintf("Delegating to %s", strings.Join(agents, ", "))
+					if len(taskLines) > 0 {
+						return title + "\n" + strings.Join(taskLines, "\n")
+					}
+					return title
 				}
 			}
 		}

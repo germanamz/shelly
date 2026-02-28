@@ -79,6 +79,7 @@ type apiPart struct {
 	Text             string           `json:"text,omitempty"`
 	FunctionCall     *apiFunctionCall `json:"functionCall,omitempty"`
 	FunctionResponse *apiFunctionResp `json:"functionResponse,omitempty"`
+	ThoughtSignature string           `json:"thoughtSignature,omitempty"`
 }
 
 type apiFunctionCall struct {
@@ -230,12 +231,16 @@ func (a *Adapter) partToAPIPart(p content.Part, callNameMap map[string]string) (
 		if len(args) == 0 {
 			args = json.RawMessage(`{}`)
 		}
-		return &apiPart{
+		part := &apiPart{
 			FunctionCall: &apiFunctionCall{
 				Name: v.Name,
 				Args: args,
 			},
-		}, nil
+		}
+		if sig := v.Metadata["thoughtSignature"]; sig != "" {
+			part.ThoughtSignature = sig
+		}
+		return part, nil
 	case content.ToolResult:
 		name := callNameMap[v.ToolCallID]
 		if name == "" {
@@ -324,11 +329,17 @@ func (a *Adapter) parseCandidate(cand apiCandidate) message.Message {
 	for _, p := range cand.Content.Parts {
 		switch {
 		case p.FunctionCall != nil:
-			parts = append(parts, content.ToolCall{
+			tc := content.ToolCall{
 				ID:        generateCallID(p.FunctionCall.Name),
 				Name:      p.FunctionCall.Name,
 				Arguments: string(p.FunctionCall.Args),
-			})
+			}
+			if p.ThoughtSignature != "" {
+				tc.Metadata = map[string]string{
+					"thoughtSignature": p.ThoughtSignature,
+				}
+			}
+			parts = append(parts, tc)
 		case p.Text != "":
 			parts = append(parts, content.Text{Text: p.Text})
 		}

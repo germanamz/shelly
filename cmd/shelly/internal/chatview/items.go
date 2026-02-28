@@ -70,13 +70,27 @@ func (m *ToolCallItem) View(width int) string {
 
 	contentWidth := max(width-2, 20)
 
+	// Split label into title (first line) and detail lines (rest).
+	title, detail, _ := strings.Cut(label, "\n")
+
 	if m.Completed {
 		elapsed := ""
 		if !m.StartTime.IsZero() {
 			elapsed = format.FmtDuration(time.Since(m.StartTime))
 		}
 
-		fmt.Fprintf(&sb, "🔧 %s", styles.ToolNameStyle.Render(label))
+		fmt.Fprintf(&sb, "🔧 %s", styles.ToolNameStyle.Render(title))
+		if detail != "" {
+			detailWidth := max(contentWidth-4, 20)
+			wrapped := format.WordWrap(detail, detailWidth)
+			for i, line := range strings.Split(wrapped, "\n") {
+				if i == 0 {
+					fmt.Fprintf(&sb, "\n %s%s", styles.TreeTee, styles.DimStyle.Render(line))
+				} else {
+					fmt.Fprintf(&sb, "\n %s%s", styles.TreePipe, styles.DimStyle.Render(line))
+				}
+			}
+		}
 		if m.Result != "" {
 			resultTxt := format.Truncate(m.Result, 200)
 			resultWidth := max(contentWidth-len(styles.TreeCorner)-1, 20)
@@ -98,10 +112,21 @@ func (m *ToolCallItem) View(width int) string {
 		}
 		frame := format.SpinnerFrames[m.FrameIdx%len(format.SpinnerFrames)]
 		fmt.Fprintf(&sb, "🔧 %s %s %s",
-			styles.ToolNameStyle.Render(label),
+			styles.ToolNameStyle.Render(title),
 			styles.DimStyle.Render(elapsed),
 			styles.SpinnerStyle.Render(frame),
 		)
+		if detail != "" {
+			detailWidth := max(contentWidth-4, 20)
+			wrapped := format.WordWrap(detail, detailWidth)
+			for i, line := range strings.Split(wrapped, "\n") {
+				if i == 0 {
+					fmt.Fprintf(&sb, "\n %s%s", styles.TreeTee, styles.DimStyle.Render(line))
+				} else {
+					fmt.Fprintf(&sb, "\n %s%s", styles.TreePipe, styles.DimStyle.Render(line))
+				}
+			}
+		}
 	}
 
 	return sb.String()
@@ -151,9 +176,21 @@ func (m *ToolGroupItem) View(width int) string {
 		}
 
 		label := format.FormatToolCall(call.ToolName, call.Args)
+		callTitle, callDetail, _ := strings.Cut(label, "\n")
 
 		if call.Completed {
-			fmt.Fprintf(&sb, "%s%s", connector, styles.ToolNameStyle.Render(label))
+			fmt.Fprintf(&sb, "%s%s", connector, styles.ToolNameStyle.Render(callTitle))
+			if callDetail != "" {
+				detailWidth := max(width-6, 20)
+				wrapped := format.WordWrap(callDetail, detailWidth)
+				for j, line := range strings.Split(wrapped, "\n") {
+					if j == 0 {
+						fmt.Fprintf(&sb, "\n%s%s%s", childPrefix, styles.TreeTee, styles.DimStyle.Render(line))
+					} else {
+						fmt.Fprintf(&sb, "\n%s%s%s", childPrefix, styles.TreePipe, styles.DimStyle.Render(line))
+					}
+				}
+			}
 			if call.Result != "" {
 				resultTxt := format.Truncate(call.Result, 200)
 				elapsed := ""
@@ -174,10 +211,21 @@ func (m *ToolGroupItem) View(width int) string {
 			frame := format.SpinnerFrames[call.FrameIdx%len(format.SpinnerFrames)]
 			fmt.Fprintf(&sb, "%s%s %s %s",
 				connector,
-				styles.ToolNameStyle.Render(label),
+				styles.ToolNameStyle.Render(callTitle),
 				styles.DimStyle.Render(elapsed),
 				styles.SpinnerStyle.Render(frame),
 			)
+			if callDetail != "" {
+				detailWidth := max(width-6, 20)
+				wrapped := format.WordWrap(callDetail, detailWidth)
+				for j, line := range strings.Split(wrapped, "\n") {
+					if j == 0 {
+						fmt.Fprintf(&sb, "\n%s%s%s", childPrefix, styles.TreeTee, styles.DimStyle.Render(line))
+					} else {
+						fmt.Fprintf(&sb, "\n%s%s%s", childPrefix, styles.TreePipe, styles.DimStyle.Render(line))
+					}
+				}
+			}
 		}
 		if !isLast {
 			sb.WriteString("\n")

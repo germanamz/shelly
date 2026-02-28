@@ -25,10 +25,13 @@ func (i Image) PartKind() string { return "image" }
 
 // ToolCall represents an assistant's request to invoke a tool.
 // Arguments holds the raw JSON string to avoid unnecessary deserialization.
+// Metadata carries provider-specific opaque data (e.g. Gemini thought signatures)
+// that must survive round-trips through the conversation history.
 type ToolCall struct {
 	ID        string
 	Name      string
 	Arguments string
+	Metadata  map[string]string
 }
 
 func (tc ToolCall) PartKind() string { return "tool_call" }

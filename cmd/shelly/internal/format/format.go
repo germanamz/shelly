@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/glamour"
 	glamourstyles "github.com/charmbracelet/glamour/styles"
 	"github.com/germanamz/shelly/cmd/shelly/internal/styles"
+	"github.com/muesli/reflow/wordwrap"
 )
 
 // IsDarkBG is set once before bubbletea starts (in main.go) so that glamour
@@ -137,6 +138,14 @@ func RenderUserMessage(text string) string {
 		sb.WriteString(line)
 	}
 	return sb.String()
+}
+
+// WordWrap wraps text to the given width, preserving existing newlines.
+func WordWrap(s string, width int) string {
+	if width <= 0 {
+		return s
+	}
+	return wordwrap.String(s, width)
 }
 
 // RandomThinkingMessage returns a random thinking message.

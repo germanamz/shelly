@@ -148,10 +148,35 @@ When a tool call fails or a network error occurs, the raw error response is disp
 |                                                                                                                |
 |                                                                                                                |
 
-## Sub agents
+# Sub agents
 Sub agents are displayed as a list of agent containers, each container displays agent reasoning messages and tool calls.
 Each container is a scrollable box limited to 4 visible lines of text. Content auto-scrolls to the bottom as new output arrives.
 
+## Delegation to sub agent
+The delegate tool call displays the agent name as a title on the first line. The full task description is shown below, word-wrapped to the terminal width, using tree connectors for indentation.
+
+### While delegating
+|                                                                                                                |
+|                                                                                                                |
+| 🔧 Delegating to <agent name> 2s ⣾                                                                            |
+|  ├─ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque rutrum convallis risus. Pellentesque |
+|  │  sit amet ipsum erat. Nulla aliquam elit feugiat, ornare est sed, semper augue. Suspendisse et              |
+|  │  neque rhoncus, bibendum lacus eleifend, scelerisque augue.                                                 |
+|                                                                                                                |
+|                                                                                                                |
+
+### After delegation finished
+|                                                                                                                |
+|                                                                                                                |
+| 🔧 Delegating to <agent name>                                                                                  |
+|  ├─ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque rutrum convallis risus. Pellentesque |
+|  │  sit amet ipsum erat. Nulla aliquam elit feugiat, ornare est sed, semper augue. Suspendisse et              |
+|  │  neque rhoncus, bibendum lacus eleifend, scelerisque augue.                                                 |
+|  └ Finished in 5.3s                                                                                           |
+|                                                                                                                |
+|                                                                                                                |
+
+## While sub agent is running
 |                                                                                                                |
 |                                                                                                                |
 | 🤖 <sub agent 1 name>                                                                                           |
@@ -191,7 +216,7 @@ Each container is a scrollable box limited to 4 visible lines of text. Content a
 |                                                                                                                |
 |                                                                                                                |
 
-### After finished
+## After sub agent finished
 When a sub agent finishes, its container collapses to show the total time and tokens.
 |                                                                                                                |
 |                                                                                                                |

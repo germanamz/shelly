@@ -385,6 +385,112 @@ func TestComplete_ToolSchemasSanitized(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestComplete_ThoughtSignatureRoundTrip(t *testing.T) {
+	callCount := 0
+
+	_, adapter := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+
+		req := readBody(t, r)
+
+		if callCount == 1 {
+			// First call: return a function call with a thoughtSignature.
+			writeJSON(t, w, map[string]any{
+				"candidates": []map[string]any{
+					{
+						"content": map[string]any{
+							"role": "model",
+							"parts": []map[string]any{
+								{
+									"functionCall":     map[string]any{"name": "get_weather", "args": map[string]any{"city": "Paris"}},
+									"thoughtSignature": "sig_abc123",
+								},
+							},
+						},
+						"finishReason": "STOP",
+					},
+				},
+				"usageMetadata": map[string]any{
+					"promptTokenCount":     15,
+					"candidatesTokenCount": 8,
+					"totalTokenCount":      23,
+				},
+			})
+		} else {
+			// Second call: verify the thoughtSignature is echoed back.
+			contents, ok := req["contents"].([]any)
+			assert.True(t, ok)
+
+			// Find the model content with the functionCall.
+			var found bool
+			for _, c := range contents {
+				entry, _ := c.(map[string]any)
+				if entry["role"] != "model" {
+					continue
+				}
+				parts, _ := entry["parts"].([]any)
+				for _, p := range parts {
+					part, _ := p.(map[string]any)
+					if part["functionCall"] != nil {
+						assert.Equal(t, "sig_abc123", part["thoughtSignature"])
+						found = true
+					}
+				}
+			}
+			assert.True(t, found, "thoughtSignature should be echoed back in the request")
+
+			writeJSON(t, w, map[string]any{
+				"candidates": []map[string]any{
+					{
+						"content": map[string]any{
+							"role":  "model",
+							"parts": []map[string]any{{"text": "It's sunny in Paris."}},
+						},
+						"finishReason": "STOP",
+					},
+				},
+				"usageMetadata": map[string]any{
+					"promptTokenCount":     25,
+					"candidatesTokenCount": 10,
+					"totalTokenCount":      35,
+				},
+			})
+		}
+	})
+
+	tools := []toolbox.Tool{
+		{
+			Name:        "get_weather",
+			Description: "Get weather for a city",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"city":{"type":"string"}}}`),
+		},
+	}
+
+	c := chat.New(
+		message.NewText("user", role.User, "What's the weather in Paris?"),
+	)
+
+	// First call returns a tool call with thought signature.
+	msg, err := adapter.Complete(context.Background(), c, tools)
+	require.NoError(t, err)
+
+	calls := msg.ToolCalls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, "sig_abc123", calls[0].Metadata["thoughtSignature"])
+
+	// Add the tool call and result to the conversation.
+	c.Append(msg)
+	c.Append(message.New("tool", role.Tool, content.ToolResult{
+		ToolCallID: calls[0].ID,
+		Content:    `{"temp": "22C"}`,
+	}))
+
+	// Second call verifies the signature is echoed (checked in the handler above).
+	msg, err = adapter.Complete(context.Background(), c, tools)
+	require.NoError(t, err)
+	assert.Equal(t, "It's sunny in Paris.", msg.TextContent())
+}
+
 func TestComplete_HTTPError(t *testing.T) {
 	_, adapter := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
