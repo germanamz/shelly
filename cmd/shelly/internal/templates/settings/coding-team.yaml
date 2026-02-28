@@ -34,7 +34,8 @@ config:
         before delegating any coding work. Never skip this approval step.
       provider: default
       toolboxes:
-        - filesystem
+        - name: filesystem
+          tools: [fs_read, fs_list, fs_stat]
         - search
         - ask
         - tasks
@@ -54,9 +55,11 @@ config:
         files.
       provider: default
       toolboxes:
-        - filesystem
+        - name: filesystem
+          tools: [fs_read, fs_list, fs_stat]
         - search
-        - git
+        - name: git
+          tools: [git_status, git_diff, git_log]
         - notes
       skills:
         - explorer-workflow
@@ -74,9 +77,11 @@ config:
         requirements are ambiguous, use ask_user to clarify before planning.
       provider: default
       toolboxes:
-        - filesystem
+        - name: filesystem
+          tools: [fs_read, fs_list, fs_stat]
         - search
-        - git
+        - name: git
+          tools: [git_status, git_diff, git_log]
         - ask
         - tasks
         - notes
@@ -126,7 +131,8 @@ config:
         accept/reject decision, not you.
       provider: default
       toolboxes:
-        - filesystem
+        - name: filesystem
+          tools: [fs_read, fs_list, fs_stat, fs_diff]
         - search
         - exec
         - notes
