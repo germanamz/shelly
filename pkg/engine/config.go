@@ -71,13 +71,64 @@ type EffectConfig struct {
 	Params map[string]any `yaml:"params"`
 }
 
+// ToolboxRef references a toolbox by name with an optional tool whitelist.
+// In YAML it supports both a plain string ("filesystem") and an object form
+// ({name: git, tools: [git_status, git_diff]}).
+type ToolboxRef struct {
+	Name  string   `yaml:"name"`
+	Tools []string `yaml:"tools"`
+}
+
+// UnmarshalYAML supports both scalar strings and mapping nodes.
+func (r *ToolboxRef) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		r.Name = value.Value
+		return nil
+	}
+	type alias ToolboxRef
+	var a alias
+	if err := value.Decode(&a); err != nil {
+		return err
+	}
+	*r = ToolboxRef(a)
+	return nil
+}
+
+// MarshalYAML emits a plain string when Tools is empty, otherwise a mapping.
+func (r ToolboxRef) MarshalYAML() (any, error) {
+	if len(r.Tools) == 0 {
+		return r.Name, nil
+	}
+	type alias ToolboxRef
+	return alias(r), nil
+}
+
+// ToolboxRefNames extracts the Name field from each ToolboxRef.
+func ToolboxRefNames(refs []ToolboxRef) []string {
+	names := make([]string, len(refs))
+	for i, r := range refs {
+		names[i] = r.Name
+	}
+	return names
+}
+
+// ToolboxRefsFromNames creates plain ToolboxRef values (no tools filter)
+// from a list of names.
+func ToolboxRefsFromNames(names []string) []ToolboxRef {
+	refs := make([]ToolboxRef, len(names))
+	for i, n := range names {
+		refs[i] = ToolboxRef{Name: n}
+	}
+	return refs
+}
+
 // AgentConfig describes an agent to register.
 type AgentConfig struct {
 	Name         string         `yaml:"name"`
 	Description  string         `yaml:"description"`
 	Instructions string         `yaml:"instructions"`
 	Provider     string         `yaml:"provider"`
-	Toolboxes    []string       `yaml:"toolboxes"`
+	Toolboxes    []ToolboxRef   `yaml:"toolboxes"`
 	Skills       []string       `yaml:"skills"` // Skill names to assign to this agent. Empty means all engine-level skills.
 	Effects      []EffectConfig `yaml:"effects"`
 	Options      AgentOptions   `yaml:"options"`
@@ -162,7 +213,10 @@ func expandConfigStrings(cfg *Config) {
 		a.Provider = os.ExpandEnv(a.Provider)
 		a.Prefix = os.ExpandEnv(a.Prefix)
 		for j := range a.Toolboxes {
-			a.Toolboxes[j] = os.ExpandEnv(a.Toolboxes[j])
+			a.Toolboxes[j].Name = os.ExpandEnv(a.Toolboxes[j].Name)
+			for k := range a.Toolboxes[j].Tools {
+				a.Toolboxes[j].Tools[k] = os.ExpandEnv(a.Toolboxes[j].Tools[k])
+			}
 		}
 		for j := range a.Skills {
 			a.Skills[j] = os.ExpandEnv(a.Skills[j])
@@ -313,12 +367,12 @@ func validateAgents(agents []AgentConfig, providerNames, mcpNames map[string]str
 			return nil, fmt.Errorf("engine: config: agent %q: unknown provider %q", a.Name, a.Provider)
 		}
 
-		for _, tb := range a.Toolboxes {
-			if _, builtin := builtinToolboxNames[tb]; builtin {
+		for _, ref := range a.Toolboxes {
+			if _, builtin := builtinToolboxNames[ref.Name]; builtin {
 				continue
 			}
-			if _, ok := mcpNames[tb]; !ok {
-				return nil, fmt.Errorf("engine: config: agent %q: unknown toolbox %q", a.Name, tb)
+			if _, ok := mcpNames[ref.Name]; !ok {
+				return nil, fmt.Errorf("engine: config: agent %q: unknown toolbox %q", a.Name, ref.Name)
 			}
 		}
 	}

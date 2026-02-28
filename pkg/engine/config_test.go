@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 const sampleYAML = `
@@ -58,7 +59,7 @@ func TestLoadConfig(t *testing.T) {
 	assert.Equal(t, 10, cfg.Agents[0].Options.MaxIterations)
 	assert.Equal(t, 3, cfg.Agents[0].Options.MaxDelegationDepth)
 
-	assert.Equal(t, []string{"search", "state"}, cfg.Agents[0].Toolboxes)
+	assert.Equal(t, []ToolboxRef{{Name: "search"}, {Name: "state"}}, cfg.Agents[0].Toolboxes)
 	assert.Equal(t, "assistant", cfg.EntryAgent)
 }
 
@@ -162,7 +163,7 @@ func TestConfig_Validate_UnknownProvider(t *testing.T) {
 func TestConfig_Validate_UnknownToolbox(t *testing.T) {
 	cfg := Config{
 		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
-		Agents:    []AgentConfig{{Name: "a1", Toolboxes: []string{"nope"}}},
+		Agents:    []AgentConfig{{Name: "a1", Toolboxes: []ToolboxRef{{Name: "nope"}}}},
 	}
 	assert.ErrorContains(t, cfg.Validate(), "unknown toolbox")
 }
@@ -170,7 +171,7 @@ func TestConfig_Validate_UnknownToolbox(t *testing.T) {
 func TestConfig_Validate_StateToolbox(t *testing.T) {
 	cfg := Config{
 		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
-		Agents:    []AgentConfig{{Name: "a1", Toolboxes: []string{"state"}}},
+		Agents:    []AgentConfig{{Name: "a1", Toolboxes: []ToolboxRef{{Name: "state"}}}},
 	}
 	assert.NoError(t, cfg.Validate())
 }
@@ -222,7 +223,7 @@ func TestConfig_Validate_MCPURLValid(t *testing.T) {
 	cfg := Config{
 		Providers:  []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
 		MCPServers: []MCPConfig{{Name: "m1", URL: "https://example.com/mcp"}},
-		Agents:     []AgentConfig{{Name: "a1", Toolboxes: []string{"m1"}}},
+		Agents:     []AgentConfig{{Name: "a1", Toolboxes: []ToolboxRef{{Name: "m1"}}}},
 	}
 	assert.NoError(t, cfg.Validate())
 }
@@ -239,7 +240,7 @@ func TestConfig_Validate_MCPCommandAndURLMutuallyExclusive(t *testing.T) {
 func TestConfig_Validate_FilesystemToolbox(t *testing.T) {
 	cfg := Config{
 		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
-		Agents:    []AgentConfig{{Name: "a1", Toolboxes: []string{"filesystem"}}},
+		Agents:    []AgentConfig{{Name: "a1", Toolboxes: []ToolboxRef{{Name: "filesystem"}}}},
 	}
 	assert.NoError(t, cfg.Validate())
 }
@@ -325,7 +326,7 @@ func TestConfig_Validate_ZeroContextThreshold(t *testing.T) {
 func TestConfig_Validate_SearchToolbox(t *testing.T) {
 	cfg := Config{
 		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
-		Agents:    []AgentConfig{{Name: "a1", Toolboxes: []string{"search"}}},
+		Agents:    []AgentConfig{{Name: "a1", Toolboxes: []ToolboxRef{{Name: "search"}}}},
 	}
 	assert.NoError(t, cfg.Validate())
 }
@@ -333,7 +334,7 @@ func TestConfig_Validate_SearchToolbox(t *testing.T) {
 func TestConfig_Validate_GitToolbox(t *testing.T) {
 	cfg := Config{
 		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
-		Agents:    []AgentConfig{{Name: "a1", Toolboxes: []string{"git"}}},
+		Agents:    []AgentConfig{{Name: "a1", Toolboxes: []ToolboxRef{{Name: "git"}}}},
 	}
 	assert.NoError(t, cfg.Validate())
 }
@@ -341,7 +342,7 @@ func TestConfig_Validate_GitToolbox(t *testing.T) {
 func TestConfig_Validate_HTTPToolbox(t *testing.T) {
 	cfg := Config{
 		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
-		Agents:    []AgentConfig{{Name: "a1", Toolboxes: []string{"http"}}},
+		Agents:    []AgentConfig{{Name: "a1", Toolboxes: []ToolboxRef{{Name: "http"}}}},
 	}
 	assert.NoError(t, cfg.Validate())
 }
@@ -375,4 +376,134 @@ func TestConfig_Validate_UnknownEffectKind(t *testing.T) {
 		}},
 	}
 	assert.ErrorContains(t, cfg.Validate(), "unknown kind")
+}
+
+func TestToolboxRef_UnmarshalYAML_PlainString(t *testing.T) {
+	yamlData := `
+providers:
+  - name: p1
+    kind: anthropic
+agents:
+  - name: a1
+    toolboxes: [filesystem, exec, git]
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(yamlData), 0o600))
+
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+
+	expected := []ToolboxRef{
+		{Name: "filesystem"},
+		{Name: "exec"},
+		{Name: "git"},
+	}
+	assert.Equal(t, expected, cfg.Agents[0].Toolboxes)
+}
+
+func TestToolboxRef_UnmarshalYAML_ObjectForm(t *testing.T) {
+	yamlData := `
+providers:
+  - name: p1
+    kind: anthropic
+agents:
+  - name: a1
+    toolboxes:
+      - name: git
+        tools: [git_status, git_diff]
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(yamlData), 0o600))
+
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+
+	expected := []ToolboxRef{
+		{Name: "git", Tools: []string{"git_status", "git_diff"}},
+	}
+	assert.Equal(t, expected, cfg.Agents[0].Toolboxes)
+}
+
+func TestToolboxRef_UnmarshalYAML_Mixed(t *testing.T) {
+	yamlData := `
+providers:
+  - name: p1
+    kind: anthropic
+agents:
+  - name: a1
+    toolboxes:
+      - filesystem
+      - name: git
+        tools: [git_status, git_diff]
+      - exec
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(yamlData), 0o600))
+
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+
+	expected := []ToolboxRef{
+		{Name: "filesystem"},
+		{Name: "git", Tools: []string{"git_status", "git_diff"}},
+		{Name: "exec"},
+	}
+	assert.Equal(t, expected, cfg.Agents[0].Toolboxes)
+}
+
+func TestToolboxRef_MarshalYAML_RoundTrip(t *testing.T) {
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic", Model: "m1"}},
+		Agents: []AgentConfig{{
+			Name:     "a1",
+			Provider: "p1",
+			Toolboxes: []ToolboxRef{
+				{Name: "filesystem"},
+				{Name: "git", Tools: []string{"git_status"}},
+			},
+		}},
+	}
+
+	data, err := yaml.Marshal(cfg)
+	require.NoError(t, err)
+
+	var roundTripped Config
+	require.NoError(t, yaml.Unmarshal(data, &roundTripped))
+
+	assert.Equal(t, cfg.Agents[0].Toolboxes, roundTripped.Agents[0].Toolboxes)
+}
+
+func TestToolboxRef_Validate_WithTools(t *testing.T) {
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
+		Agents: []AgentConfig{{
+			Name: "a1",
+			Toolboxes: []ToolboxRef{
+				{Name: "git", Tools: []string{"git_status", "git_diff"}},
+			},
+		}},
+	}
+	assert.NoError(t, cfg.Validate())
+}
+
+func TestToolboxRefNames(t *testing.T) {
+	refs := []ToolboxRef{
+		{Name: "filesystem"},
+		{Name: "git", Tools: []string{"git_status"}},
+		{Name: "exec"},
+	}
+	assert.Equal(t, []string{"filesystem", "git", "exec"}, ToolboxRefNames(refs))
+}
+
+func TestToolboxRefsFromNames(t *testing.T) {
+	names := []string{"filesystem", "git", "exec"}
+	expected := []ToolboxRef{
+		{Name: "filesystem"},
+		{Name: "git"},
+		{Name: "exec"},
+	}
+	assert.Equal(t, expected, ToolboxRefsFromNames(names))
 }

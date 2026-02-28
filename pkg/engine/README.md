@@ -137,7 +137,17 @@ agents:
     instructions: You are a coding expert.
     provider: default
     prefix: "🦾"  # display prefix for TUI (default: "🤖")
-    toolboxes: [filesystem, exec, search, git, http, browser, state, tasks, notes]
+    toolboxes:
+      - filesystem
+      - exec
+      - search
+      - name: git                      # object form: only expose specific tools
+        tools: [git_status, git_diff]
+      - http
+      - browser
+      - state
+      - tasks
+      - notes
     skills: [coder-workflow]  # per-agent skill filter (empty = all engine-level skills)
     effects:
       - kind: trim_tool_results
@@ -211,7 +221,8 @@ browser:
 | `ProviderConfig` | Describes an LLM provider instance: name, kind, base URL, API key, model, optional context window (`*int`: nil = use default, 0 = disable compaction), and rate limit settings. |
 | `RateLimitConfig` | Per-provider rate limiting: `InputTPM`, `OutputTPM`, `RPM`, `MaxRetries`, and `BaseDelay` (duration string). When any field is non-zero, the completer is wrapped with `modeladapter.NewRateLimitedCompleter`. |
 | `MCPConfig` | Describes an MCP server: name, command + args (stdio transport) or URL (SSE transport). Command and URL are mutually exclusive. |
-| `AgentConfig` | Agent registration: name, description, instructions, provider reference, toolbox list, skills filter, effects list, options, and display prefix. |
+| `ToolboxRef` | References a toolbox by name with an optional `Tools` whitelist. Supports both plain string ("filesystem") and object form (`{name: git, tools: [git_status]}`) in YAML. |
+| `AgentConfig` | Agent registration: name, description, instructions, provider reference, toolbox list (`[]ToolboxRef`), skills filter, effects list, options, and display prefix. |
 | `AgentOptions` | Optional agent behaviour: `MaxIterations`, `MaxDelegationDepth`, `ContextThreshold` (fraction in (0, 1) or 0 to disable). |
 | `EffectConfig` | A single effect: `Kind` string and `Params` map. |
 | `FilesystemConfig` | Filesystem tool settings (permissions file path). |
@@ -228,6 +239,8 @@ browser:
 | `KnownProviderKinds()` | Returns the sorted list of registered provider kind strings. |
 | `KnownEffectKinds()` | Returns the sorted list of recognised effect kind strings. |
 | `BuiltinToolboxNames()` | Returns the sorted list of built-in toolbox names. |
+| `ToolboxRefNames(refs)` | Extracts the `Name` field from each `ToolboxRef`. |
+| `ToolboxRefsFromNames(names)` | Creates plain `ToolboxRef` values (no tools filter) from a list of names. |
 
 ### Effects
 
@@ -306,7 +319,17 @@ The `dev-team` config template pre-assigns workflow skills to each agent (orches
 
 ### Toolbox Assignment and Inheritance
 
-Each agent's `toolboxes` list in YAML is resolved at config load time. The engine maps toolbox names to `ToolBox` instances (built-in ones like `filesystem`, `exec`, `search`, `git`, `http`, `browser`, `state`, `tasks`, `notes`, plus any MCP server toolboxes) and captures them in the agent's factory closure. The `ask` toolbox is always implicitly included. This means the toolboxes an agent is created with are fixed at startup.
+Each agent's `toolboxes` list in YAML is resolved at config load time. Toolbox entries can be plain strings (all tools) or objects with a `tools` whitelist to expose only specific tools:
+
+```yaml
+toolboxes:
+  - filesystem                      # plain string = all tools
+  - name: git
+    tools: [git_status, git_diff]   # only expose specific tools
+  - exec
+```
+
+The engine maps toolbox names to `ToolBox` instances (built-in ones like `filesystem`, `exec`, `search`, `git`, `http`, `browser`, `state`, `tasks`, `notes`, plus any MCP server toolboxes), applies any per-agent tool whitelist via `ToolBox.Filter`, and captures them in the agent's factory closure. The `ask` toolbox is always implicitly included. This means the toolboxes an agent is created with are fixed at startup.
 
 Built-in toolbox names: `ask` (always included), `filesystem`, `exec`, `search`, `git`, `http`, `browser`, `state`, `tasks`, `notes`.
 

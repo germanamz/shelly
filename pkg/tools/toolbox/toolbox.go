@@ -52,6 +52,22 @@ func (tb *ToolBox) Tools() []Tool {
 	return result
 }
 
+// Filter returns a new ToolBox containing only the tools whose names appear in
+// the provided list. Unknown names are silently skipped. If names is empty, the
+// original ToolBox is returned unchanged.
+func (tb *ToolBox) Filter(names []string) *ToolBox {
+	if len(names) == 0 {
+		return tb
+	}
+	filtered := New()
+	for _, name := range names {
+		if t, ok := tb.tools[name]; ok {
+			filtered.tools[name] = t
+		}
+	}
+	return filtered
+}
+
 // Call executes a tool call and returns a ToolResult. If the tool is not found
 // or the handler returns an error, the result will have IsError set to true.
 func (tb *ToolBox) Call(ctx context.Context, tc content.ToolCall) content.ToolResult {

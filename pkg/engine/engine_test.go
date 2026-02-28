@@ -134,7 +134,7 @@ func TestEngine_StateEnabled(t *testing.T) {
 
 	cfg := Config{
 		Providers: []ProviderConfig{{Name: "p1", Kind: "mock"}},
-		Agents:    []AgentConfig{{Name: "a1", Provider: "p1", Toolboxes: []string{"state"}}},
+		Agents:    []AgentConfig{{Name: "a1", Provider: "p1", Toolboxes: []ToolboxRef{{Name: "state"}}}},
 	}
 
 	eng, err := New(context.Background(), cfg)
@@ -151,7 +151,7 @@ func TestEngine_TasksEnabled(t *testing.T) {
 
 	cfg := Config{
 		Providers: []ProviderConfig{{Name: "p1", Kind: "mock"}},
-		Agents:    []AgentConfig{{Name: "a1", Provider: "p1", Toolboxes: []string{"tasks"}}},
+		Agents:    []AgentConfig{{Name: "a1", Provider: "p1", Toolboxes: []ToolboxRef{{Name: "tasks"}}}},
 	}
 
 	eng, err := New(context.Background(), cfg)

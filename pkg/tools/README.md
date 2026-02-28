@@ -39,6 +39,7 @@ type Handler func(ctx context.Context, input json.RawMessage) (string, error)
 | `(*ToolBox) Register(tools ...Tool)`                     | Adds one or more tools; replaces existing tools with the same name       |
 | `(*ToolBox) Get(name string) (Tool, bool)`               | Retrieves a tool by name; returns false if not found                     |
 | `(*ToolBox) Merge(other *ToolBox)`                       | Copies all tools from another ToolBox into this one; replaces by name    |
+| `(*ToolBox) Filter(names []string) *ToolBox`             | Returns a new ToolBox with only the named tools; empty list returns the original |
 | `(*ToolBox) Tools() []Tool`                              | Returns all registered tools as a slice                                  |
 | `(*ToolBox) Call(ctx context.Context, tc content.ToolCall) content.ToolResult` | Executes a tool call; returns a ToolResult with IsError on failure |
 

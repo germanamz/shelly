@@ -511,9 +511,9 @@ func BuiltinToolboxNames() []string {
 func referencedBuiltins(agents []AgentConfig) map[string]struct{} {
 	refs := make(map[string]struct{})
 	for _, a := range agents {
-		for _, name := range a.Toolboxes {
-			if _, ok := builtinToolboxNames[name]; ok {
-				refs[name] = struct{}{}
+		for _, ref := range a.Toolboxes {
+			if _, ok := builtinToolboxNames[ref.Name]; ok {
+				refs[ref.Name] = struct{}{}
 			}
 		}
 	}
@@ -541,17 +541,17 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 
 	// Collect the agent's declared toolboxes, skipping ask (already added).
 	seen := map[string]struct{}{"ask": {}}
-	for _, name := range ac.Toolboxes {
-		if _, dup := seen[name]; dup {
+	for _, ref := range ac.Toolboxes {
+		if _, dup := seen[ref.Name]; dup {
 			continue
 		}
-		seen[name] = struct{}{}
+		seen[ref.Name] = struct{}{}
 
-		tb, ok := e.toolboxes[name]
+		tb, ok := e.toolboxes[ref.Name]
 		if !ok {
-			return fmt.Errorf("engine: agent %q: toolbox %q not found", ac.Name, name)
+			return fmt.Errorf("engine: agent %q: toolbox %q not found", ac.Name, ref.Name)
 		}
-		tbs = append(tbs, tb)
+		tbs = append(tbs, tb.Filter(ref.Tools))
 	}
 
 	// Use engine-level skills, optionally filtered by per-agent config.

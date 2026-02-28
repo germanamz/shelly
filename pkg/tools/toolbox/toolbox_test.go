@@ -143,6 +143,55 @@ func TestMergeOverwrite(t *testing.T) {
 	assert.Len(t, tb1.Tools(), 1)
 }
 
+func TestFilterSubset(t *testing.T) {
+	tb := New()
+	tb.Register(newEchoTool("a"), newEchoTool("b"), newEchoTool("c"))
+
+	filtered := tb.Filter([]string{"a", "c"})
+
+	assert.Len(t, filtered.Tools(), 2)
+	_, ok := filtered.Get("a")
+	assert.True(t, ok)
+	_, ok = filtered.Get("c")
+	assert.True(t, ok)
+	_, ok = filtered.Get("b")
+	assert.False(t, ok)
+}
+
+func TestFilterEmptyReturnsSamePointer(t *testing.T) {
+	tb := New()
+	tb.Register(newEchoTool("a"))
+
+	filtered := tb.Filter(nil)
+	assert.Same(t, tb, filtered)
+
+	filtered = tb.Filter([]string{})
+	assert.Same(t, tb, filtered)
+}
+
+func TestFilterMissingNamesSkipped(t *testing.T) {
+	tb := New()
+	tb.Register(newEchoTool("a"))
+
+	filtered := tb.Filter([]string{"a", "missing", "also_missing"})
+
+	assert.Len(t, filtered.Tools(), 1)
+	_, ok := filtered.Get("a")
+	assert.True(t, ok)
+}
+
+func TestFilterOriginalNotMutated(t *testing.T) {
+	tb := New()
+	tb.Register(newEchoTool("a"), newEchoTool("b"), newEchoTool("c"))
+
+	filtered := tb.Filter([]string{"a"})
+
+	// Original still has all three tools.
+	assert.Len(t, tb.Tools(), 3)
+	// Filtered has only one.
+	assert.Len(t, filtered.Tools(), 1)
+}
+
 func TestCallNotFound(t *testing.T) {
 	tb := New()
 

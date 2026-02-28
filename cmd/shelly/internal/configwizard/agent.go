@@ -172,7 +172,7 @@ func newAgentFormScreen(a *engine.AgentConfig, providerNames, toolboxes, effectK
 		prefixField.SetValue(a.Prefix)
 	}
 	if len(a.Toolboxes) > 0 {
-		tbField.SetValue(strings.Join(a.Toolboxes, ","))
+		tbField.SetValue(strings.Join(engine.ToolboxRefNames(a.Toolboxes), ","))
 	}
 	if len(a.Effects) > 0 {
 		var kinds []string
@@ -229,7 +229,7 @@ func (s *agentFormScreen) applyToAgent() {
 	s.agent.Prefix = s.form.Fields[4].Value()
 
 	if f, ok := s.form.Fields[5].(*MultiSelectField); ok {
-		s.agent.Toolboxes = f.SelectedItems()
+		s.agent.Toolboxes = engine.ToolboxRefsFromNames(f.SelectedItems())
 	}
 
 	if f, ok := s.form.Fields[6].(*MultiSelectField); ok {
