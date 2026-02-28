@@ -1,125 +1,163 @@
 providers:
-    - name: grok
-      kind: grok
-      base_url: ""
-      api_key: ${GROK_API_KEY}
-      model: grok-4-1-fast-reasoning
-      context_window: 920000
-      rate_limit:
-        input_tpm: 0
-        output_tpm: 0
-        rpm: 0
-        max_retries: 3
-        base_delay: 1s
-    - name: openai
-      kind: openai
-      base_url: ""
-      api_key: ${OPENAI_API_KEY}
-      model: gpt-5.1
-      context_window: 156000
-      rate_limit:
-        input_tpm: 0
-        output_tpm: 0
-        rpm: 0
-        max_retries: 3
-        base_delay: 1s
-    - name: anthropic
+    - name: default
       kind: anthropic
       base_url: ""
       api_key: ${ANTHROPIC_API_KEY}
-      model: claude-opus-4-6
-      context_window: 165000
-      rate_limit:
-        input_tpm: 0
-        output_tpm: 0
-        rpm: 0
-        max_retries: 3
-        base_delay: 1s
-    - name: gemini
-      kind: gemini
-      base_url: ""
-      api_key: ${GEMINI_API_KEY}
-      model: gemini-3.1-pro-preview
+      model: claude-sonnet-4-20250514
       context_window: null
       rate_limit:
         input_tpm: 0
         output_tpm: 0
         rpm: 0
-        max_retries: 3
-        base_delay: 1s
-mcp_servers:
-    - name: brightdata
-      command: ""
-      args: []
-      url: https://mcp.brightdata.com/mcp?token=${BRIGHTDATA_API_KEY}&groups=advanced_scraping
+        max_retries: 0
+        base_delay: ""
+    - name: openai
+      kind: openai
+      base_url: ""
+      api_key: ${OPENAI_API_KEY}
+      model: gpt-4.1
+      context_window: null
+      rate_limit:
+        input_tpm: 0
+        output_tpm: 0
+        rpm: 0
+        max_retries: 0
+        base_delay: ""
+    - name: grok
+      kind: grok
+      base_url: ""
+      api_key: ${GROK_API_KEY}
+      model: grok-3
+      context_window: null
+      rate_limit:
+        input_tpm: 0
+        output_tpm: 0
+        rpm: 0
+        max_retries: 0
+        base_delay: ""
+    - name: gemini
+      kind: gemini
+      base_url: ""
+      api_key: ${GEMINI_API_KEY}
+      model: gemini-2.5-pro
+      context_window: null
+      rate_limit:
+        input_tpm: 0
+        output_tpm: 0
+        rpm: 0
+        max_retries: 0
+        base_delay: ""
+mcp_servers: []
 agents:
-    - name: orchestrator
-      description: Delegates tasks to planner and coder
-      instructions: You are a task orchestrator. Break down user requests into planning and coding tasks, then delegate to the appropriate agent.
+    - name: lead
+      description: Stakeholder who owns the outcome, evaluates reports, and makes strategic decisions
+      instructions: You are the lead — you own the outcome of every task. You evaluate subagent reports critically, make strategic decisions at each step, and ensure the final result meets the user's expectations. You are not a dispatcher — you read findings, verify claims using your own tools, and decide next actions. At any decision point you can ask the user for clarification.
       provider: gemini
       toolboxes:
-        - browser
-        - notes
-        - state
+        - filesystem
+        - search
+        - ask
         - tasks
-        - brightdata
+        - notes
       skills:
-        - orchestrator-workflow
+        - lead-workflow
       effects: []
       options:
-        max_iterations: 50
-        max_delegation_depth: 1
+        max_iterations: 20
+        max_delegation_depth: 2
         context_threshold: 0
-      prefix: "👑"
-    - name: planner
-      description: Analyzes code and creates implementation plans
-      instructions: You are a code planner. Analyze the codebase, understand the architecture, and create detailed implementation plans.
+      prefix: ""
+    - name: explorer
+      description: Gathers codebase intelligence — architecture, patterns, dependencies, relevant files
+      instructions: You are a codebase explorer. Your job is to gather intelligence about the codebase — architecture, patterns, dependencies, and relevant files — then write a structured findings note for the lead. You never modify files.
       provider: gemini
       toolboxes:
-        - browser
         - filesystem
+        - search
         - git
         - notes
-        - search
-        - state
-        - tasks
-        - brightdata
       skills:
-        - planner-workflow
-      effects: []
+        - explorer-workflow
+      effects:
+        - kind: observation_mask
+          params: {}
       options:
-        max_iterations: 30
+        max_iterations: 10
         max_delegation_depth: 0
         context_threshold: 0
-      prefix: "📝"
-    - name: coder
-      description: Implements code changes
-      instructions: You are a coder. Implement changes based on plans, write clean code, and run tests to verify your work.
+      prefix: ""
+    - name: planner
+      description: Creates implementation plans based on explorer findings and lead direction
+      instructions: You are a planner. You consume explorer findings and lead direction to create detailed implementation plans. Your primary output is a plan note — the lead evaluates and approves it before coding begins. If requirements are ambiguous, use ask_user to clarify before planning.
       provider: gemini
       toolboxes:
-        - browser
-        - exec
         - filesystem
+        - search
+        - git
+        - ask
+        - tasks
+        - notes
+      skills:
+        - planner-workflow
+      effects:
+        - kind: observation_mask
+          params: {}
+      options:
+        max_iterations: 10
+        max_delegation_depth: 0
+        context_threshold: 0
+      prefix: ""
+    - name: coder
+      description: Implements code changes per the approved plan
+      instructions: You are a coder. Your first action must always be to read the plan note written by the planner. Implement changes based on that plan, stay within your assigned file scope, write clean code, and run tests to verify your work. Write a thorough result note so the lead can evaluate your work.
+      provider: gemini
+      toolboxes:
+        - filesystem
+        - exec
+        - search
         - git
         - http
-        - notes
-        - search
-        - state
         - tasks
-        - brightdata
+        - notes
       skills:
         - coder-workflow
       effects:
-        - kind: compact
+        - kind: loop_detect
+          params: {}
+        - kind: reflection
+          params: {}
+        - kind: progress
           params: {}
         - kind: trim_tool_results
           params: {}
+        - kind: compact
+          params:
+            threshold: 0.8
       options:
-        max_iterations: 50
+        max_iterations: 20
         max_delegation_depth: 0
         context_threshold: 0
-      prefix: "🤖"
-entry_agent: orchestrator
+      prefix: ""
+    - name: reviewer
+      description: Reviews implementation and reports findings to lead
+      instructions: You are a code reviewer. Read the plan note and the coder's result notes, then review the changed files against the plan's acceptance criteria. Write a review note with your recommendation — the lead makes the final accept/reject decision, not you.
+      provider: gemini
+      toolboxes:
+        - filesystem
+        - search
+        - exec
+        - notes
+      skills:
+        - reviewer-workflow
+      effects:
+        - kind: observation_mask
+          params: {}
+      options:
+        max_iterations: 10
+        max_delegation_depth: 0
+        context_threshold: 0
+      prefix: ""
+entry_agent: lead
 filesystem:
     permissions_file: ""
 git:

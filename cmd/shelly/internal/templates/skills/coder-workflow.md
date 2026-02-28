@@ -1,5 +1,5 @@
 ---
-description: "Coding protocol: plan consumption, file-scope adherence, incremental testing, result reporting"
+description: "Coding protocol: plan consumption, file-scope adherence, incremental testing, structured reporting"
 ---
 # Coder Workflow
 
@@ -18,9 +18,17 @@ description: "Coding protocol: plan consumption, file-scope adherence, increment
 
 ## Result Reporting
 
+The lead evaluates your work based on your result note and completion result. Be thorough and specific.
+
 After completing work:
 
-1. Write a result note (`write_note`) named descriptively (e.g., `result-add-auth-middleware`) containing details of what was done.
+1. Write a result note (`write_note`) named descriptively (e.g., `result-add-auth-middleware`) containing:
+   - **What was done**: summary of changes made
+   - **Files modified**: list of changed files with a brief description of each change
+   - **Tests run**: which tests were executed and their results
+   - **Deviations from plan**: any places where you deviated from the plan and why
+   - **Remaining work**: anything that could not be completed within your scope
+   - **Caveats**: known limitations or follow-up work needed
 2. Call `task_complete` with:
    - **status**: `"completed"` or `"failed"`
    - **summary**: concise description of what was done
@@ -39,4 +47,4 @@ After completing work:
 If you are running low on iterations and cannot finish:
 
 1. Write a progress note documenting what was completed and what remains.
-2. Call `task_complete` with `status: "failed"`, include a summary of what's done, and describe remaining work in `caveats`. This gives the orchestrator structured data to decide how to proceed.
+2. Call `task_complete` with `status: "failed"`, include a summary of what's done, and describe remaining work in `caveats`. This gives the lead structured data to decide how to proceed.
