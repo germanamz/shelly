@@ -12,7 +12,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -74,22 +73,6 @@ func isPrivateIP(ip net.IP) bool {
 	return false
 }
 
-// isPrivateHost returns true if the host resolves to a private or loopback IP.
-func isPrivateHost(host string) bool {
-	hostname := host
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		hostname = h
-	}
-
-	ips, err := net.LookupIP(hostname)
-	if err != nil {
-		// If we can't resolve, err on the side of caution.
-		return true
-	}
-
-	return slices.ContainsFunc(ips, isPrivateIP)
-}
-
 // safeTransport returns an *http.Transport with a custom DialContext that
 // validates resolved IPs against private ranges at connection time. This
 // prevents DNS rebinding attacks where a hostname resolves to a public IP
@@ -142,10 +125,7 @@ func New(store *permissions.Store, askFn AskFunc) *HTTP {
 				return fmt.Errorf("http: redirect target has no domain")
 			}
 
-			if isPrivateHost(req.URL.Host) {
-				return fmt.Errorf("http: redirect to private/internal address %s is not allowed", req.URL.Host)
-			}
-
+			// Private IP blocking is enforced at the dial layer by safeTransport.
 			if !h.store.IsDomainTrusted(domain) {
 				return fmt.Errorf("http: redirect to untrusted domain %s is not allowed", domain)
 			}
@@ -278,6 +258,11 @@ func (h *HTTP) handleFetch(ctx context.Context, input json.RawMessage) (string, 
 
 	if in.URL == "" {
 		return "", fmt.Errorf("http_fetch: url is required")
+	}
+
+	parsed, err := url.Parse(in.URL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return "", fmt.Errorf("http_fetch: only http and https schemes are allowed")
 	}
 
 	if err := h.checkPermission(ctx, in.URL); err != nil {

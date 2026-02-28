@@ -106,6 +106,16 @@ func (s *Store) Create(task Task) (string, error) {
 	task.ID = fmt.Sprintf("task-%d", s.nextID)
 	task.Status = StatusPending
 
+	// Validate blocked_by IDs exist and are not self-referential.
+	for _, dep := range task.BlockedBy {
+		if dep == task.ID {
+			return "", fmt.Errorf("tasks: task cannot block itself")
+		}
+		if _, ok := s.tasks[dep]; !ok {
+			return "", fmt.Errorf("tasks: blocked_by task %q not found", dep)
+		}
+	}
+
 	cp := task
 	if cp.BlockedBy != nil {
 		cp.BlockedBy = slices.Clone(cp.BlockedBy)

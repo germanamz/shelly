@@ -200,7 +200,7 @@ func (a *ModelAdapter) PostJSON(ctx context.Context, path string, payload any, d
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusTooManyRequests {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return &RateLimitError{
 			RetryAfter: ParseRetryAfter(resp.Header.Get("Retry-After")),
 			Body:       string(respBody),
@@ -208,7 +208,7 @@ func (a *ModelAdapter) PostJSON(ctx context.Context, path string, payload any, d
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(respBody))
 	}
 

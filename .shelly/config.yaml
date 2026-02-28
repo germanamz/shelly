@@ -56,7 +56,7 @@ agents:
     - name: orchestrator
       description: Delegates tasks to planner and coder
       instructions: You are a task orchestrator. Break down user requests into planning and coding tasks, then delegate to the appropriate agent.
-      provider: grok
+      provider: gemini
       toolboxes:
         - state
         - tasks
@@ -74,7 +74,7 @@ agents:
     - name: planner
       description: Analyzes code and creates implementation plans
       instructions: You are a code planner. Analyze the codebase, understand the architecture, and create detailed implementation plans.
-      provider: grok
+      provider: gemini
       toolboxes:
         - filesystem
         - search
@@ -95,7 +95,7 @@ agents:
     - name: coder
       description: Implements code changes
       instructions: You are a coder. Implement changes based on plans, write clean code, and run tests to verify your work.
-      provider: grok
+      provider: gemini
       toolboxes:
         - filesystem
         - exec

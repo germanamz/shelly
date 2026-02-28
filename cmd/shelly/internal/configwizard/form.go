@@ -525,6 +525,10 @@ func (m *FormModel) Init() tea.Cmd {
 }
 
 func (m *FormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if len(m.Fields) == 0 || m.focus < 0 || m.focus >= len(m.Fields) {
+		return m, nil
+	}
+
 	if kmsg, ok := msg.(tea.KeyMsg); ok {
 		switch kmsg.String() {
 		case "tab":

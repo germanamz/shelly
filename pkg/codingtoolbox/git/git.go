@@ -247,10 +247,13 @@ func (g *Git) handleDiff(ctx context.Context, input json.RawMessage) (string, er
 		if strings.HasPrefix(in.Path, "/") {
 			return "", fmt.Errorf("git_diff: absolute paths are not allowed: %s", in.Path)
 		}
-		if slices.Contains(strings.Split(filepath.Clean(in.Path), string(filepath.Separator)), "..") {
+
+		cleaned := filepath.Clean(in.Path)
+		if slices.Contains(strings.Split(cleaned, string(filepath.Separator)), "..") {
 			return "", fmt.Errorf("git_diff: path traversal is not allowed: %s", in.Path)
 		}
-		args = append(args, "--", in.Path)
+
+		args = append(args, "--", cleaned)
 	}
 
 	if err := g.checkPermission(ctx, "git "+strings.Join(args, " ")); err != nil {
@@ -345,16 +348,21 @@ func (g *Git) handleCommit(ctx context.Context, input json.RawMessage) (string, 
 	}
 
 	if len(in.Files) > 0 {
+		cleanFiles := make([]string, 0, len(in.Files))
 		for _, f := range in.Files {
 			if strings.HasPrefix(f, "/") {
 				return "", fmt.Errorf("git_commit: absolute paths are not allowed: %s", f)
 			}
-			if slices.Contains(strings.Split(filepath.Clean(f), string(filepath.Separator)), "..") {
+
+			cleaned := filepath.Clean(f)
+			if slices.Contains(strings.Split(cleaned, string(filepath.Separator)), "..") {
 				return "", fmt.Errorf("git_commit: path traversal is not allowed: %s", f)
 			}
+
+			cleanFiles = append(cleanFiles, cleaned)
 		}
 
-		addArgs := append([]string{"add", "--"}, in.Files...)
+		addArgs := append([]string{"add", "--"}, cleanFiles...)
 		if _, err := g.runGit(ctx, addArgs...); err != nil {
 			return "", fmt.Errorf("git_commit: stage files: %w", err)
 		}

@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -213,9 +214,20 @@ func (f *FS) handleRead(ctx context.Context, input json.RawMessage) (string, err
 		return "", fmt.Errorf("fs_read: %w", err)
 	}
 
-	data, err := os.ReadFile(abs) //nolint:gosec // path is approved by user
+	file, err := os.Open(abs) //nolint:gosec // path is approved by user
 	if err != nil {
 		return "", fmt.Errorf("fs_read: %w", err)
+	}
+	defer file.Close() //nolint:errcheck // best-effort close on read
+
+	const maxReadSize = 10 << 20 // 10 MB
+	data, err := io.ReadAll(io.LimitReader(file, int64(maxReadSize)+1))
+	if err != nil {
+		return "", fmt.Errorf("fs_read: %w", err)
+	}
+
+	if len(data) > maxReadSize {
+		return "", fmt.Errorf("fs_read: file exceeds maximum read size of 10 MB")
 	}
 
 	return string(data), nil

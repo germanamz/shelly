@@ -58,6 +58,19 @@ func (s *Search) checkPermission(ctx context.Context, dir string) error {
 		return fmt.Errorf("search: resolve path: %w", err)
 	}
 
+	// Resolve symlinks so a symlink pointing outside the intended directory
+	// requires independent approval (matching filesystem.checkPermission).
+	realAbs, evalErr := filepath.EvalSymlinks(abs)
+	if evalErr != nil && !os.IsNotExist(evalErr) {
+		return fmt.Errorf("search: resolve symlink: %w", evalErr)
+	}
+
+	if realAbs != "" && realAbs != abs {
+		if err := s.askAndApproveDir(ctx, realAbs); err != nil {
+			return err
+		}
+	}
+
 	// Fast path: already approved (no lock contention).
 	if s.store.IsDirApproved(abs) {
 		return nil

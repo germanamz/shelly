@@ -43,8 +43,9 @@ type InputSubmitMsg struct {
 
 // SendCompleteMsg is returned by the tea.Cmd that calls sess.Send.
 type SendCompleteMsg struct {
-	Err      error
-	Duration time.Duration
+	Err        error
+	Duration   time.Duration
+	Generation uint64
 }
 
 // ProgramReadyMsg passes the *tea.Program to the model so it can start bridge goroutines.

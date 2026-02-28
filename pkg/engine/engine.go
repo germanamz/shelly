@@ -268,6 +268,11 @@ func (e *Engine) NewSession(agentName string) (*Session, error) {
 		return nil, fmt.Errorf("engine: agent %q not found", agentName)
 	}
 
+	// Perform expensive work outside the lock.
+	a := factory()
+	a.SetRegistry(e.registry)
+	a.Init()
+
 	e.mu.Lock()
 	if e.closed {
 		e.mu.Unlock()
@@ -275,10 +280,6 @@ func (e *Engine) NewSession(agentName string) (*Session, error) {
 	}
 	e.nextID++
 	id := fmt.Sprintf("session-%d", e.nextID)
-
-	a := factory()
-	a.SetRegistry(e.registry)
-	a.Init()
 
 	s := newSession(id, a, e, e.events, e.responder)
 
@@ -316,9 +317,11 @@ func (e *Engine) RemoveSession(id string) bool {
 // connections concurrently to reduce startup latency.
 func (e *Engine) parallelInit(ctx context.Context, cfg Config, dir shellydir.Dir, status func(string)) error {
 	var (
-		skillsErr error
-		mcpErr    error
-		wg        sync.WaitGroup
+		skillsErr    error
+		mcpErr       error
+		loadedSkills []skill.Skill
+		loadedCtx    projectctx.Context
+		wg           sync.WaitGroup
 	)
 
 	skillsDir := dir.SkillsDir()
@@ -331,7 +334,7 @@ func (e *Engine) parallelInit(ctx context.Context, cfg Config, dir shellydir.Dir
 				skillsErr = fmt.Errorf("engine: skills: %w", err)
 				return
 			}
-			e.skills = skills
+			loadedSkills = skills
 			status(fmt.Sprintf("Loaded %d skills (%s)", len(skills), time.Since(start).Round(time.Millisecond)))
 		})
 	}
@@ -339,7 +342,7 @@ func (e *Engine) parallelInit(ctx context.Context, cfg Config, dir shellydir.Dir
 	wg.Go(func() {
 		status("Loading project context...")
 		start := time.Now()
-		e.projectCtx = projectctx.Load(dir, filepath.Dir(dir.Root()))
+		loadedCtx = projectctx.Load(dir, filepath.Dir(dir.Root()))
 		status(fmt.Sprintf("Project context ready (%s)", time.Since(start).Round(time.Millisecond)))
 	})
 
@@ -348,6 +351,10 @@ func (e *Engine) parallelInit(ctx context.Context, cfg Config, dir shellydir.Dir
 	})
 
 	wg.Wait()
+
+	// Assign after all goroutines are done to avoid data races.
+	e.skills = loadedSkills
+	e.projectCtx = loadedCtx
 
 	if skillsErr != nil {
 		return skillsErr

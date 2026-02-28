@@ -33,7 +33,11 @@ func (s *providerListScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 			s.form = nil
 			return s, nil
 		}
-		s.form = updated.(*providerFormScreen)
+		if f, ok := updated.(*providerFormScreen); ok {
+			s.form = f
+		} else {
+			s.form = nil
+		}
 		return s, cmd
 	}
 

@@ -39,7 +39,11 @@ func (s *agentListScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 			s.form = nil
 			return s, nil
 		}
-		s.form = updated.(*agentFormScreen)
+		if f, ok := updated.(*agentFormScreen); ok {
+			s.form = f
+		} else {
+			s.form = nil
+		}
 		return s, cmd
 	}
 

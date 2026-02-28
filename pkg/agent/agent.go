@@ -263,6 +263,11 @@ func (a *Agent) run(ctx context.Context) (message.Message, error) {
 
 		wg.Wait()
 
+		// Honour context cancellation after all tools have run.
+		if err := ctx.Err(); err != nil {
+			return message.Message{}, err
+		}
+
 		for _, result := range results {
 			a.chat.Append(message.New(a.name, role.Tool, result))
 			a.emitEvent(ctx, "message_added", MessageAddedEventData{Role: string(role.Tool)})

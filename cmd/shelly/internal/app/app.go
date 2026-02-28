@@ -29,22 +29,23 @@ const (
 
 // AppModel is the root bubbletea v2 model.
 type AppModel struct {
-	ctx          context.Context
-	sess         *engine.Session
-	eng          *engine.Engine
-	events       *engine.EventBus
-	program      *tea.Program
-	chatView     chatview.ChatViewModel
-	inputBox     input.InputModel
-	askQueue     []msgs.AskUserMsg
-	askActive    *askprompt.AskBatchModel
-	askBatching  bool
-	state        State
-	cancelBridge context.CancelFunc
-	cancelSend   context.CancelFunc // cancels the current Send when Escape is pressed
-	width        int
-	height       int
-	sendStart    time.Time
+	ctx            context.Context
+	sess           *engine.Session
+	eng            *engine.Engine
+	events         *engine.EventBus
+	program        *tea.Program
+	chatView       chatview.ChatViewModel
+	inputBox       input.InputModel
+	askQueue       []msgs.AskUserMsg
+	askActive      *askprompt.AskBatchModel
+	askBatching    bool
+	state          State
+	cancelBridge   context.CancelFunc
+	cancelSend     context.CancelFunc // cancels the current Send when Escape is pressed
+	sendGeneration uint64
+	width          int
+	height         int
+	sendStart      time.Time
 }
 
 // NewAppModel creates a new AppModel.
@@ -112,6 +113,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case msgs.SendCompleteMsg:
+		// Ignore stale completions from cancelled sends.
+		if msg.Generation != m.sendGeneration {
+			return m, nil
+		}
 		m.state = StateIdle
 		m.cancelSend = nil
 		m.chatView.SetProcessing(false)
@@ -287,13 +292,15 @@ func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
 		if m.cancelSend != nil {
 			m.cancelSend()
 		}
+		m.sendGeneration++
+		gen := m.sendGeneration
 		sendCtx, cancelSend := context.WithCancel(m.ctx)
 		m.cancelSend = cancelSend
 		sess := m.sess
 		sendStart := time.Now()
 		return m, func() tea.Msg {
 			_, err := sess.Send(sendCtx, text)
-			return msgs.SendCompleteMsg{Err: err, Duration: time.Since(sendStart)}
+			return msgs.SendCompleteMsg{Err: err, Duration: time.Since(sendStart), Generation: gen}
 		}
 	}
 
@@ -303,13 +310,15 @@ func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
 	m.sendStart = sendStart
 
 	// Create a cancellable context for this Send call.
+	m.sendGeneration++
+	gen := m.sendGeneration
 	sendCtx, cancelSend := context.WithCancel(m.ctx)
 	m.cancelSend = cancelSend
 
 	sess := m.sess
 	sendCmd := func() tea.Msg {
 		_, err := sess.Send(sendCtx, text)
-		return msgs.SendCompleteMsg{Err: err, Duration: time.Since(sendStart)}
+		return msgs.SendCompleteMsg{Err: err, Duration: time.Since(sendStart), Generation: gen}
 	}
 
 	return m, tea.Batch(sendCmd, tickCmd())
@@ -377,7 +386,9 @@ func (m *AppModel) handleBatchAnswered(msg msgs.AskBatchAnsweredMsg) (tea.Model,
 		sess := m.sess
 		return m, func() tea.Msg {
 			for _, q := range dismissed {
-				_ = sess.Respond(q.Question.ID, "[user dismissed the question]")
+				if err := sess.Respond(q.Question.ID, "[user dismissed the question]"); err != nil {
+					return msgs.RespondErrorMsg{Err: err}
+				}
 			}
 			return nil
 		}

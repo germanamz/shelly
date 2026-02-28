@@ -292,7 +292,8 @@ func (m AskBatchModel) Questions() []msgs.AskUserMsg {
 func (m AskBatchModel) buildAnsweredCmd(customText string) tea.Cmd {
 	for _, e := range m.entries {
 		if e.response == "" {
-			return nil
+			// Shouldn't happen; fall back to dismissal.
+			return func() tea.Msg { return msgs.AskBatchAnsweredMsg{Answers: nil} }
 		}
 	}
 	answers := make([]msgs.AskAnswer, len(m.entries))

@@ -87,14 +87,15 @@ func TestGetNotFound(t *testing.T) {
 func TestGetReturnsCopy(t *testing.T) {
 	s := &Store{}
 
-	mustCreate(t, s, Task{Title: "original", BlockedBy: []string{"task-0"}})
+	mustCreate(t, s, Task{Title: "blocker"})
+	mustCreate(t, s, Task{Title: "original", BlockedBy: []string{"task-1"}})
 
-	cp, _ := s.Get("task-1")
+	cp, _ := s.Get("task-2")
 	cp.BlockedBy[0] = "mutated"
 
-	original, _ := s.Get("task-1")
+	original, _ := s.Get("task-2")
 	assert.Equal(t, "original", original.Title)
-	assert.Equal(t, []string{"task-0"}, original.BlockedBy)
+	assert.Equal(t, []string{"task-1"}, original.BlockedBy)
 }
 
 func TestListAll(t *testing.T) {
@@ -355,13 +356,12 @@ func TestIsBlocked(t *testing.T) {
 	assert.False(t, s.IsBlocked("task-2"))
 }
 
-func TestIsBlockedNonexistentDep(t *testing.T) {
+func TestCreateRejectsNonexistentBlockedBy(t *testing.T) {
 	s := &Store{}
 
-	mustCreate(t, s, Task{Title: "task", BlockedBy: []string{"task-999"}})
-
-	// Nonexistent deps are conservatively treated as blocking.
-	assert.True(t, s.IsBlocked("task-1"))
+	_, err := s.Create(Task{Title: "task", BlockedBy: []string{"task-999"}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
 }
 
 // --- Watch tests ---

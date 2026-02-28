@@ -30,7 +30,11 @@ func (s *mcpListScreen) Update(msg tea.Msg) (screen, tea.Cmd) {
 			s.form = nil
 			return s, nil
 		}
-		s.form = updated.(*mcpFormScreen)
+		if f, ok := updated.(*mcpFormScreen); ok {
+			s.form = f
+		} else {
+			s.form = nil
+		}
 		return s, cmd
 	}
 

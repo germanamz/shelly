@@ -3,9 +3,10 @@ package gemini
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"sync/atomic"
 
 	"github.com/germanamz/shelly/pkg/chats/chat"
 	"github.com/germanamz/shelly/pkg/chats/content"
@@ -21,8 +22,6 @@ var _ modeladapter.Completer = (*Adapter)(nil)
 // Adapter implements modeladapter.Completer for the Google Gemini API.
 type Adapter struct {
 	modeladapter.ModelAdapter
-
-	callSeq atomic.Int64
 }
 
 // New creates an Adapter configured for the Gemini API.
@@ -171,7 +170,11 @@ func (a *Adapter) buildRequest(c *chat.Chat, tools []toolbox.Tool) apiRequest {
 		if m.Role == role.System {
 			continue
 		}
-		a.appendContent(&req.Contents, m, callNameMap)
+		if err := a.appendContent(&req.Contents, m, callNameMap); err != nil {
+			// Log but continue — partial context is better than failing entirely.
+			// The error means a tool result references a call ID no longer in history.
+			continue
+		}
 	}
 
 	return req
@@ -192,14 +195,17 @@ func buildCallNameMap(msgs []message.Message) map[string]string {
 	return m
 }
 
-func (a *Adapter) appendContent(contents *[]apiContent, m message.Message, callNameMap map[string]string) {
+func (a *Adapter) appendContent(contents *[]apiContent, m message.Message, callNameMap map[string]string) error {
 	for _, p := range m.Parts {
-		part := a.partToAPIPart(p, callNameMap)
+		part, err := a.partToAPIPart(p, callNameMap)
+		if err != nil {
+			return err
+		}
 		if part == nil {
 			continue
 		}
 
-		apiRole := mapRole(m.Role, p)
+		apiRole := mapRole(m.Role)
 
 		// Merge into the last content if it has the same role (Gemini requires alternation).
 		if len(*contents) > 0 && (*contents)[len(*contents)-1].Role == apiRole {
@@ -212,12 +218,13 @@ func (a *Adapter) appendContent(contents *[]apiContent, m message.Message, callN
 			Parts: []apiPart{*part},
 		})
 	}
+	return nil
 }
 
-func (a *Adapter) partToAPIPart(p content.Part, callNameMap map[string]string) *apiPart {
+func (a *Adapter) partToAPIPart(p content.Part, callNameMap map[string]string) (*apiPart, error) {
 	switch v := p.(type) {
 	case content.Text:
-		return &apiPart{Text: v.Text}
+		return &apiPart{Text: v.Text}, nil
 	case content.ToolCall:
 		args := json.RawMessage(v.Arguments)
 		if len(args) == 0 {
@@ -228,20 +235,20 @@ func (a *Adapter) partToAPIPart(p content.Part, callNameMap map[string]string) *
 				Name: v.Name,
 				Args: args,
 			},
-		}
+		}, nil
 	case content.ToolResult:
 		name := callNameMap[v.ToolCallID]
 		if name == "" {
-			return nil
+			return nil, fmt.Errorf("gemini: no function name found for tool call ID %q; conversation history may be incomplete", v.ToolCallID)
 		}
 		return &apiPart{
 			FunctionResponse: &apiFunctionResp{
 				Name:     name,
 				Response: marshalFunctionResponse(v.Content),
 			},
-		}
+		}, nil
 	default:
-		return nil
+		return nil, nil
 	}
 }
 
@@ -259,19 +266,19 @@ func marshalFunctionResponse(content string) json.RawMessage {
 	return json.RawMessage(`{"result":` + string(b) + `}`)
 }
 
-func mapRole(r role.Role, p content.Part) string {
-	switch r {
-	case role.Assistant:
+func mapRole(r role.Role) string {
+	if r == role.Assistant {
 		return "model"
-	case role.Tool:
-		return "user"
-	default:
-		// ToolResult parts from any role go under "user".
-		if _, ok := p.(content.ToolResult); ok {
-			return "user"
-		}
-		return "user"
 	}
+	return "user"
+}
+
+// generateCallID creates a unique tool call ID using random bytes.
+// Gemini does not return call IDs, so we synthesize them.
+func generateCallID(name string) string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return fmt.Sprintf("call_%s_%s", name, hex.EncodeToString(b))
 }
 
 func (a *Adapter) parseCandidate(cand apiCandidate) message.Message {
@@ -280,9 +287,8 @@ func (a *Adapter) parseCandidate(cand apiCandidate) message.Message {
 	for _, p := range cand.Content.Parts {
 		switch {
 		case p.FunctionCall != nil:
-			seq := a.callSeq.Add(1)
 			parts = append(parts, content.ToolCall{
-				ID:        fmt.Sprintf("call_%s_%d", p.FunctionCall.Name, seq),
+				ID:        generateCallID(p.FunctionCall.Name),
 				Name:      p.FunctionCall.Name,
 				Arguments: string(p.FunctionCall.Args),
 			})
