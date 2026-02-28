@@ -242,12 +242,20 @@ func (m *SubAgentItem) View(width int) string {
 
 	var sb strings.Builder
 	frame := format.SpinnerFrames[m.Container.FrameIdx%len(format.SpinnerFrames)]
+
+	items := m.Container.Items
+
+	// Show "is thinking..." when the container has no items yet.
+	if len(items) == 0 {
+		fmt.Fprintf(&sb, "%s %s is thinking... %s",
+			prefix, m.Container.Agent, styles.SpinnerStyle.Render(frame))
+		return sb.String()
+	}
+
 	fmt.Fprintf(&sb, "%s %s\n",
 		styles.SubAgentStyle.Render(fmt.Sprintf("%s %s", prefix, m.Container.Agent)),
 		styles.SpinnerStyle.Render(frame),
 	)
-
-	items := m.Container.Items
 	if m.Container.MaxShow > 0 && len(items) > m.Container.MaxShow {
 		skipped := len(items) - m.Container.MaxShow
 		fmt.Fprintf(&sb, "  %s\n", styles.DimStyle.Render(fmt.Sprintf("... %d more items", skipped)))

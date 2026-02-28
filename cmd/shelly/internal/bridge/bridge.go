@@ -14,9 +14,11 @@ import (
 
 // Start launches the event watcher and chat watcher goroutines.
 // Both goroutines only call p.Send() — they never touch model state directly.
+// sessionAgent is the name of the top-level session agent; messages from other
+// agents are forwarded via events instead of the chat watcher.
 // Returns a cancel function that cancels the bridge context and waits for
 // both goroutines to exit, ensuring no stale messages are sent after return.
-func Start(ctx context.Context, p *tea.Program, c *chat.Chat, events *engine.EventBus) context.CancelFunc {
+func Start(ctx context.Context, p *tea.Program, c *chat.Chat, events *engine.EventBus, sessionAgent string) context.CancelFunc {
 	bridgeCtx, cancel := context.WithCancel(ctx)
 
 	var wg sync.WaitGroup
@@ -55,6 +57,15 @@ func Start(ctx context.Context, p *tea.Program, c *chat.Chat, events *engine.Eve
 						parent = d.Parent
 					}
 					p.Send(msgs.AgentEndMsg{Agent: ev.Agent, Parent: parent})
+
+				case engine.EventMessageAdded:
+					// Forward sub-agent messages via events. Top-level agent
+					// messages already arrive through the chat watcher.
+					if ev.Agent != sessionAgent {
+						if d, ok := ev.Data.(agent.MessageAddedEventData); ok {
+							p.Send(msgs.ChatMessageMsg{Msg: d.Message})
+						}
+					}
 				}
 			}
 		}

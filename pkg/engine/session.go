@@ -138,6 +138,9 @@ func (s *Session) release() {
 	s.active = false
 }
 
+// AgentName returns the name of the session's agent.
+func (s *Session) AgentName() string { return s.agent.Name() }
+
 // Respond delivers a user response to a pending ask_user question.
 func (s *Session) Respond(questionID, response string) error {
 	return s.responder.Respond(questionID, response)

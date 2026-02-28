@@ -90,7 +90,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case msgs.ProgramReadyMsg:
 		m.program = msg.Program
-		m.cancelBridge = bridge.Start(m.ctx, msg.Program, m.sess.Chat(), m.eng.Events())
+		m.cancelBridge = bridge.Start(m.ctx, msg.Program, m.sess.Chat(), m.eng.Events(), m.sess.AgentName())
 		return m, nil
 
 	case msgs.FilePickerEntriesMsg:
@@ -279,7 +279,7 @@ func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
 		m.sess = newSess
 		m.chatView.Clear()
 		m.inputBox.Reset()
-		m.cancelBridge = bridge.Start(m.ctx, m.program, m.sess.Chat(), m.eng.Events())
+		m.cancelBridge = bridge.Start(m.ctx, m.program, m.sess.Chat(), m.eng.Events(), m.sess.AgentName())
 		m.state = StateIdle
 		return m, nil
 	}

@@ -50,7 +50,8 @@ type ToolCallEventData struct {
 
 // MessageAddedEventData carries metadata for message_added events.
 type MessageAddedEventData struct {
-	Role string `json:"role"`
+	Role    string          `json:"role"`
+	Message message.Message `json:"message"`
 }
 
 // TaskBoard abstracts the shared task board so orchestration tools can
@@ -236,7 +237,7 @@ func (a *Agent) run(ctx context.Context) (message.Message, error) {
 
 		reply.Sender = a.name
 		a.chat.Append(reply)
-		a.emitEvent(ctx, "message_added", MessageAddedEventData{Role: string(reply.Role)})
+		a.emitEvent(ctx, "message_added", MessageAddedEventData{Role: string(reply.Role), Message: reply})
 
 		ic.Phase = PhaseAfterComplete
 		if err := a.evalEffects(ctx, ic); err != nil {
@@ -269,8 +270,9 @@ func (a *Agent) run(ctx context.Context) (message.Message, error) {
 		}
 
 		for _, result := range results {
-			a.chat.Append(message.New(a.name, role.Tool, result))
-			a.emitEvent(ctx, "message_added", MessageAddedEventData{Role: string(role.Tool)})
+			msg := message.New(a.name, role.Tool, result)
+			a.chat.Append(msg)
+			a.emitEvent(ctx, "message_added", MessageAddedEventData{Role: string(role.Tool), Message: msg})
 		}
 
 		if a.completionResult != nil {

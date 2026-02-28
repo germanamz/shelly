@@ -167,8 +167,19 @@ func (m *ChatViewModel) processAssistantMessage(msg message.Message) tea.Cmd {
 		return nil
 	}
 
-	// Final answer — no tool calls. Commit to scrollback.
+	// Final answer — no tool calls.
 	if text != "" {
+		// Sub-agent final answers go into their container as a thinking item
+		// so they render inline rather than being committed to scrollback.
+		if _, isSub := m.subAgents[agentName]; isSub {
+			ac := m.resolveContainer(agentName)
+			if ac != nil {
+				ac.AddThinking(text)
+			}
+			return nil
+		}
+
+		// Top-level final answer — commit to scrollback.
 		ac := m.resolveContainer(agentName)
 		prefix := "🤖"
 		if ac != nil {
