@@ -78,16 +78,24 @@ Before the first message, the message area displays a seashell ASCII art drawing
 |                                                                                                                |
 |                                                                                                                |
 
+## Agent processing indicator
+A standalone loading indicator shown while the agent is processing but before any agent container is created. The spinner uses a random whimsical message selected once from a pool of options (e.g., "Thinking...", "Pondering the cosmos...", "Consulting ancient scrolls..."). Both the spinner and message are styled in **magenta** (#8250df). The spinner cycles through braille animation frames: ⣾ ⣽ ⣻ ⢿ ⡿ ⣟ ⣯ ⣷.
+|                                                                                                                |
+|                                                                                                                |
+|   ⣾ Pondering the cosmos...                                                                                   |
+|                                                                                                                |
+|                                                                                                                |
+
 ## Agent thinking message
-A loading indicator shown at the bottom of the agent's message area every time the agent makes an LLM call. It appears below any existing messages (reasoning, tool calls) and is removed once the LLM call completes.
+A loading indicator shown when an agent container is created but has no items yet. Displayed with the agent's emoji prefix, name, and a braille spinner in **magenta**.
 |                                                                                                                |
 |                                                                                                                |
-| 🤖 <agent name> is thinking...                                                                                 |
+| 🤖 <agent name> is thinking... ⣾                                                                              |
 |                                                                                                                |
 |                                                                                                                |
 
 ## Agent reasoning message
-Reasoning text is displayed in **light gray** to visually differentiate it from other message types.
+When the agent produces reasoning text alongside tool calls, it is displayed as a markdown-rendered block. The header shows the agent's emoji prefix and name. Content is indented under a tree corner connector (`└`), with continuation lines indented by 3 spaces.
 |                                                                                                                |
 |                                                                                                                |
 | 🤖 <agent name>                                                                                                |
@@ -99,214 +107,209 @@ Reasoning text is displayed in **light gray** to visually differentiate it from 
 |                                                                                                                |
 |                                                                                                                |
 
+## Agent plan message
+When an agent configured with the 📝 prefix produces text alongside tool calls, it is displayed as a plan. Content is markdown-rendered. Both the header and rendered content are styled in **light gray** (#656d76).
+|                                                                                                                |
+|                                                                                                                |
+| 📝 <agent name> plan:                                                                                          |
+|  └ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque rutrum convallis risus. Pellentesque  |
+|    sit amet ipsum erat. Nulla aliquam elit feugiat, ornare est sed, semper augue.                              |
+|                                                                                                                |
+|                                                                                                                |
+
+## Agent answer message
+The final agent response (an assistant message with no tool calls). The header shows the agent's emoji prefix and name in **bold primary foreground** (#24292f). Content is markdown-rendered and indented under a tree corner connector, same as reasoning messages. Sub-agent final answers are displayed inside their container instead of being committed to scrollback.
+|                                                                                                                |
+|                                                                                                                |
+| 🤖 <agent name>                                                                                                |
+|  └ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque rutrum convallis risus. Pellentesque  |
+|    sit amet ipsum erat. Nulla aliquam elit feugiat, ornare est sed, semper augue. Suspendisse et               |
+|    neque rhoncus, bibendum lacus eleifend, scelerisque augue.                                                  |
+|                                                                                                                |
+|                                                                                                                |
+
 ## Tool call message
+Tool names are displayed as human-readable descriptions rather than raw function signatures. Known tools have custom formatters (e.g., `fs_read` → `Reading file "/path/to/file.txt"`, `exec_run` → `Running "go test ./..."`). Unknown and MCP tools show `Calling <tool_name> <truncated args>`. The tool description is displayed in **bold**.
+
 ### While running
-The tool call message is displayed with the time and tokens used so far. Tool arguments are truncated to the terminal width.
+The tool call shows the formatted description in **bold**, elapsed time in **dim**, and a braille spinner in **magenta**.
 |                                                                                                                |
 |                                                                                                                |
-| 🔧 <tool name>(with, arguments, separated, by, commas) 2s, 900 tokens                                          |
+| 🔧 Reading file "/path/to/file.txt" 0.5s ⣾                                                                   |
 |                                                                                                                |
 |                                                                                                                |
 
 ### After finished
-The tool call message is displayed with the result of the tool call.
+The result is displayed under a tree corner connector (`└`) in **dim** (#656d76). Results are truncated to 200 characters. Elapsed time is appended as `in <time>` suffix. Error results are displayed in **red** (#cf222e) instead of dim.
 |                                                                                                                |
 |                                                                                                                |
-| 🔧 <tool name>(with, arguments, separated, by, commas)                                                         |
-|  └ Read 200 lines from file /path/to/file.txt in 2s, 900 tokens                                                |
+| 🔧 Reading file "/path/to/file.txt"                                                                           |
+|  └ Read 200 lines from file /path/to/file.txt in 0.5s                                                         |
 |                                                                                                                |
 |                                                                                                                |
 
-## Multiple tool calls
+### Multi-line tool descriptions
+Some tools produce multi-line descriptions. The first line is the title; subsequent lines are detail lines displayed with tree connectors (`├─` and `│`) in **dim**. The delegation tool uses this format to show agent names and task descriptions.
+|                                                                                                                |
+|                                                                                                                |
+| 🔧 Delegating to researcher, coder 1.2s ⣾                                                                    |
+|  ├─ Research the authentication patterns in the codebase                                                       |
+|  │  and identify all JWT usage                                                                                 |
+|  ├─ Implement the login endpoint using the patterns found                                                      |
+|  │  by the researcher                                                                                          |
+|                                                                                                                |
+|                                                                                                                |
+
+## Multiple tool calls (tool group)
+Parallel calls of the **same tool** are grouped under a "Using tools" parent and displayed as a tree. Sequential calls of different tools are displayed individually (flat), one after another. Each call within the group follows the same display rules as a single tool call.
+
 ### While running
-Concurrent tool calls are grouped under a "Using tools" parent and displayed as a tree. Sequential tool calls are displayed individually (flat), one after another.
-
 |                                                                                                                |
 |                                                                                                                |
 | 🔧 Using tools                                                                                                 |
-| ├─ <tool name>(with, arguments, separated, by, commas)                                                         |
-| │  └ Read 200 lines from file /path/to/file.txt in 2s, 900 tokens                                              |
-| ├─ <another tool name>(with, arguments, separated, by, commas) 0.1s, 150 tokens                                |
-| └ 1050 tokens                                                                                                  |
+| ├─ Reading file "/path/to/foo.txt"                                                                            |
+| │  └ Read 150 lines from file /path/to/foo.txt in 0.3s                                                        |
+| ├─ Reading file "/path/to/bar.txt" 0.5s ⣾                                                                    |
+| └ Reading file "/path/to/baz.txt" 0.2s ⣾                                                                     |
 |                                                                                                                |
 |                                                                                                                |
 
 ### After finished
-The tree of tool calls is collapsed and the total time and tokens are displayed.
+The group collapses to a summary showing the number of tools and total elapsed time.
 |                                                                                                                |
 |                                                                                                                |
 | 🔧 Used tools                                                                                                  |
-| └ Finished with 2 tools in 2.2s, 1250 tokens                                                                   |
+|  └ Finished with 3 tools in 0.5s                                                                               |
 |                                                                                                                |
 |                                                                                                                |
 
 ## Error states
-When a tool call fails or a network error occurs, the raw error response is displayed as a string in the tool result.
+### Tool call error
+When a tool call fails, the result is displayed in **red** (#cf222e) instead of the usual dim style.
 |                                                                                                                |
 |                                                                                                                |
-| 🔧 <tool name>(with, arguments, separated, by, commas)                                                         |
-|  └ Error: connection refused: could not reach api.example.com in 2s, 900 tokens                                 |
+| 🔧 Fetching GET "https://api.example.com/data"                                                                |
+|  └ Error: connection refused: could not reach api.example.com in 0.5s                                          |
+|                                                                                                                |
+|                                                                                                                |
+
+### Error block
+When a send or response error occurs (not a tool error), the error message is displayed with a **thick red left border** (#cf222e) and left padding.
+|                                                                                                                |
+|                                                                                                                |
+| ┃ error: connection timed out                                                                                  |
 |                                                                                                                |
 |                                                                                                                |
 
 # Sub agents
-Sub agents are displayed as a list of agent containers. Each container has a header with the agent name and holds the agent's messages: reasoning, tool calls, and error states.
-Each container is a scrollable box limited to 4 visible lines of text. Content auto-scrolls to the bottom as new output arrives. Multiple sub-agent containers are stacked vertically with at least 1 line of padding between them.
-All content inside a sub-agent container is indented relative to the container header.
+Sub agents are displayed inside agent containers. Each agent container accumulates display items chronologically: reasoning, tool calls, plan items, and nested sub-agent items. Top-level agent containers render their items sequentially in the message area with no container header (each item carries its own visual identity). Sub-agent containers are nested inside their parent's container with a header, indentation, and windowing.
+
+## Agent container
+Top-level agent containers have no persistent header. Items (reasoning, tool calls, etc.) are rendered one after another, each with their own prefix and formatting. When the container has no items yet, it shows the "is thinking..." indicator.
+|                                                                                                                |
+|                                                                                                                |
+| 🤖 <agent name>                                                                                                |
+|  └ I'll read the file and make the requested changes.                                                          |
+|                                                                                                                |
+| 🔧 Reading file "/path/to/file.txt"                                                                           |
+|  └ Read 200 lines in 0.3s                                                                                     |
+|                                                                                                                |
+| 🔧 Editing file "/path/to/file.txt"                                                                           |
+|  └ Applied edit in 0.1s                                                                                        |
+|                                                                                                                |
+|                                                                                                                |
+
+When the agent finishes, the container collapses to a summary with the agent name and elapsed time in **dim**:
+|                                                                                                                |
+|                                                                                                                |
+| 🤖 <agent name>                                                                                                |
+| └ Finished in 5.3s                                                                                             |
+|                                                                                                                |
+|                                                                                                                |
 
 ## Delegation to sub agent
-The delegate tool call is displayed in the parent agent's message area (not inside the sub-agent container). It shows the agent name as a title and the full task description below, word-wrapped to the terminal width, using tree connectors for indentation.
+The delegate tool call is displayed in the parent agent's container as a regular tool call. It uses the multi-line tool description format to show agent names as the title and task descriptions as detail lines.
 
 ### While delegating
 |                                                                                                                |
 |                                                                                                                |
-| 🔧 Delegating to <agent name> 2s ⣾                                                                            |
-|  ├─ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque rutrum convallis risus. Pellentesque |
-|  │  sit amet ipsum erat. Nulla aliquam elit feugiat, ornare est sed, semper augue. Suspendisse et              |
-|  │  neque rhoncus, bibendum lacus eleifend, scelerisque augue.                                                 |
+| 🔧 Delegating to researcher 2.1s ⣾                                                                           |
+|  ├─ Research the authentication patterns in the codebase                                                       |
+|  │  and identify all JWT usage                                                                                 |
 |                                                                                                                |
 |                                                                                                                |
 
 ### After delegation finished
 |                                                                                                                |
 |                                                                                                                |
-| 🔧 Delegating to <agent name>                                                                                  |
-|  ├─ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque rutrum convallis risus. Pellentesque |
-|  │  sit amet ipsum erat. Nulla aliquam elit feugiat, ornare est sed, semper augue. Suspendisse et              |
-|  │  neque rhoncus, bibendum lacus eleifend, scelerisque augue.                                                 |
-|  └ Finished in 5.3s                                                                                           |
+| 🔧 Delegating to researcher                                                                                   |
+|  ├─ Research the authentication patterns in the codebase                                                       |
+|  │  and identify all JWT usage                                                                                 |
+|  └ <result text> in 5.3s                                                                                      |
 |                                                                                                                |
 |                                                                                                                |
 
 ## Sub-agent container structure
-Each sub-agent container starts with a header line showing the agent name. All messages inside the container (reasoning, tool calls, errors) are displayed chronologically in the order they occur, indented under the header.
+Sub-agent containers are nested inside their parent's container. While active, the header shows the agent name in **magenta** (#8250df) with a braille spinner. All items inside the container are indented with `  │ ` (2 spaces + tree pipe). The container shows a maximum of 4 visible items; older items are hidden behind a "... N more items" indicator in **dim**. Items inside the container use the same rendering as top-level items (reasoning, tool calls, groups) but at a reduced width.
 
+### Sub-agent thinking (no items yet)
+|                                                                                                                |
+|                                                                                                                |
+| 🤖 <sub agent name> is thinking... ⣾                                                                          |
+|                                                                                                                |
+|                                                                                                                |
+
+### Sub-agent with items (active)
+|                                                                                                                |
+|                                                                                                                |
+| 🤖 <sub agent name> ⣾                                                                                         |
+|   ... 3 more items                                                                                             |
+|   │ 🤖 <sub agent name>                                                                                        |
+|   │  └ I found the relevant patterns in the codebase.                                                          |
+|   │ 🔧 Reading file "/path/to/file.txt"                                                                        |
+|   │  └ Read 200 lines in 0.3s                                                                                  |
+|   │ 🔧 Searching for "JWT" in "/src" 0.5s ⣾                                                                    |
+|                                                                                                                |
+|                                                                                                                |
+
+### Sub-agent finished
 |                                                                                                                |
 |                                                                                                                |
 | 🤖 <sub agent name>                                                                                            |
-|   (messages appear here, indented under the header)                                                            |
-|                                                                                                                |
-|                                                                                                                |
-
-## Sub-agent thinking message
-A loading indicator shown at the bottom of the sub-agent container every time the sub-agent makes an LLM call. It appears below any existing messages inside the container and is removed once the LLM call completes.
-|                                                                                                                |
-|                                                                                                                |
-| 🤖 <sub agent name>                                                                                            |
-|   🤖 <sub agent name> is thinking...                                                                           |
-|                                                                                                                |
-|                                                                                                                |
-
-## Sub-agent reasoning message
-When the sub-agent produces reasoning text, it is displayed inside the container with the agent name label and a tree connector. Text is word-wrapped to the terminal width. Reasoning text is displayed in **light gray**, same as top-level reasoning messages.
-|                                                                                                                |
-|                                                                                                                |
-| 🤖 <sub agent name>                                                                                            |
-|   🤖 <sub agent name> (reasoning)                                                                              |
-|    └ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque rutrum convallis risus. Pellentesque |
-|      sit amet ipsum erat. Nulla aliquam elit feugiat, ornare est sed, semper augue. Suspendisse et              |
-|      neque rhoncus, bibendum lacus eleifend, scelerisque augue.                                                 |
-|                                                                                                                |
-|                                                                                                                |
-
-## Sub-agent tool call messages
-Tool calls inside a sub-agent container follow the same structure as top-level tool calls, but indented within the container.
-
-### Single tool call while running
-|                                                                                                                |
-|                                                                                                                |
-| 🤖 <sub agent name>                                                                                            |
-|   🔧 <tool name>(with, arguments, separated, by, commas) 2s, 900 tokens                                       |
-|                                                                                                                |
-|                                                                                                                |
-
-### Single tool call after finished
-|                                                                                                                |
-|                                                                                                                |
-| 🤖 <sub agent name>                                                                                            |
-|   🔧 <tool name>(with, arguments, separated, by, commas)                                                       |
-|    └ Read 200 lines from file /path/to/file.txt in 2s, 900 tokens                                              |
-|                                                                                                                |
-|                                                                                                                |
-
-### Multiple concurrent tool calls while running
-Concurrent tool calls are grouped under a "Using tools" parent, same as top-level, but indented within the container.
-|                                                                                                                |
-|                                                                                                                |
-| 🤖 <sub agent name>                                                                                            |
-|   🔧 Using tools                                                                                               |
-|    ├─ <tool name>(with, arguments, separated, by, commas)                                                      |
-|    │  └ Read 200 lines from file /path/to/file.txt in 2s, 900 tokens                                           |
-|    ├─ <another tool name>(with, arguments, separated, by, commas) 0.1s, 150 tokens                             |
-|    └ 1050 tokens                                                                                               |
-|                                                                                                                |
-|                                                                                                                |
-
-### Multiple concurrent tool calls after finished
-|                                                                                                                |
-|                                                                                                                |
-| 🤖 <sub agent name>                                                                                            |
-|   🔧 Used tools                                                                                                |
-|    └ Finished with 2 tools in 2.2s, 1250 tokens                                                                |
-|                                                                                                                |
-|                                                                                                                |
-
-## Sub-agent error states
-When a tool call fails or a network error occurs inside a sub-agent, the error is displayed in the tool result within the container.
-|                                                                                                                |
-|                                                                                                                |
-| 🤖 <sub agent name>                                                                                            |
-|   🔧 <tool name>(with, arguments, separated, by, commas)                                                       |
-|    └ Error: connection refused: could not reach api.example.com in 2s, 900 tokens                               |
+| └ Finished in 5.3s                                                                                             |
 |                                                                                                                |
 |                                                                                                                |
 
 ## Full sub-agent running example
-A complete example showing the chronological flow of messages inside a sub-agent container: completed tool calls, active tool calls, reasoning (in light gray), and the thinking indicator at the bottom while an LLM call is in progress.
+A complete example showing two sub-agents running concurrently inside the parent container. Each sub-agent has its own windowed view with indented items.
 |                                                                                                                |
 |                                                                                                                |
-| 🤖 <sub agent 1 name>                                                                                          |
-|   🔧 Used tools                                                                                                |
-|    └ Finished with 2 tools in 2.2s, 1250 tokens                                                                |
+| 🤖 <sub agent 1 name> ⣾                                                                                       |
+|   ... 2 more items                                                                                             |
+|   │ 🔧 Used tools                                                                                              |
+|   │  └ Finished with 2 tools in 1.2s                                                                           |
+|   │ 🤖 <sub agent 1 name>                                                                                      |
+|   │  └ Analysis complete, found the relevant patterns.                                                          |
+|   │ 🔧 Reading file "/path/to/file.txt" 0.5s ⣾                                                                |
 |                                                                                                                |
-|   🔧 Using tools                                                                                               |
-|    ├─ <tool name>(with, arguments, separated, by, commas)                                                      |
-|    │  └ Read 200 lines from file /path/to/file.txt in 2s, 900 tokens                                           |
-|    ├─ <another tool name>(with, arguments, separated, by, commas) 0.1s, 150 tokens                             |
-|    └ 1050 tokens                                                                                               |
-|                                                                                                                |
-|   🤖 <sub agent 1 name> (reasoning)                                                                            |
-|    └ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque rutrum convallis risus.              |
-|                                                                                                                |
-|   🤖 <sub agent 1 name> is thinking...                                                                         |
-|                                                                                                                |
-|                                                                                                                |
-| 🤖 <sub agent 2 name>                                                                                          |
-|   🔧 Used tools                                                                                                |
-|    └ Finished with 2 tools in 2.2s, 1250 tokens                                                                |
-|                                                                                                                |
-|   🔧 Using tools                                                                                               |
-|    ├─ <tool name>(with, arguments, separated, by, commas)                                                      |
-|    │  └ Read 200 lines from file /path/to/file.txt in 2s, 900 tokens                                           |
-|    ├─ <another tool name>(with, arguments, separated, by, commas) 0.1s, 150 tokens                             |
-|    └ 1050 tokens                                                                                               |
-|                                                                                                                |
-|   🤖 <sub agent 2 name> (reasoning)                                                                            |
-|    └ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque rutrum convallis risus.              |
-|                                                                                                                |
-|   🤖 <sub agent 2 name> is thinking...                                                                         |
+| 🤖 <sub agent 2 name> ⣾                                                                                       |
+|   │ 🔧 Used tools                                                                                              |
+|   │  └ Finished with 3 tools in 2.1s                                                                           |
+|   │ 🤖 <sub agent 2 name>                                                                                      |
+|   │  └ Implementing the changes based on findings.                                                              |
+|   │ 🔧 Editing file "/path/to/file.txt" 0.3s ⣾                                                                |
 |                                                                                                                |
 |                                                                                                                |
 
-## After sub agent finished
-When a sub agent finishes, its container collapses to show only the header and a summary line with total time and tokens.
+## After sub-agents finished
+When a sub agent finishes, its container collapses to show only the header and a summary line with elapsed time in **dim**.
 |                                                                                                                |
 |                                                                                                                |
 | 🤖 <sub agent 1 name>                                                                                          |
-| └ Finished in 5.3s, 3200 tokens                                                                                |
+| └ Finished in 5.3s                                                                                             |
 |                                                                                                                |
 | 🤖 <sub agent 2 name>                                                                                          |
-| └ Finished in 4.1s, 2800 tokens                                                                                |
+| └ Finished in 4.1s                                                                                             |
 |                                                                                                                |
 |                                                                                                                |
 
