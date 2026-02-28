@@ -70,7 +70,7 @@ agents:
         max_iterations: 15
         max_delegation_depth: 1
         context_threshold: 0
-      prefix: ""
+      prefix: "👑"
     - name: planner
       description: Analyzes code and creates implementation plans
       instructions: You are a code planner. Analyze the codebase, understand the architecture, and create detailed implementation plans.
@@ -91,7 +91,7 @@ agents:
         max_iterations: 10
         max_delegation_depth: 0
         context_threshold: 0
-      prefix: ""
+      prefix: "📝"
     - name: coder
       description: Implements code changes
       instructions: You are a coder. Implement changes based on plans, write clean code, and run tests to verify your work.
@@ -118,7 +118,7 @@ agents:
         max_iterations: 20
         max_delegation_depth: 0
         context_threshold: 0
-      prefix: ""
+      prefix: "🤖"
 entry_agent: orchestrator
 filesystem:
     permissions_file: ""

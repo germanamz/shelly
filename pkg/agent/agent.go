@@ -301,13 +301,19 @@ func (a *Agent) evalEffects(ctx context.Context, ic IterationContext) error {
 	return nil
 }
 
+// canDelegate returns true when delegation is both configured and the current
+// depth still allows it.
+func (a *Agent) canDelegate() bool {
+	return a.registry != nil && a.options.MaxDelegationDepth > 0 && a.depth < a.options.MaxDelegationDepth
+}
+
 // allToolBoxes returns the combined set of user toolboxes and orchestration
-// toolbox (if a registry is set).
+// toolbox (if delegation is possible).
 func (a *Agent) allToolBoxes() []*toolbox.ToolBox {
 	tbs := make([]*toolbox.ToolBox, len(a.toolboxes))
 	copy(tbs, a.toolboxes)
 
-	if a.registry != nil && a.options.MaxDelegationDepth > 0 {
+	if a.canDelegate() {
 		tbs = append(tbs, orchestrationToolBox(a))
 	}
 
@@ -430,8 +436,8 @@ func (a *Agent) buildSystemPrompt() string {
 
 	// --- Dynamic content (changes per session, not cacheable) ---
 
-	// Agent directory from registry.
-	if a.registry != nil {
+	// Agent directory from registry (only when delegation is possible).
+	if a.canDelegate() {
 		entries := a.registry.List()
 		var others []Entry
 		for _, e := range entries {

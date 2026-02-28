@@ -374,7 +374,7 @@ func TestSystemPromptAgentDirectory(t *testing.T) {
 			message.NewText("", role.Assistant, "Hi"),
 		},
 	}
-	a := New("orchestrator", "", "", p, Options{})
+	a := New("orchestrator", "", "", p, Options{MaxDelegationDepth: 1})
 
 	reg := NewRegistry()
 	reg.Register("worker", "Does tasks", func() *Agent {
@@ -392,6 +392,49 @@ func TestSystemPromptAgentDirectory(t *testing.T) {
 	assert.Contains(t, prompt, "**worker**")
 	// Self should not appear in directory.
 	assert.NotContains(t, prompt, "**orchestrator**")
+}
+
+func TestSystemPromptNoAgentDirectoryAtZeroDepth(t *testing.T) {
+	p := &sequenceCompleter{
+		replies: []message.Message{
+			message.NewText("", role.Assistant, "Hi"),
+		},
+	}
+	a := New("worker", "", "", p, Options{MaxDelegationDepth: 0})
+
+	reg := NewRegistry()
+	reg.Register("other", "Other agent", func() *Agent {
+		return New("other", "Other agent", "", p, Options{})
+	})
+	a.SetRegistry(reg)
+
+	_, err := a.Run(context.Background())
+	require.NoError(t, err)
+
+	prompt := a.Chat().SystemPrompt()
+	assert.NotContains(t, prompt, "available_agents")
+}
+
+func TestSystemPromptNoAgentDirectoryAtMaxDepth(t *testing.T) {
+	p := &sequenceCompleter{
+		replies: []message.Message{
+			message.NewText("", role.Assistant, "Hi"),
+		},
+	}
+	a := New("worker", "", "", p, Options{MaxDelegationDepth: 1})
+	a.depth = 1 // Already at max depth.
+
+	reg := NewRegistry()
+	reg.Register("other", "Other agent", func() *Agent {
+		return New("other", "Other agent", "", p, Options{})
+	})
+	a.SetRegistry(reg)
+
+	_, err := a.Run(context.Background())
+	require.NoError(t, err)
+
+	prompt := a.Chat().SystemPrompt()
+	assert.NotContains(t, prompt, "available_agents")
 }
 
 // --- Middleware integration tests ---
