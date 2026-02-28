@@ -148,7 +148,7 @@ func (a *Adapter) buildRequest(c *chat.Chat, tools []toolbox.Tool) apiRequest {
 			decls[i] = apiFuncDecl{
 				Name:        t.Name,
 				Description: t.Description,
-				Parameters:  schema,
+				Parameters:  sanitizeSchema(schema),
 			}
 		}
 		req.Tools = []apiToolSet{{FunctionDeclarations: decls}}
@@ -264,6 +264,43 @@ func marshalFunctionResponse(content string) json.RawMessage {
 	// Fall back to encoding as a JSON string.
 	b, _ := json.Marshal(content)
 	return json.RawMessage(`{"result":` + string(b) + `}`)
+}
+
+// sanitizeSchema removes JSON Schema keywords that the Gemini API does not
+// support (e.g. $schema, additionalProperties). It operates recursively so
+// nested schemas (inside "properties", "items", etc.) are also cleaned.
+func sanitizeSchema(raw json.RawMessage) json.RawMessage {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return raw // not an object — return as-is
+	}
+
+	// Fields the Gemini API rejects at any level.
+	delete(obj, "$schema")
+	delete(obj, "additionalProperties")
+
+	// Recurse into nested schemas.
+	if props, ok := obj["properties"]; ok {
+		var propMap map[string]json.RawMessage
+		if err := json.Unmarshal(props, &propMap); err == nil {
+			for k, v := range propMap {
+				propMap[k] = sanitizeSchema(v)
+			}
+			if b, err := json.Marshal(propMap); err == nil {
+				obj["properties"] = b
+			}
+		}
+	}
+
+	if items, ok := obj["items"]; ok {
+		obj["items"] = sanitizeSchema(items)
+	}
+
+	b, err := json.Marshal(obj)
+	if err != nil {
+		return raw
+	}
+	return b
 }
 
 func mapRole(r role.Role) string {

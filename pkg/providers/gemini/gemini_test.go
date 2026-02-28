@@ -319,6 +319,72 @@ func TestComplete_EmptyCandidates(t *testing.T) {
 	assert.Contains(t, err.Error(), "empty candidates")
 }
 
+func TestComplete_ToolSchemasSanitized(t *testing.T) {
+	_, adapter := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		req := readBody(t, r)
+
+		tools, ok := req["tools"].([]any)
+		assert.True(t, ok)
+
+		toolSet, _ := tools[0].(map[string]any)
+		decls, _ := toolSet["functionDeclarations"].([]any)
+		assert.Len(t, decls, 1)
+
+		decl, _ := decls[0].(map[string]any)
+		params, _ := decl["parameters"].(map[string]any)
+
+		// $schema and additionalProperties must be stripped at root level.
+		assert.NotContains(t, params, "$schema")
+		assert.NotContains(t, params, "additionalProperties")
+
+		// Nested properties should also be sanitized.
+		props, _ := params["properties"].(map[string]any)
+		headers, _ := props["headers"].(map[string]any)
+		assert.NotContains(t, headers, "additionalProperties")
+
+		writeJSON(t, w, map[string]any{
+			"candidates": []map[string]any{
+				{
+					"content": map[string]any{
+						"role":  "model",
+						"parts": []map[string]any{{"text": "OK"}},
+					},
+					"finishReason": "STOP",
+				},
+			},
+			"usageMetadata": map[string]any{
+				"promptTokenCount":     5,
+				"candidatesTokenCount": 1,
+				"totalTokenCount":      6,
+			},
+		})
+	})
+
+	tools := []toolbox.Tool{
+		{
+			Name:        "test_tool",
+			Description: "A test tool",
+			InputSchema: json.RawMessage(`{
+				"$schema": "https://json-schema.org/draft/2020-12/schema",
+				"type": "object",
+				"additionalProperties": false,
+				"properties": {
+					"url": {"type": "string"},
+					"headers": {"type": "object", "additionalProperties": {"type": "string"}}
+				},
+				"required": ["url"]
+			}`),
+		},
+	}
+
+	c := chat.New(
+		message.NewText("user", role.User, "test"),
+	)
+
+	_, err := adapter.Complete(context.Background(), c, tools)
+	require.NoError(t, err)
+}
+
 func TestComplete_HTTPError(t *testing.T) {
 	_, adapter := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
