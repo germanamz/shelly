@@ -618,14 +618,18 @@ func (m *FormModel) View() tea.View {
 		if i == m.focus {
 			ls = focusedLabel
 		}
-		b.WriteString(ls.Render(f.Label()))
-		b.WriteString("  ")
-		b.WriteString(f.View())
-		b.WriteString("\n")
 
-		// Add extra newline after multi-line fields for readability.
+		// Render multi-line fields below their label so all lines are aligned.
 		switch f.(type) {
 		case *TextAreaField, *MultiSelectField:
+			b.WriteString(ls.Render(f.Label()))
+			b.WriteString("\n")
+			b.WriteString(f.View())
+			b.WriteString("\n\n")
+		default:
+			b.WriteString(ls.Render(f.Label()))
+			b.WriteString("  ")
+			b.WriteString(f.View())
 			b.WriteString("\n")
 		}
 	}
