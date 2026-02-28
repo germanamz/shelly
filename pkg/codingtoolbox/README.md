@@ -49,7 +49,7 @@ Permission-gated tools for reading, writing, editing, listing, deleting, moving,
 
 File-modifying operations (`fs_write`, `fs_edit`, `fs_patch`, `fs_delete`, `fs_move`, `fs_copy`, `fs_mkdir`) show a unified diff (via go-difflib) and require user confirmation. Users can choose "trust this session" to skip confirmation for subsequent changes within the session. `SessionTrust` tracks this per-session state and is propagated via context using `WithSessionTrust`. When the session is trusted, a `NotifyFunc` callback displays changes without blocking.
 
-The `fs_read` tool caps file reads at 10MB. The `fs_edit` tool requires the `old_text` to appear exactly once. The `fs_patch` tool applies multiple find-and-replace hunks sequentially in one atomic operation. Concurrent writes to the same file are serialized via a per-path `FileLocker`. Two-path operations (`fs_move`, `fs_copy`) use `LockPair`/`UnlockPair` with consistent ordering to avoid deadlocks.
+The `fs_read` tool caps file reads at 10MB. The `fs_read_lines` tool reads a specific line range (offset + limit) and returns numbered output (`N→content`) with a `[Lines X-Y of Z]` header — useful for inspecting large files without loading the full content. The `fs_edit` tool requires the `old_text` to appear exactly once. The `fs_patch` tool applies multiple find-and-replace hunks sequentially in one atomic operation. Concurrent writes to the same file are serialized via a per-path `FileLocker`. Two-path operations (`fs_move`, `fs_copy`) use `LockPair`/`UnlockPair` with consistent ordering to avoid deadlocks.
 
 **Exported types**: `AskFunc`, `NotifyFunc`, `FS`, `FileLocker`, `SessionTrust`.
 **Constructor**: `New(store *permissions.Store, askFn AskFunc, notifyFn NotifyFunc) *FS`.
@@ -71,7 +71,7 @@ Concurrent permission prompts for the same command are coalesced: when a prompt 
 
 Permission-gated tools for searching file contents by regex (`search_content`) and finding files by glob pattern (`search_files`) with `**` support for recursive matching. Uses directory approval from the shared permissions store. Symlinks are resolved and checked to prevent escaping approved directories.
 
-Content search skips binary files (UTF-8 validity check on the first 512 bytes) and caps total matched content at 1MB. Both tools default to 100 max results. File search supports `**` patterns via a custom `matchDoublestar` implementation.
+Content search skips binary files (UTF-8 validity check on the first 512 bytes) and caps total matched content at 1MB. Both tools default to 100 max results. File search supports `**` patterns via a custom `matchDoublestar` implementation. `search_content` accepts an optional `context_lines` field: when > 0, each match includes a `context` field with the surrounding N lines formatted as `" N→content"` (match line prefixed with `>`), avoiding a follow-up `fs_read_lines` in many cases.
 
 **Exported types**: `AskFunc`, `Search`.
 **Constructor**: `New(store *permissions.Store, askFn AskFunc) *Search`.

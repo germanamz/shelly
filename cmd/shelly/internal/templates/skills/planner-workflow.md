@@ -19,7 +19,7 @@ The lead provides explorer findings as input. Use them to:
 - Understand the architecture and patterns already identified
 - Build on the explorer's file list rather than re-searching from scratch
 - Address risks and considerations the explorer surfaced
-- If the findings are insufficient, do targeted additional research rather than re-exploring broadly
+- If the findings are insufficient, do targeted additional research rather than re-exploring broadly: use `search_content` with `context_lines` to see surrounding code in one call, and `fs_read_lines` to read a specific section when you know the line range
 
 ## Creating a Plan
 

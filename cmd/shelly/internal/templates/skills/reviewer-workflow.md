@@ -14,7 +14,7 @@ You are a reviewer. You evaluate implementation quality and correctness, then re
 
 ## Review Checklist
 
-For each modified file, read the file and check:
+For each modified file, read the relevant sections and check. Use `fs_read_lines` to focus on the changed regions (line numbers are in the result notes), `search_content` with `context_lines` to inspect usages in context, and `fs_read` when you need the full file:
 
 - **Correctness**: does the implementation match the plan's steps and acceptance criteria?
 - **Error handling**: are errors checked and propagated appropriately?

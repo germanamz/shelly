@@ -232,6 +232,52 @@ func TestSearchFiles_PatternWithDirSeparator(t *testing.T) {
 	assert.Equal(t, []string{filepath.Join("sub", "main.go")}, results)
 }
 
+func TestSearchContent_WithContext(t *testing.T) {
+	s, dir := newTestSearch(t, autoApprove)
+	tb := s.Tools()
+
+	fileContent := "line1\nline2\nfunc target() {}\nline4\nline5\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ctx.go"), []byte(fileContent), 0o600))
+
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:        "tc1",
+		Name:      "search_content",
+		Arguments: mustJSON(t, contentInput{Pattern: "func target", Directory: dir, ContextLines: 1}),
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+
+	var matches []contentMatch
+	require.NoError(t, json.Unmarshal([]byte(tr.Content), &matches))
+	require.Len(t, matches, 1)
+	assert.Equal(t, 3, matches[0].Line)
+	assert.Contains(t, matches[0].Content, "func target")
+	assert.NotEmpty(t, matches[0].Context)
+	assert.Contains(t, matches[0].Context, "line2")
+	assert.Contains(t, matches[0].Context, "line4")
+	assert.Contains(t, matches[0].Context, ">")
+}
+
+func TestSearchContent_ContextZero(t *testing.T) {
+	s, dir := newTestSearch(t, autoApprove)
+	tb := s.Tools()
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "f.go"), []byte("package main\nfunc foo() {}\n"), 0o600))
+
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:        "tc1",
+		Name:      "search_content",
+		Arguments: mustJSON(t, contentInput{Pattern: "func foo", Directory: dir}),
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+
+	var matches []contentMatch
+	require.NoError(t, json.Unmarshal([]byte(tr.Content), &matches))
+	require.Len(t, matches, 1)
+	assert.Empty(t, matches[0].Context) // no context when context_lines==0
+}
+
 func TestSearchContent_LongLines(t *testing.T) {
 	s, dir := newTestSearch(t, autoApprove)
 	tb := s.Tools()

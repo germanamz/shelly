@@ -1,5 +1,5 @@
 providers:
-    - name: default
+    - name: anthropic
       kind: anthropic
       base_url: ""
       api_key: ${ANTHROPIC_API_KEY}
@@ -35,7 +35,7 @@ providers:
         rpm: 0
         max_retries: 0
         base_delay: ""
-    - name: gemini
+    - name: default
       kind: gemini
       base_url: ""
       api_key: ${GEMINI_API_KEY}
@@ -51,10 +51,15 @@ mcp_servers: []
 agents:
     - name: lead
       description: Stakeholder who owns the outcome, evaluates reports, and makes strategic decisions
-      instructions: You are the lead — you own the outcome of every task. You evaluate subagent reports critically, make strategic decisions at each step, and ensure the final result meets the user's expectations. You are not a dispatcher — you read findings, verify claims using your own tools, and decide next actions. At any decision point you can ask the user for clarification.
-      provider: gemini
+      instructions: 'You are the lead — you own the outcome of every task. You evaluate subagent reports critically, make strategic decisions at each step, and ensure the final result meets the user''s expectations. You are not a dispatcher — you read findings, verify claims using your own tools, and decide next actions. MANDATORY: after the planner produces a plan, you must present it to the user via ask_user and get explicit approval before delegating any coding work. Never skip this approval step.'
+      provider: default
       toolboxes:
-        - filesystem
+        - name: filesystem
+          tools:
+            - fs_read
+            - fs_read_lines
+            - fs_list
+            - fs_stat
         - search
         - ask
         - tasks
@@ -70,11 +75,20 @@ agents:
     - name: explorer
       description: Gathers codebase intelligence — architecture, patterns, dependencies, relevant files
       instructions: You are a codebase explorer. Your job is to gather intelligence about the codebase — architecture, patterns, dependencies, and relevant files — then write a structured findings note for the lead. You never modify files.
-      provider: gemini
+      provider: default
       toolboxes:
-        - filesystem
+        - name: filesystem
+          tools:
+            - fs_read
+            - fs_read_lines
+            - fs_list
+            - fs_stat
         - search
-        - git
+        - name: git
+          tools:
+            - git_status
+            - git_diff
+            - git_log
         - notes
       skills:
         - explorer-workflow
@@ -89,11 +103,20 @@ agents:
     - name: planner
       description: Creates implementation plans based on explorer findings and lead direction
       instructions: You are a planner. You consume explorer findings and lead direction to create detailed implementation plans. Your primary output is a plan note — the lead evaluates and approves it before coding begins. If requirements are ambiguous, use ask_user to clarify before planning.
-      provider: gemini
+      provider: default
       toolboxes:
-        - filesystem
+        - name: filesystem
+          tools:
+            - fs_read
+            - fs_read_lines
+            - fs_list
+            - fs_stat
         - search
-        - git
+        - name: git
+          tools:
+            - git_status
+            - git_diff
+            - git_log
         - ask
         - tasks
         - notes
@@ -110,7 +133,7 @@ agents:
     - name: coder
       description: Implements code changes per the approved plan
       instructions: You are a coder. Your first action must always be to read the plan note written by the planner. Implement changes based on that plan, stay within your assigned file scope, write clean code, and run tests to verify your work. Write a thorough result note so the lead can evaluate your work.
-      provider: gemini
+      provider: default
       toolboxes:
         - filesystem
         - exec
@@ -141,9 +164,15 @@ agents:
     - name: reviewer
       description: Reviews implementation and reports findings to lead
       instructions: You are a code reviewer. Read the plan note and the coder's result notes, then review the changed files against the plan's acceptance criteria. Write a review note with your recommendation — the lead makes the final accept/reject decision, not you.
-      provider: gemini
+      provider: default
       toolboxes:
-        - filesystem
+        - name: filesystem
+          tools:
+            - fs_read
+            - fs_read_lines
+            - fs_list
+            - fs_stat
+            - fs_diff
         - search
         - exec
         - notes

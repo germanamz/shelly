@@ -265,7 +265,66 @@ func TestPersistence(t *testing.T) {
 	assert.Equal(t, "data", tr.Content)
 }
 
-func TestRead_EmptyPath(t *testing.T) {
+func TestReadLines(t *testing.T) {
+	fs, dir := newTestFS(t, autoApprove)
+	tb := fs.Tools()
+
+	fileContent := "line1\nline2\nline3\nline4\nline5\n"
+	filePath := filepath.Join(dir, "multi.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte(fileContent), 0o600))
+
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:        "tc1",
+		Name:      "fs_read_lines",
+		Arguments: mustJSON(t, readLinesInput{Path: filePath, Offset: 2, Limit: 3}),
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+	assert.Contains(t, tr.Content, "[Lines 2-4 of 5]")
+	assert.Contains(t, tr.Content, "2→line2")
+	assert.Contains(t, tr.Content, "4→line4")
+	assert.NotContains(t, tr.Content, "line1")
+	assert.NotContains(t, tr.Content, "line5")
+}
+
+func TestReadLines_DefaultLimit(t *testing.T) {
+	fs, dir := newTestFS(t, autoApprove)
+	tb := fs.Tools()
+
+	filePath := filepath.Join(dir, "small.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte("a\nb\nc\n"), 0o600))
+
+	// No offset or limit: should default to offset=1, limit=100.
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:        "tc1",
+		Name:      "fs_read_lines",
+		Arguments: mustJSON(t, readLinesInput{Path: filePath}),
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+	assert.Contains(t, tr.Content, "[Lines 1-3 of 3]")
+	assert.Contains(t, tr.Content, "1→a")
+	assert.Contains(t, tr.Content, "3→c")
+}
+
+func TestReadLines_OffsetBeyondFile(t *testing.T) {
+	fs, dir := newTestFS(t, autoApprove)
+	tb := fs.Tools()
+
+	filePath := filepath.Join(dir, "small.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte("one\n"), 0o600))
+
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:        "tc1",
+		Name:      "fs_read_lines",
+		Arguments: mustJSON(t, readLinesInput{Path: filePath, Offset: 100}),
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+	assert.Contains(t, tr.Content, "empty range")
+}
+
+func TestReadLines_EmptyPath(t *testing.T) {
 	fs, _ := newTestFS(t, autoApprove)
 	tb := fs.Tools()
 

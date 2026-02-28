@@ -15,6 +15,7 @@ description: "Coding protocol: plan consumption, file-scope adherence, increment
 - Make focused, incremental changes. Verify each step works before moving on.
 - Run tests after each logical change to catch regressions early, not just at the end.
 - Stay within your assigned file scope. If you discover changes needed outside your scope, document them in your result note rather than making them.
+- **Reading files efficiently**: use `search_content` with `context_lines` to find and inspect code in one step. Use `fs_read_lines` to read a specific section (e.g., a function) when you already know the line range. Use `fs_read` for a full read when you need the complete file text to construct an `fs_edit` match.
 
 ## Result Reporting
 

@@ -65,7 +65,7 @@ func New(store *permissions.Store, askFn AskFunc, notifyFn NotifyFunc) *FS {
 func (f *FS) Tools() *toolbox.ToolBox {
 	tb := toolbox.New()
 	tb.Register(
-		f.readTool(), f.writeTool(), f.editTool(), f.listTool(),
+		f.readTool(), f.readLinesTool(), f.writeTool(), f.editTool(), f.listTool(),
 		f.deleteTool(), f.moveTool(), f.copyTool(), f.statTool(),
 		f.diffTool(), f.patchTool(), f.mkdirTool(),
 	)
@@ -175,6 +175,12 @@ type pathInput struct {
 	Path string `json:"path"`
 }
 
+type readLinesInput struct {
+	Path   string `json:"path"`
+	Offset int    `json:"offset"` // 1-indexed first line to read
+	Limit  int    `json:"limit"`  // max number of lines to return
+}
+
 type writeInput struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
@@ -231,6 +237,85 @@ func (f *FS) handleRead(ctx context.Context, input json.RawMessage) (string, err
 	}
 
 	return string(data), nil
+}
+
+func (f *FS) readLinesTool() toolbox.Tool {
+	return toolbox.Tool{
+		Name:        "fs_read_lines",
+		Description: "Read a specific line range from a file. Returns numbered lines in the format \"N→content\" with a header showing the range and total line count. Use when you only need a portion of a large file to save context. For edits after a partial read, use fs_read to get exact text to match.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path to the file to read"},"offset":{"type":"integer","description":"First line to read, 1-indexed (default: 1)"},"limit":{"type":"integer","description":"Maximum number of lines to return (default: 100)"}},"required":["path"]}`),
+		Handler:     f.handleReadLines,
+	}
+}
+
+func (f *FS) handleReadLines(ctx context.Context, input json.RawMessage) (string, error) {
+	var in readLinesInput
+	if err := json.Unmarshal(input, &in); err != nil {
+		return "", fmt.Errorf("fs_read_lines: invalid input: %w", err)
+	}
+
+	if in.Path == "" {
+		return "", fmt.Errorf("fs_read_lines: path is required")
+	}
+
+	if err := f.checkPermission(ctx, in.Path); err != nil {
+		return "", err
+	}
+
+	abs, err := filepath.Abs(in.Path)
+	if err != nil {
+		return "", fmt.Errorf("fs_read_lines: %w", err)
+	}
+
+	file, err := os.Open(abs) //nolint:gosec // path is approved by user
+	if err != nil {
+		return "", fmt.Errorf("fs_read_lines: %w", err)
+	}
+	defer file.Close() //nolint:errcheck // best-effort close on read
+
+	const maxReadSize = 10 << 20 // 10 MB
+	raw, err := io.ReadAll(io.LimitReader(file, int64(maxReadSize)+1))
+	if err != nil {
+		return "", fmt.Errorf("fs_read_lines: %w", err)
+	}
+
+	if len(raw) > maxReadSize {
+		return "", fmt.Errorf("fs_read_lines: file exceeds maximum read size of 10 MB")
+	}
+
+	lines := strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n")
+	// Trim trailing empty element produced by a trailing newline.
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	totalLines := len(lines)
+
+	startLine := 1
+	if in.Offset > 0 {
+		startLine = in.Offset
+	}
+
+	const defaultLimit = 100
+	limit := defaultLimit
+	if in.Limit > 0 {
+		limit = in.Limit
+	}
+
+	endLine := min(startLine+limit-1, totalLines)
+
+	if startLine > totalLines {
+		return fmt.Sprintf("[Lines %d-%d of %d]\n(empty range)", startLine, endLine, totalLines), nil
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "[Lines %d-%d of %d]\n", startLine, endLine, totalLines)
+
+	for i := startLine - 1; i < endLine; i++ {
+		fmt.Fprintf(&sb, "%6d→%s\n", i+1, lines[i])
+	}
+
+	return sb.String(), nil
 }
 
 func (f *FS) writeTool() toolbox.Tool {

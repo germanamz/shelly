@@ -35,7 +35,7 @@ config:
       provider: default
       toolboxes:
         - name: filesystem
-          tools: [fs_read, fs_list, fs_stat]
+          tools: [fs_read, fs_read_lines, fs_list, fs_stat]
         - search
         - ask
         - tasks
@@ -56,7 +56,7 @@ config:
       provider: default
       toolboxes:
         - name: filesystem
-          tools: [fs_read, fs_list, fs_stat]
+          tools: [fs_read, fs_read_lines, fs_list, fs_stat]
         - search
         - name: git
           tools: [git_status, git_diff, git_log]
@@ -78,7 +78,7 @@ config:
       provider: default
       toolboxes:
         - name: filesystem
-          tools: [fs_read, fs_list, fs_stat]
+          tools: [fs_read, fs_read_lines, fs_list, fs_stat]
         - search
         - name: git
           tools: [git_status, git_diff, git_log]
@@ -132,7 +132,7 @@ config:
       provider: default
       toolboxes:
         - name: filesystem
-          tools: [fs_read, fs_list, fs_stat, fs_diff]
+          tools: [fs_read, fs_read_lines, fs_list, fs_stat, fs_diff]
         - search
         - exec
         - notes

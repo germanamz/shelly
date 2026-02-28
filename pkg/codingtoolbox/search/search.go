@@ -129,22 +129,24 @@ func (s *Search) askAndApproveDir(ctx context.Context, dir string) error {
 // --- search_content ---
 
 type contentInput struct {
-	Pattern    string `json:"pattern"`
-	Directory  string `json:"directory"`
-	MaxResults int    `json:"max_results"`
+	Pattern      string `json:"pattern"`
+	Directory    string `json:"directory"`
+	MaxResults   int    `json:"max_results"`
+	ContextLines int    `json:"context_lines"` // number of surrounding lines to include per match
 }
 
 type contentMatch struct {
 	Path    string `json:"path"`
 	Line    int    `json:"line"`
 	Content string `json:"content"`
+	Context string `json:"context,omitempty"` // surrounding lines when context_lines > 0
 }
 
 func (s *Search) contentTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "search_content",
-		Description: "Search file contents using a regular expression. Returns matching lines with file path and line number. Use to find code patterns, definitions, or references across a directory. Returns matching lines only — use fs_read to see surrounding context after finding matches.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string","description":"Regular expression pattern to search for"},"directory":{"type":"string","description":"Directory to search in"},"max_results":{"type":"integer","description":"Maximum number of results (default 100)"}},"required":["pattern","directory"]}`),
+		Description: "Search file contents using a regular expression. Returns matching lines with file path and line number. Set context_lines to include N surrounding lines per match (avoids a follow-up fs_read_lines in many cases). Use to find code patterns, definitions, or references across a directory.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string","description":"Regular expression pattern to search for"},"directory":{"type":"string","description":"Directory to search in"},"max_results":{"type":"integer","description":"Maximum number of results (default 100)"},"context_lines":{"type":"integer","description":"Number of lines before and after each match to include in the context field (default 0)"}},"required":["pattern","directory"]}`),
 		Handler:     s.handleContent,
 	}
 }
@@ -219,13 +221,18 @@ func (s *Search) handleContent(ctx context.Context, input json.RawMessage) (stri
 			return nil
 		}
 
+		rel, _ := filepath.Rel(abs, path)
+
+		if in.ContextLines > 0 {
+			return s.searchFileWithContext(realPath, rel, re, in.ContextLines, maxResults, maxTotalBytes, &matches, &totalBytes)
+		}
+
 		file, err := os.Open(realPath) //nolint:gosec // path is approved by user
 		if err != nil {
 			return nil // skip unreadable files
 		}
 		defer file.Close() //nolint:errcheck // best-effort close on read
 
-		rel, _ := filepath.Rel(abs, path)
 		scanner := bufio.NewScanner(file)
 		scanner.Buffer(make([]byte, 64*1024), 1<<20) // allow lines up to 1MB
 		lineNum := 0
@@ -265,6 +272,62 @@ func (s *Search) handleContent(ctx context.Context, input json.RawMessage) (stri
 	}
 
 	return string(data), nil
+}
+
+// searchFileWithContext reads all lines from a file and appends matches that
+// include context_lines surrounding lines. Each match's Context field contains
+// the window formatted as " N→content" lines, with ">N→content" on the match.
+func (s *Search) searchFileWithContext(
+	realPath, rel string,
+	re *regexp.Regexp,
+	contextLines, maxResults, maxTotalBytes int,
+	matches *[]contentMatch,
+	totalBytes *int,
+) error {
+	data, err := os.ReadFile(realPath) //nolint:gosec // path is approved by user
+	if err != nil {
+		return nil // skip unreadable files
+	}
+
+	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	// Trim trailing empty element from a trailing newline.
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	for i, line := range lines {
+		if !re.MatchString(line) {
+			continue
+		}
+
+		start := max(0, i-contextLines)
+		end := min(len(lines)-1, i+contextLines)
+
+		var sb strings.Builder
+		for j := start; j <= end; j++ {
+			if j == i {
+				fmt.Fprintf(&sb, ">%6d→%s\n", j+1, lines[j])
+			} else {
+				fmt.Fprintf(&sb, " %6d→%s\n", j+1, lines[j])
+			}
+		}
+		ctx := strings.TrimSuffix(sb.String(), "\n")
+
+		*matches = append(*matches, contentMatch{
+			Path:    rel,
+			Line:    i + 1,
+			Content: line,
+			Context: ctx,
+		})
+
+		*totalBytes += len(ctx)
+
+		if len(*matches) >= maxResults || *totalBytes >= maxTotalBytes {
+			return filepath.SkipAll
+		}
+	}
+
+	return nil
 }
 
 // --- search_files ---
