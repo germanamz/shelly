@@ -58,17 +58,17 @@ agents:
       instructions: You are a task orchestrator. Break down user requests into planning and coding tasks, then delegate to the appropriate agent.
       provider: gemini
       toolboxes:
+        - browser
+        - notes
         - state
         - tasks
-        - notes
         - brightdata
-        - browser
       skills:
         - orchestrator-workflow
       effects: []
       options:
         max_iterations: 15
-        max_delegation_depth: 3
+        max_delegation_depth: 1
         context_threshold: 0
       prefix: ""
     - name: planner
@@ -76,14 +76,14 @@ agents:
       instructions: You are a code planner. Analyze the codebase, understand the architecture, and create detailed implementation plans.
       provider: gemini
       toolboxes:
+        - browser
         - filesystem
-        - search
         - git
+        - notes
+        - search
         - state
         - tasks
-        - notes
         - brightdata
-        - browser
       skills:
         - planner-workflow
       effects: []
@@ -97,24 +97,23 @@ agents:
       instructions: You are a coder. Implement changes based on plans, write clean code, and run tests to verify your work.
       provider: gemini
       toolboxes:
-        - filesystem
+        - browser
         - exec
-        - search
+        - filesystem
         - git
         - http
-        - browser
+        - notes
+        - search
         - state
         - tasks
-        - notes
         - brightdata
       skills:
         - coder-workflow
       effects:
+        - kind: compact
+          params: {}
         - kind: trim_tool_results
           params: {}
-        - kind: compact
-          params:
-            threshold: 0.8
       options:
         max_iterations: 20
         max_delegation_depth: 0

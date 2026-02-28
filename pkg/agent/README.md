@@ -50,7 +50,7 @@ Configures an Agent at construction time.
 ```go
 type Options struct {
     MaxIterations          int           // ReAct loop limit (0 = unlimited).
-    MaxDelegationDepth     int           // Prevents infinite delegation loops (0 = unlimited).
+    MaxDelegationDepth     int           // Max tree depth for delegation (0 = cannot delegate).
     Skills                 []skill.Skill // Procedures the agent knows.
     Middleware             []Middleware   // Applied around Run().
     Effects                []Effect      // Per-iteration hooks run inside the ReAct loop.
@@ -286,7 +286,7 @@ type Middleware func(next Runner) Runner
 
 ## Built-in Orchestration Tools
 
-When a `Registry` is set, two tools are automatically injected:
+When a `Registry` is set and `MaxDelegationDepth > 0`, two tools are automatically injected:
 
 | Tool | Description |
 |------|-------------|
@@ -305,7 +305,7 @@ The `delegate` tool:
 
 1. Validates input (rejects self-delegation, enforces `MaxDelegationDepth`).
 2. Spawns child agents from the registry with `depth + 1`.
-3. Propagates the parent's registry, `EventNotifier`, `EventFunc`, `ReflectionDir`, `TaskBoard`, and `MaxDelegationDepth` to each child.
+3. Propagates the parent's registry, `EventNotifier`, `EventFunc`, `ReflectionDir`, and `TaskBoard` to each child. Each child keeps its own `MaxDelegationDepth` from the factory.
 4. Calls `child.AddToolBoxes(parent.toolboxes...)` for toolbox inheritance.
 5. Prepends a `<delegation_context>` user message with the provided context.
 6. Searches for relevant prior reflections and prepends them as `<prior_reflections>`.

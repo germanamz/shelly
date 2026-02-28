@@ -101,10 +101,25 @@ func TestDelegateToolMaxDepth(t *testing.T) {
 	assert.Contains(t, err.Error(), "max delegation depth")
 }
 
+func TestDelegateToolZeroDepthBlocked(t *testing.T) {
+	a := &Agent{
+		name:     "orch",
+		registry: NewRegistry(),
+		options:  Options{MaxDelegationDepth: 0},
+		depth:    0,
+	}
+	tool := delegateTool(a)
+
+	_, err := tool.Handler(context.Background(), json.RawMessage(`{"tasks":[{"agent":"worker","task":"do","context":""}]}`))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "max delegation depth")
+}
+
 func TestDelegateToolAgentNotFound(t *testing.T) {
 	reg := NewRegistry()
 
-	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{MaxDelegationDepth: 1}}
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
@@ -129,7 +144,7 @@ func TestDelegateToolSuccess(t *testing.T) {
 		}, Options{})
 	})
 
-	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{MaxDelegationDepth: 1}}
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
@@ -172,7 +187,7 @@ func TestDelegateToolConcurrentSuccess(t *testing.T) {
 		}, Options{})
 	})
 
-	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{MaxDelegationDepth: 1}}
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
@@ -223,10 +238,10 @@ func TestDelegateToolChildGetsRegistry(t *testing.T) {
 
 	reg := NewRegistry()
 	reg.Register("worker", "Worker", func() *Agent {
-		return New("worker", "", "", workerCompleter, Options{})
+		return New("worker", "", "", workerCompleter, Options{MaxDelegationDepth: 1})
 	})
 
-	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{MaxDelegationDepth: 1}}
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
@@ -256,7 +271,7 @@ func TestDelegateToolResilientErrors(t *testing.T) {
 		}, Options{})
 	})
 
-	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{MaxDelegationDepth: 1}}
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
@@ -307,7 +322,7 @@ func TestDelegateToolToolboxInheritance(t *testing.T) {
 		}, Options{})
 	})
 
-	a := &Agent{name: "orch", registry: reg, chat: chat.New(), toolboxes: []*toolbox.ToolBox{parentTB}}
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), toolboxes: []*toolbox.ToolBox{parentTB}, options: Options{MaxDelegationDepth: 1}}
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
@@ -380,7 +395,7 @@ func TestDelegateToolWithTaskID(t *testing.T) {
 		}, Options{})
 	})
 
-	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{TaskBoard: board}}
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{TaskBoard: board, MaxDelegationDepth: 1}}
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
@@ -433,7 +448,7 @@ func TestDelegateToolWithTaskIDPreClaimed(t *testing.T) {
 		}, Options{})
 	})
 
-	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{TaskBoard: board}}
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{TaskBoard: board, MaxDelegationDepth: 1}}
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
@@ -466,7 +481,7 @@ func TestDelegateToolWithTaskIDNoBoard(t *testing.T) {
 		}, Options{})
 	})
 
-	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{MaxDelegationDepth: 1}}
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
@@ -494,7 +509,7 @@ func TestDelegateToolWithTaskIDNoCompletion(t *testing.T) {
 		}, Options{})
 	})
 
-	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{TaskBoard: board}}
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{TaskBoard: board, MaxDelegationDepth: 1}}
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
@@ -536,8 +551,9 @@ func TestDelegateToolPropagatesOptionsToChild(t *testing.T) {
 		registry: reg,
 		chat:     chat.New(),
 		options: Options{
-			TaskBoard:     board,
-			ReflectionDir: t.TempDir(),
+			TaskBoard:          board,
+			ReflectionDir:      t.TempDir(),
+			MaxDelegationDepth: 1,
 		},
 	}
 	tool := delegateTool(a)
@@ -592,7 +608,7 @@ func TestDelegateToolConcurrentWithTaskID(t *testing.T) {
 		}, Options{})
 	})
 
-	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{TaskBoard: board}}
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{TaskBoard: board, MaxDelegationDepth: 1}}
 	tool := delegateTool(a)
 
 	_, err := tool.Handler(context.Background(), json.RawMessage(
@@ -634,7 +650,7 @@ func TestDelegateToolWithContext(t *testing.T) {
 		}, Options{})
 	})
 
-	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{MaxDelegationDepth: 1}}
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
@@ -679,7 +695,7 @@ func TestDelegateToolConcurrentWithContext(t *testing.T) {
 		}, Options{})
 	})
 
-	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{MaxDelegationDepth: 1}}
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
@@ -819,7 +835,7 @@ func TestDelegateToolWithCompletion(t *testing.T) {
 		}, Options{})
 	})
 
-	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{MaxDelegationDepth: 1}}
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
@@ -849,7 +865,7 @@ func TestDelegateToolWithoutCompletion(t *testing.T) {
 		}, Options{})
 	})
 
-	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{MaxDelegationDepth: 1}}
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
@@ -890,7 +906,7 @@ func TestDelegateToolConcurrentWithCompletion(t *testing.T) {
 		}, Options{})
 	})
 
-	a := &Agent{name: "orch", registry: reg, chat: chat.New()}
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), options: Options{MaxDelegationDepth: 1}}
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
@@ -946,7 +962,7 @@ func TestDelegateToolIterationExhaustion(t *testing.T) {
 		},
 	})
 
-	a := &Agent{name: "orch", registry: reg, chat: chat.New(), toolboxes: []*toolbox.ToolBox{echoTB}}
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), toolboxes: []*toolbox.ToolBox{echoTB}, options: Options{MaxDelegationDepth: 1}}
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
@@ -992,7 +1008,7 @@ func TestDelegateToolIterationExhaustionWithTaskID(t *testing.T) {
 		},
 	})
 
-	a := &Agent{name: "orch", registry: reg, chat: chat.New(), toolboxes: []*toolbox.ToolBox{echoTB}, options: Options{TaskBoard: board}}
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), toolboxes: []*toolbox.ToolBox{echoTB}, options: Options{TaskBoard: board, MaxDelegationDepth: 1}}
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
@@ -1049,7 +1065,7 @@ func TestDelegateToolConcurrentIterationExhaustion(t *testing.T) {
 		},
 	})
 
-	a := &Agent{name: "orch", registry: reg, chat: chat.New(), toolboxes: []*toolbox.ToolBox{echoTB}}
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), toolboxes: []*toolbox.ToolBox{echoTB}, options: Options{MaxDelegationDepth: 1}}
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
@@ -1102,7 +1118,7 @@ func TestDelegateToolConcurrentIterationExhaustionWithTaskID(t *testing.T) {
 		},
 	})
 
-	a := &Agent{name: "orch", registry: reg, chat: chat.New(), toolboxes: []*toolbox.ToolBox{echoTB}, options: Options{TaskBoard: board}}
+	a := &Agent{name: "orch", registry: reg, chat: chat.New(), toolboxes: []*toolbox.ToolBox{echoTB}, options: Options{TaskBoard: board, MaxDelegationDepth: 1}}
 	tool := delegateTool(a)
 
 	result, err := tool.Handler(context.Background(), json.RawMessage(
@@ -1187,7 +1203,7 @@ func TestDelegateToolPropagatesEventFuncToChild(t *testing.T) {
 		name:     "orch",
 		registry: reg,
 		chat:     chat.New(),
-		options:  Options{EventFunc: ef},
+		options:  Options{EventFunc: ef, MaxDelegationDepth: 1},
 	}
 	tool := delegateTool(a)
 

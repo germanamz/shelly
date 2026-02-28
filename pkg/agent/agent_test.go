@@ -457,7 +457,7 @@ func TestDelegateToAgent(t *testing.T) {
 		},
 	}
 
-	a := New("orchestrator", "", "", orchCompleter, Options{})
+	a := New("orchestrator", "", "", orchCompleter, Options{MaxDelegationDepth: 1})
 	a.SetRegistry(reg)
 
 	result, err := a.Run(context.Background())
@@ -482,7 +482,7 @@ func TestDelegateSelfRejected(t *testing.T) {
 		},
 	}
 
-	a := New("self", "", "", orchCompleter, Options{})
+	a := New("self", "", "", orchCompleter, Options{MaxDelegationDepth: 1})
 	a.SetRegistry(reg)
 
 	result, err := a.Run(context.Background())
@@ -539,7 +539,7 @@ func TestListAgents(t *testing.T) {
 		},
 	}
 
-	a := New("orchestrator", "", "", orchCompleter, Options{})
+	a := New("orchestrator", "", "", orchCompleter, Options{MaxDelegationDepth: 1})
 	a.SetRegistry(reg)
 
 	result, err := a.Run(context.Background())
@@ -596,7 +596,7 @@ func TestSpawnAgents(t *testing.T) {
 		},
 	}
 
-	a := New("orch", "", "", orchCompleter, Options{})
+	a := New("orch", "", "", orchCompleter, Options{MaxDelegationDepth: 1})
 	a.SetRegistry(reg)
 
 	result, err := a.Run(context.Background())
@@ -638,7 +638,7 @@ func TestSpawnAgentsSelfRejected(t *testing.T) {
 		},
 	}
 
-	a := New("orch", "", "", orchCompleter, Options{})
+	a := New("orch", "", "", orchCompleter, Options{MaxDelegationDepth: 1})
 	a.SetRegistry(reg)
 
 	result, err := a.Run(context.Background())
@@ -679,7 +679,7 @@ func TestSpawnAgentsResilientErrors(t *testing.T) {
 		},
 	}
 
-	a := New("orch", "", "", orchCompleter, Options{})
+	a := New("orch", "", "", orchCompleter, Options{MaxDelegationDepth: 1})
 	a.SetRegistry(reg)
 
 	result, err := a.Run(context.Background())
@@ -744,7 +744,7 @@ func TestSpawnAgentsToolboxInheritance(t *testing.T) {
 		},
 	}
 
-	a := New("orch", "", "", orchCompleter, Options{})
+	a := New("orch", "", "", orchCompleter, Options{MaxDelegationDepth: 1})
 	a.SetRegistry(reg)
 	a.AddToolBoxes(parentTB)
 
@@ -1044,7 +1044,7 @@ func TestDelegateToolboxInheritance(t *testing.T) {
 		},
 	}
 
-	a := New("orch", "", "", orchCompleter, Options{})
+	a := New("orch", "", "", orchCompleter, Options{MaxDelegationDepth: 1})
 	a.SetRegistry(reg)
 	a.AddToolBoxes(parentTB)
 

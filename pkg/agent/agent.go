@@ -64,7 +64,7 @@ type TaskBoard interface {
 // Options configures an Agent.
 type Options struct {
 	MaxIterations          int           // ReAct loop limit (0 = unlimited).
-	MaxDelegationDepth     int           // Prevents infinite delegation loops (0 = unlimited).
+	MaxDelegationDepth     int           // Max tree depth for delegation (0 = cannot delegate).
 	Skills                 []skill.Skill // Procedures the agent knows.
 	Middleware             []Middleware  // Applied around Run().
 	Effects                []Effect      // Per-iteration hooks run inside the ReAct loop.
@@ -300,7 +300,7 @@ func (a *Agent) allToolBoxes() []*toolbox.ToolBox {
 	tbs := make([]*toolbox.ToolBox, len(a.toolboxes))
 	copy(tbs, a.toolboxes)
 
-	if a.registry != nil {
+	if a.registry != nil && a.options.MaxDelegationDepth > 0 {
 		tbs = append(tbs, orchestrationToolBox(a))
 	}
 

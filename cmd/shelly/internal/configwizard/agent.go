@@ -152,7 +152,7 @@ func newAgentFormScreen(a *engine.AgentConfig, providerNames, toolboxes, effectK
 	tbField := NewMultiSelectField("Toolboxes", toolboxes)
 	effField := NewMultiSelectField("Effects", effectKinds)
 	maxIterField := NewIntField("Max Iterations", "e.g. 20", false)
-	maxDelegField := NewIntField("Max Delegation", "e.g. 3", false)
+	maxDelegField := NewIntField("Max Delegation Depth", "0=no delegation, e.g. 2", false)
 	ctxThreshField := NewFloatField("Context Threshold", "e.g. 0.8", false)
 
 	// Pre-fill.

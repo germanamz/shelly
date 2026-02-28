@@ -105,7 +105,7 @@ func delegateTool(a *Agent) toolbox.Tool {
 				}
 			}
 
-			if a.options.MaxDelegationDepth > 0 && a.depth >= a.options.MaxDelegationDepth {
+			if a.depth >= a.options.MaxDelegationDepth {
 				return "", fmt.Errorf("delegate: max delegation depth %d reached", a.options.MaxDelegationDepth)
 			}
 
@@ -122,7 +122,6 @@ func delegateTool(a *Agent) toolbox.Tool {
 			eventFunc := a.options.EventFunc
 			reflectionDir := a.options.ReflectionDir
 			taskBoard := a.options.TaskBoard
-			maxDelegationDepth := a.options.MaxDelegationDepth
 
 			for i, t := range di.Tasks {
 				wg.Go(func() {
@@ -140,7 +139,6 @@ func delegateTool(a *Agent) toolbox.Tool {
 					child.options.EventFunc = eventFunc
 					child.options.ReflectionDir = reflectionDir
 					child.options.TaskBoard = taskBoard
-					child.options.MaxDelegationDepth = maxDelegationDepth
 					child.AddToolBoxes(toolboxSnapshot...)
 					prependContext(child, t.Context)
 

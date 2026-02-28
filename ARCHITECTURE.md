@@ -572,7 +572,7 @@ type Agent struct {
 
 type Options struct {
     MaxIterations      int           // ReAct loop limit (0 = unlimited)
-    MaxDelegationDepth int           // Prevents infinite A->B->A loops (0 = unlimited)
+    MaxDelegationDepth int           // Max tree depth for delegation (0 = cannot delegate)
     Skills             []skill.Skill // Procedures the agent knows
     Middleware         []Middleware   // Applied around Run()
     Context            string        // Project context injected into the system prompt
