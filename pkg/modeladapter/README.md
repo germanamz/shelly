@@ -54,7 +54,7 @@ type UsageReporter interface {
 | `MaxTokens`    | `int`                    | Maximum tokens in the response                   |
 | `Auth`         | `Auth`                   | API key, header name, and scheme                 |
 | `BaseURL`      | `string`                 | API base URL (no trailing slash)                 |
-| `Client`       | `*http.Client`           | HTTP client (falls back to `http.DefaultClient`) |
+| `Client`       | `*http.Client`           | HTTP client (nil uses a cached default with 10 min timeout) |
 | `Headers`      | `map[string]string`      | Extra headers applied to every request           |
 | `Usage`        | `usage.Tracker`          | Token usage tracker                              |
 | `HeaderParser` | `RateLimitHeaderParser`  | Optional parser for rate limit response headers  |
@@ -128,11 +128,13 @@ type RateLimitInfoReporter interface {
 
 ### `RateLimitedCompleter` — Rate-Limited Completer Wrapper
 
-`RateLimitedCompleter` wraps any `Completer` with two layers of rate limiting:
+`RateLimitedCompleter` wraps any `Completer` with three layers of rate limiting:
 
 1. **Proactive throttling** -- tracks input/output tokens and request counts in a 1-minute sliding window and blocks before calls that would exceed configured TPM/RPM limits.
 2. **Reactive retry** -- catches `*RateLimitError` (HTTP 429) and retries with exponential backoff and +/-25% jitter. Uses `RetryAfter` from the error when it exceeds the computed backoff.
 3. **Adaptive throttling** -- after a successful call, if the inner completer implements `RateLimitInfoReporter` and reports near-zero remaining capacity (requests or tokens <= 1), it pre-emptively sleeps until the provider's reset time.
+
+Calls to the inner `Complete` are serialized with a mutex so that token usage diffs (before/after) are computed correctly when the inner completer implements `UsageReporter`.
 
 ```go
 type RateLimitOpts struct {
@@ -215,7 +217,7 @@ func NewOpenAI(apiKey string) *OpenAI {
         ModelAdapter: modeladapter.New(
             "https://api.openai.com",
             modeladapter.Auth{Key: apiKey},  // defaults to Authorization: Bearer <key>
-            nil,                        // uses http.DefaultClient
+            nil,                        // uses default client (10 min timeout)
         ),
     }
     o.Name = "gpt-4"
@@ -381,5 +383,6 @@ fmt.Println(last.OutputTokens)            // output tokens from chat2
 - `pkg/chats/chat` -- `Chat` type (conversation container)
 - `pkg/chats/message` -- `Message` type (individual messages)
 - `pkg/chats/content` -- `Text`, `ToolCall`, `ToolResult` content parts (used by `TokenEstimator`)
+- `pkg/chats/role` -- `Role` constants (used by `TokenEstimator` to identify system messages)
 - `pkg/tools/toolbox` -- `Tool` type (tool declarations passed to `Complete`)
 - `github.com/coder/websocket` -- WebSocket client for `DialWS`

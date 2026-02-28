@@ -1,83 +1,51 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## Quick Reference
 
-## Build & Run
+Go 1.25 module `github.com/germanamz/shelly`. Entry point: `cmd/shelly/shelly.go`. Uses [Taskfile](https://taskfile.dev/) — ensure `$(go env GOPATH)/bin` is in `PATH`.
 
-Uses [Taskfile](https://taskfile.dev/) as task runner. Ensure `$(go env GOPATH)/bin` is in your `PATH`.
+| Command | Purpose |
+|---------|---------|
+| `task build` | Build to `./bin/shelly` |
+| `task run` | Run the application |
+| `task fmt` / `task fmt:check` | Format (gofumpt) / check only |
+| `task lint` / `task lint:fix` | Lint (golangci-lint v2) / auto-fix |
+| `task test` | Run tests (gotestsum + testify) |
+| `task test:coverage` | Tests with coverage report |
+| `task check` | All checks (fmt:check + lint + test) |
 
-```bash
-task build          # Build binary to ./bin/shelly
-task run            # Run the application
-```
+Copy `.env.example` → `.env` for API keys (Anthropic, OpenAI, Grok). `.env` is gitignored.
 
-Copy `.env.example` to `.env` and fill in API keys (Anthropic, OpenAI, Grok). `.env` is gitignored.
+## Package Map
 
-## Code Quality
+| Package | Role |
+|---------|------|
+| `cmd/shelly/` | CLI entry point, bubbletea TUI |
+| `pkg/chats/` | Provider-agnostic chat data model (foundation, no pkg deps) |
+| `pkg/modeladapter/` | `Completer` interface, usage tracking, `TokenEstimator` → depends on chats, tools/toolbox |
+| `pkg/providers/` | LLM providers (anthropic, openai, grok, gemini) → depends on modeladapter, chats |
+| `pkg/tools/` | Toolbox abstraction, MCP client (stdio+HTTP), MCP server |
+| `pkg/codingtoolbox/` | Built-in tools (ask, filesystem, exec, search, git, http, notes, permissions, defaults) |
+| `pkg/skill/` | Folder-based skill loading with YAML frontmatter |
+| `pkg/agent/` | ReAct loop, registry delegation, middleware, effects system, `EventNotifier` |
+| `pkg/agent/effects/` | Effect implementations (compaction, trimming) — agent never imports this |
+| `pkg/agentctx/` | Context key helpers for agent identity (zero-dependency) |
+| `pkg/shellydir/` | `.shelly/` dir path resolution & bootstrapping (zero-dependency) |
+| `pkg/projectctx/` | Curated context loading, structural project index → depends on shellydir |
+| `pkg/state/` | Key-value state store with watch support |
+| `pkg/tasks/` | Shared task board for multi-agent coordination |
+| `pkg/engine/` | Composition root — wires everything from YAML config, Engine/Session/EventBus API |
 
-```bash
-task fmt            # Format code with gofumpt
-task fmt:check      # Check formatting (CI-friendly, no writes)
-task lint           # Run golangci-lint v2
-task lint:fix       # Run golangci-lint with auto-fix
-task test           # Run tests with gotestsum
-task test:coverage  # Run tests with coverage report
-task test:coverage:html  # Run tests with HTML coverage report
-task check          # Run all checks (fmt:check + lint + test)
-```
+## Package Docs
 
-## Tooling
+Read the relevant README before modifying a package:
 
-- **Formatter**: [gofumpt](https://github.com/mvdan/gofumpt) (strict superset of gofmt)
-- **Linter**: [golangci-lint v2](https://golangci-lint.run/) (config: `.golangci.yml`)
-- **Testing**: `go test` + [testify](https://github.com/stretchr/testify) assertions + [gotestsum](https://github.com/gotestyourself/gotestsum) output
-- **Task runner**: [go-task](https://taskfile.dev/) (config: `Taskfile.yml`)
-
-## Project Overview
-
-Shelly is a Go project (module: `github.com/germanamz/shelly`, Go 1.25). CLI entry point: `cmd/shelly/shelly.go`. Tests live alongside source files (e.g., `cmd/shelly/shelly_test.go`).
-
-## Project Structure
-
-- `cmd/shelly/` — main package (entry point, bubbletea TUI with typed display items, agent containers, and centralized styles)
-- `examples/` — YAML config files for running Shelly (e.g., `simple-assistant.yaml`)
-- `pkg/chats/` — provider-agnostic LLM chat data model (role, content, message, chat)
-- `pkg/modeladapter/` — LLM adapter abstraction layer (`Completer` interface, `ModelAdapter` base struct, usage tracking, `TokenEstimator` for pre-call estimation)
-- `pkg/providers/` — LLM provider implementations (anthropic, openai, grok)
-- `pkg/tools/` — tool infrastructure: toolbox, MCP client, MCP server
-- `pkg/codingtoolbox/` — built-in coding tools (ask, filesystem, exec, search, git, http, notes, permissions, defaults)
-- `pkg/skill/` — folder-based skill loading with YAML frontmatter (procedures agents follow, on-demand via `load_skill` tool)
-- `pkg/shellydir/` — zero-dependency value object for `.shelly/` directory path resolution, structure bootstrapping, and permissions migration
-- `pkg/projectctx/` — loads curated context (`*.md` files) and generates/caches a structural project index for agent system prompts
-- `pkg/agent/` — unified agent with ReAct loop, registry-based delegation, middleware, orchestration tools, pluggable effects system, and sub-agent event notifications via `EventNotifier`
-- `pkg/agent/effects/` — reusable Effect implementations (graduated context compaction, tool result trimming)
-- `pkg/agentctx/` — shared context key helpers for propagating agent identity across packages
-- `pkg/state/` — key-value state store for agents
-- `pkg/tasks/` — shared task board for multi-agent coordination (create, claim, watch tasks)
-- `pkg/engine/` — composition root that wires all components from YAML config, initializes `.shelly/` directory, loads skills and project context, exposes frontend-agnostic Engine/Session/EventBus API
-
-## Architecture
-
-- `pkg/chats/` is the foundation layer with no dependencies on other `pkg/` packages
-- `pkg/modeladapter/` depends on `pkg/chats/` and `pkg/tools/toolbox/` (chat, message types, ToolAware interface)
-- `pkg/providers/` depends on `pkg/modeladapter/` and `pkg/chats/`
-- `pkg/tools/toolbox/` depends on `pkg/chats/content` (ToolCall, ToolResult types)
-- `pkg/tools/mcpclient/` and `pkg/tools/mcpserver/` depend on `pkg/tools/toolbox/` (Tool type)
-- `pkg/codingtoolbox/` depends on `pkg/tools/toolbox/` (Tool and ToolBox types)
-- `pkg/codingtoolbox/permissions/` is shared by `pkg/codingtoolbox/filesystem/`, `pkg/codingtoolbox/exec/`, `pkg/codingtoolbox/search/`, `pkg/codingtoolbox/git/`, and `pkg/codingtoolbox/http/`
-- `pkg/skill/` depends on `pkg/tools/toolbox/` (for `Store.Tools()` method)
-- `pkg/shellydir/` has no dependencies on other `pkg/` packages (zero-dependency by design)
-- `pkg/projectctx/` depends on `pkg/shellydir/` (path resolution)
-- `pkg/agentctx/` has no dependencies on other `pkg/` packages (zero-dependency by design)
-- `pkg/agent/` depends on `pkg/agentctx/`, `pkg/modeladapter/`, `pkg/tools/toolbox/`, `pkg/chats/`, and `pkg/skill/`
-- `pkg/agent/effects/` depends on `pkg/agent` (for `Effect` interface), `pkg/chats/`, and `pkg/modeladapter/` — `pkg/agent` never imports `pkg/agent/effects/`
-- `pkg/tasks/` depends on `pkg/agentctx/` and `pkg/tools/toolbox/`
-- `pkg/engine/` depends on all other `pkg/` packages — it is the top-level composition root
-- `cmd/shelly/` is the CLI entry point
+[agent](pkg/agent/README.md) | [agentctx](pkg/agentctx/README.md) | [chats](pkg/chats/README.md) | [codingtoolbox](pkg/codingtoolbox/README.md) | [engine](pkg/engine/README.md) | [modeladapter](pkg/modeladapter/README.md) | [projectctx](pkg/projectctx/README.md) | [providers](pkg/providers/README.md) | [shellydir](pkg/shellydir/README.md) | [skill](pkg/skill/README.md) | [state](pkg/state/README.md) | [tasks](pkg/tasks/README.md) | [tools](pkg/tools/README.md)
 
 ## Conventions
 
-- Dependencies are managed by Go modules; do not delete `go.mod` and `go.sum`
-- Linter extras enabled: gosec, gocritic, gocyclo (max 15), unconvert, misspell, modernize, testifylint
-- Tests use testify `assert` by default; use `require` only when a failure must stop the test immediately
-- Every top-level package under `pkg/` must include a `README.md` explaining its purpose, architecture, and use cases
+- **Read the package README** (`pkg/*/README.md`) before modifying any package
+- Tests use testify `assert` by default; `require` only when failure must stop the test
+- Linter extras: gosec, gocritic, gocyclo (max 15), unconvert, misspell, modernize, testifylint
+- Do not delete `go.mod` / `go.sum`
+- Every `pkg/` package must have a `README.md`

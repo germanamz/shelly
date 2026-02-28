@@ -21,9 +21,9 @@ skills/
       deploy.sh        # Script the agent can execute
 ```
 
-- **`SKILL.md`** -- mandatory entry point; may contain optional YAML frontmatter
-- **Folder name** -- used as the skill name (frontmatter `name:` can override)
-- **Supplementary files** -- any additional files/folders; agents access them via filesystem tools using the `Dir` path returned by `load_skill`
+- **`SKILL.md`** -- mandatory entry point; may contain optional YAML frontmatter.
+- **Folder name** -- used as the skill name (frontmatter `name:` can override).
+- **Supplementary files** -- any additional files/folders; agents access them via filesystem tools using the `Dir` path returned by `load_skill`.
 
 ## Exported Types
 
@@ -78,7 +78,7 @@ Creates a `Store` from the given skills. The `workDir` parameter is used to conv
 
 - **`Get(name string) (Skill, bool)`** -- returns the skill with the given name and whether it was found.
 - **`Skills() []Skill`** -- returns all skills sorted by name.
-- **`Tools() *toolbox.ToolBox`** -- returns a `ToolBox` containing the `load_skill` tool. The tool response includes the skill content plus a footer with the skill directory path (relative to `workDir` when available) and a hint to use filesystem tools for supplementary files.
+- **`Tools() *toolbox.ToolBox`** -- returns a `ToolBox` containing the `load_skill` tool. The tool accepts a `name` string parameter. The response includes the skill content plus, when `Dir` is non-empty, a footer with the skill directory path (relative to `workDir` when available) and a hint to use filesystem tools for supplementary files.
 
 ## YAML Frontmatter
 
@@ -111,9 +111,9 @@ store := skill.NewStore(skills, "/path/to/project")
 tb := store.Tools() // registers "load_skill" tool
 ```
 
-## Per-Agent Skill Assignment
+## Per-Agent Skill Assignment (Engine-Level)
 
-Agents can declare a `skills` list in their YAML config to receive only a subset of the engine-level skills:
+This package does not perform per-agent filtering itself. The engine (`pkg/engine`) consumes this package and supports per-agent skill assignment via YAML config:
 
 ```yaml
 agents:

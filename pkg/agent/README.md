@@ -116,7 +116,8 @@ type ToolCallEventData struct {
 }
 
 type MessageAddedEventData struct {
-    Role string `json:"role"`
+    Role    string          `json:"role"`
+    Message message.Message `json:"message"`
 }
 ```
 

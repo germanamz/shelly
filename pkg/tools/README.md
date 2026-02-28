@@ -1,57 +1,89 @@
 # tools
 
-Tool execution and MCP (Model Context Protocol) integration for Shelly. The tools package provides a `Tool` type, a `ToolBox` orchestrator for agents to call tools, and MCP client/server implementations built on the official [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk).
+Tool execution and MCP (Model Context Protocol) integration for Shelly. This package tree provides the `Tool` type, a `ToolBox` orchestrator for registering and dispatching tool calls, and MCP client/server implementations built on the official [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk). The top-level `tools` package itself (`doc.go`) is a documentation-only umbrella; all functionality lives in the subpackages.
 
 ## Architecture
 
 ```
 tools/
-├── toolbox/     Tool type and ToolBox orchestrator
-├── mcpclient/   MCP client — communicates with external MCP server processes
-└── mcpserver/   MCP server — exposes tools over the MCP protocol
+├── doc.go         Documentation-only umbrella package
+├── toolbox/       Tool type, Handler type, and ToolBox orchestrator
+├── mcpclient/     MCP client — connects to external MCP servers (stdio or Streamable HTTP)
+└── mcpserver/     MCP server — exposes toolbox.Tool instances over the MCP protocol
 ```
 
-**Dependency graph**: `toolbox` is the foundation. Both `mcpclient` and `mcpserver` depend on `toolbox` for the `Tool` type but are independent of each other. Both wrap the official MCP Go SDK for protocol handling.
+**Dependency graph**: `toolbox` is the foundation layer. Both `mcpclient` and `mcpserver` depend on `toolbox` for the `Tool` type but are independent of each other. Both wrap the official MCP Go SDK (`github.com/modelcontextprotocol/go-sdk/mcp`) for protocol handling.
 
-### `toolbox` — Tool and ToolBox
+### `toolbox` -- Tool and ToolBox
+
+`Handler` is the function signature for tool execution:
+
+```go
+type Handler func(ctx context.Context, input json.RawMessage) (string, error)
+```
 
 `Tool` represents an executable tool with a name, description, JSON Schema, and handler:
 
-| Field         | Type              | Description                          |
-|---------------|-------------------|--------------------------------------|
-| `Name`        | `string`          | Unique tool identifier               |
-| `Description` | `string`          | Human-readable description           |
-| `InputSchema` | `json.RawMessage` | JSON Schema for the tool's input     |
-| `Handler`     | `Handler`         | Function that executes the tool      |
+| Field         | Type              | Description                              |
+|---------------|-------------------|------------------------------------------|
+| `Name`        | `string`          | Unique tool identifier                   |
+| `Description` | `string`          | Human-readable description for the LLM   |
+| `InputSchema` | `json.RawMessage` | JSON Schema defining the tool's input    |
+| `Handler`     | `Handler`         | Function that executes the tool          |
 
-`Handler` is defined as `func(ctx context.Context, input json.RawMessage) (string, error)`.
+`ToolBox` orchestrates a flat, name-keyed collection of tools (no parent-child or hierarchical relationships). Toolbox inheritance during agent delegation is handled by the agent layer (`pkg/agent`), not here.
 
-`ToolBox` orchestrates a flat collection of tools (no parent-child relationships). Toolbox inheritance during agent delegation is handled by the agent layer (see `pkg/agent` README).
+| Function / Method                                        | Description                                                              |
+|----------------------------------------------------------|--------------------------------------------------------------------------|
+| `New() *ToolBox`                                         | Creates a new empty ToolBox                                              |
+| `(*ToolBox) Register(tools ...Tool)`                     | Adds one or more tools; replaces existing tools with the same name       |
+| `(*ToolBox) Get(name string) (Tool, bool)`               | Retrieves a tool by name; returns false if not found                     |
+| `(*ToolBox) Merge(other *ToolBox)`                       | Copies all tools from another ToolBox into this one; replaces by name    |
+| `(*ToolBox) Tools() []Tool`                              | Returns all registered tools as a slice                                  |
+| `(*ToolBox) Call(ctx context.Context, tc content.ToolCall) content.ToolResult` | Executes a tool call; returns a ToolResult with IsError on failure |
 
-- `New()` — creates a new ToolBox
-- `Register(...Tool)` — adds tools (replaces by name)
-- `Get(name) (Tool, bool)` — retrieves a tool
-- `Merge(other *ToolBox)` — copies all tools from another ToolBox into this one (replaces by name)
-- `Tools() []Tool` — lists all tools
-- `Call(ctx, ToolCall) ToolResult` — executes a tool call and returns a result
+`Call` never returns a Go error. It returns a `content.ToolResult` with `IsError: true` in two cases: tool not found, or handler error. This allows the agent loop to always send a result back to the LLM.
 
-### `mcpclient` — MCP Client
+Dependencies: `pkg/chats/content` (for `ToolCall` and `ToolResult` types).
 
-`MCPClient` communicates with an external MCP server process using the official MCP Go SDK:
+### `mcpclient` -- MCP Client
 
-- `New(ctx, command, ...args) (*MCPClient, error)` — spawns a server process and connects via stdio (initialization is automatic)
-- `NewHTTP(ctx, url) (*MCPClient, error)` — connects to a Streamable HTTP MCP server at the given URL
-- `ListTools(ctx) ([]toolbox.Tool, error)` — fetches tools (handlers call back through the client)
-- `CallTool(ctx, name, arguments) (string, error)` — calls a tool on the server
-- `Close() error` — terminates the session
+`MCPClient` wraps the SDK's `mcp.Client` and `mcp.ClientSession`. It supports two transport modes:
 
-### `mcpserver` — MCP Server
+1. **Command (stdio)** -- spawns a subprocess via `mcp.CommandTransport` and communicates over stdin/stdout
+2. **Streamable HTTP** -- connects to a remote MCP server via `mcp.StreamableClientTransport`
 
-`MCPServer` serves tools over the MCP protocol using the official MCP Go SDK:
+Both constructors share an internal `newFromTransport` helper that creates the SDK client (implementation name `"shelly"`, version `"0.1.0"`), connects, and returns an initialized `MCPClient`.
 
-- `New(name, version) *MCPServer` — creates a server
-- `Register(...toolbox.Tool)` — adds tools
-- `Serve(ctx, in, out) error` — handles requests until the transport closes or ctx is cancelled
+| Function / Method                                                                      | Description                                                                 |
+|----------------------------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| `New(ctx context.Context, command string, args ...string) (*MCPClient, error)`         | Spawns a server process and connects via stdio                              |
+| `NewHTTP(ctx context.Context, url string) (*MCPClient, error)`                         | Connects to a Streamable HTTP MCP server at the given URL                   |
+| `(*MCPClient) ListTools(ctx context.Context) ([]toolbox.Tool, error)`                  | Fetches tools; each returned Tool's Handler closure calls back through CallTool |
+| `(*MCPClient) CallTool(ctx context.Context, name string, arguments json.RawMessage) (string, error)` | Calls a named tool on the server; joins multiple TextContent items with newlines |
+| `(*MCPClient) Close() error`                                                           | Terminates the session (subprocess cleanup is handled by the SDK)           |
+
+Dependencies: `pkg/tools/toolbox`, `github.com/modelcontextprotocol/go-sdk/mcp`.
+
+### `mcpserver` -- MCP Server
+
+`MCPServer` wraps the SDK's `mcp.Server`. Tools are registered via `Register`, which converts each `toolbox.Tool` to an SDK tool registration. Handler errors are mapped to MCP error responses (`IsError: true` with the error message as `TextContent`) rather than protocol-level errors.
+
+| Function / Method                                                                    | Description                                                                        |
+|--------------------------------------------------------------------------------------|------------------------------------------------------------------------------------|
+| `New(name, version string) *MCPServer`                                               | Creates a server with the given implementation name and version                    |
+| `(*MCPServer) Register(tools ...toolbox.Tool)`                                       | Adds one or more tools to the server                                               |
+| `(*MCPServer) Serve(ctx context.Context, in io.Reader, out io.Writer) error`         | Starts serving MCP requests; blocks until ctx is cancelled or the transport closes |
+
+Internally, `Serve` wraps the reader/writer in an `mcp.IOTransport` (using a `nopWriteCloser` adapter for the writer) and delegates to the SDK's `server.Run`.
+
+Dependencies: `pkg/tools/toolbox`, `github.com/modelcontextprotocol/go-sdk/mcp`.
+
+## Use Cases
+
+- **Agent tool dispatch**: The agent layer owns a `ToolBox`, registers built-in and MCP tools, and uses `Call` to dispatch `ToolCall` requests from the LLM in the ReAct loop.
+- **MCP integration**: `mcpclient` fetches remote tools and converts them into `toolbox.Tool` instances, making MCP tools indistinguishable from built-in tools at the `ToolBox` level.
+- **MCP server exposure**: `mcpserver` exposes any set of `toolbox.Tool` instances over the MCP protocol for external clients.
 
 ## Examples
 
@@ -79,7 +111,7 @@ fmt.Println(result.Content) // "Hello, World!"
 ### Using MCP Tools Through ToolBox
 
 ```go
-// Connect to an MCP server (ctx is required, initialization is automatic)
+// Connect to an MCP server (stdio transport)
 client, _ := mcpclient.New(ctx, "npx", "-y", "@modelcontextprotocol/server-filesystem", "/tmp")
 defer client.Close()
 
@@ -93,7 +125,7 @@ tc := content.ToolCall{ID: "1", Name: "read_file", Arguments: `{"path":"/tmp/dat
 result := tb.Call(ctx, tc)
 ```
 
-### Using HTTP-Based MCP Tools
+### Using Streamable HTTP Transport
 
 ```go
 // Connect to a Streamable HTTP MCP server
@@ -121,7 +153,7 @@ server.Register(toolbox.Tool{
     },
 })
 
-// Serve over stdin/stdout
+// Serve over stdin/stdout; blocks until done
 server.Serve(context.Background(), os.Stdin, os.Stdout)
 ```
 

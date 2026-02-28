@@ -24,9 +24,11 @@ The `.shelly/` directory is the single source of truth for a Shelly instance run
   local/                # gitignored runtime state
     permissions.json    # permission grants
     context-cache.json  # auto-generated project index
-    notes/              # agent notes
-    reflections/        # agent reflections
+    notes/              # agent notes (created by consumers, not this package)
+    reflections/        # agent reflections (created by consumers, not this package)
 ```
+
+`Bootstrap` creates the root, `skills/`, `local/`, `.gitignore`, and `config.yaml`. The `notes/` and `reflections/` directories are not created by this package; `Dir` only provides path accessors for them.
 
 ## Exported Types
 
@@ -74,7 +76,7 @@ Creates a `Dir` rooted at the given path. The path is converted to an absolute p
 func Bootstrap(d Dir) error
 ```
 
-Creates the `.shelly/` directory from scratch with a full initial structure: root, `skills/`, `local/`, `.gitignore`, and a skeleton `config.yaml`. Existing files are never overwritten, making it safe to run on an already-initialized directory.
+Creates the `.shelly/` directory from scratch with a full initial structure: root, `skills/`, `local/`, `.gitignore`, and a skeleton `config.yaml`. Existing files are never overwritten, making it safe to run on an already-initialized directory. Delegates to `BootstrapWithConfig` with a built-in skeleton config.
 
 ### BootstrapWithConfig
 
@@ -82,7 +84,7 @@ Creates the `.shelly/` directory from scratch with a full initial structure: roo
 func BootstrapWithConfig(d Dir, config []byte) error
 ```
 
-Same as `Bootstrap` but uses the provided config content instead of the skeleton default.
+Same as `Bootstrap` but uses the provided config content instead of the skeleton default. Creates root and `skills/` directories, calls `EnsureStructure` for `local/` and `.gitignore`, then writes the config file. Existing files are never overwritten.
 
 ### EnsureStructure
 
@@ -99,6 +101,14 @@ func MigratePermissions(d Dir) error
 ```
 
 Moves the legacy `permissions.json` from `.shelly/permissions.json` to `.shelly/local/permissions.json`. The operation is idempotent: it is a no-op if the old file does not exist or the new file already exists. If both files exist, the new file is preserved and the old file is left in place.
+
+## Architecture
+
+The package is split across three source files:
+
+- **`shellydir.go`** -- `Dir` type, `New` constructor, all path accessors, `ContextFiles`, and `Exists`.
+- **`init.go`** -- `Bootstrap`, `BootstrapWithConfig`, `EnsureStructure`, and unexported helpers (`ensureFile`, `ensureGitignore`). File creation uses `O_CREATE|O_EXCL` to avoid TOCTOU races.
+- **`migrate.go`** -- `MigratePermissions`.
 
 ## Usage
 

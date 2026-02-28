@@ -34,7 +34,7 @@ Defines the `Part` interface and four concrete implementations:
 |--------------|-----------------|------------------------------------------|----------------------------------------------|
 | `Text`       | `"text"`        | `Text string`                            | Plain text content                           |
 | `Image`      | `"image"`       | `URL string`, `Data []byte`, `MediaType string` | Image by URL or embedded raw bytes     |
-| `ToolCall`   | `"tool_call"`   | `ID string`, `Name string`, `Arguments string`  | Assistant's request to invoke a tool (Arguments is raw JSON) |
+| `ToolCall`   | `"tool_call"`   | `ID string`, `Name string`, `Arguments string`, `Metadata map[string]string` | Assistant's request to invoke a tool (Arguments is raw JSON; Metadata carries provider-specific opaque data that must survive round-trips) |
 | `ToolResult` | `"tool_result"` | `ToolCallID string`, `Content string`, `IsError bool` | Output from a tool invocation          |
 
 **Exported API:**

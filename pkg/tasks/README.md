@@ -40,6 +40,8 @@ type Task struct {
 }
 ```
 
+`Metadata` values should be JSON-serializable primitives (`string`, `float64`, `bool`, `nil`). Mutable values (slices, maps) are shallow-copied and must not be mutated after being passed to `Create` or `Update`.
+
 ### Filter
 
 ```go
@@ -71,19 +73,19 @@ Describes a partial update to a task's mutable fields. `nil` pointer fields are 
 type Store struct { /* unexported fields */ }
 ```
 
-A thread-safe task board. The zero value is ready to use. Internally uses `sync.RWMutex` for concurrency safety and a signal channel pattern for `WatchCompleted` notifications.
+A thread-safe task board. The zero value is ready to use. Internally uses `sync.RWMutex` for concurrency safety, `sync.Once` for lazy initialization, and a signal channel pattern for `WatchCompleted` notifications.
 
 ## Store Methods
 
 ### Core Operations
 
-- **`Create(task Task) (string, error)`** -- adds a new task with auto-generated sequential ID (`task-1`, `task-2`, ...) and forces status to `pending`. Returns an error if the caller sets `Status` to a non-pending value or provides an `Assignee` (use `Claim` or `Reassign` after creation).
+- **`Create(task Task) (string, error)`** -- adds a new task with auto-generated sequential ID (`task-1`, `task-2`, ...) and forces status to `pending`. Returns an error if the caller sets `Status` to a non-pending value, provides an `Assignee` (use `Claim` or `Reassign` after creation), lists a `BlockedBy` ID that does not exist in the store, or includes a self-referential `BlockedBy` entry.
 - **`Get(id string) (Task, bool)`** -- returns a deep copy of the task with the given ID, or `false` if not found.
 - **`List(filter Filter) []Task`** -- returns tasks matching the filter, sorted by ID. Supports filtering by status, assignee, and blocked state.
-- **`Update(id string, upd Update) error`** -- applies a partial update to the task. Validates status values. Metadata is merged into existing metadata.
+- **`Update(id string, upd Update) error`** -- applies a partial update to the task. Validates status values. Metadata is merged into existing metadata. Does not validate `BlockedBy` IDs.
 - **`Claim(id, agent string) error`** -- atomically assigns a task to the given agent and sets status to `in_progress`. Returns an error if the task is blocked, already assigned to a different agent, or in a terminal state (`completed`/`failed`). Re-claiming by the same agent is idempotent.
 - **`Reassign(id, agent string) error`** -- atomically assigns a task to a new agent, overriding any existing assignee. Used by delegation tools to transfer ownership. Returns an error if the task is blocked or in a terminal state.
-- **`IsBlocked(id string) bool`** -- returns `true` if any of the task's `BlockedBy` dependencies are not yet completed. Nonexistent dependencies are not considered blocking.
+- **`IsBlocked(id string) bool`** -- returns `true` if any of the task's `BlockedBy` dependencies are not yet completed. Nonexistent dependencies are considered blocking.
 
 ### Blocking Watch
 
@@ -127,23 +129,9 @@ pending --> in_progress --> completed
 
 ## Blocking and Dependencies
 
-Tasks can declare `BlockedBy` dependencies (a list of task IDs). A blocked task cannot be claimed until all dependencies reach `completed` status. Nonexistent dependency IDs are not considered blocking. The `List` filter supports `Blocked: &true` / `&false` to find available or blocked work.
+Tasks can declare `BlockedBy` dependencies (a list of task IDs). `Create` validates that all `BlockedBy` IDs exist in the store and rejects self-referential entries. `Update` does not validate `BlockedBy` IDs, so nonexistent IDs can be introduced via updates. A blocked task cannot be claimed or reassigned until all dependencies reach `completed` status. Nonexistent dependency IDs are treated as blocking. The `List` filter supports `Blocked: &true` / `&false` to find available or blocked work.
 
 ## Typical Workflow
-
-### Automatic (with `task_id` delegation)
-
-```
-1. Orchestrator creates tasks via {ns}_tasks_create
-2. Orchestrator delegates via delegate with task_id on each task
-3. Task is auto-claimed for the child agent before it runs
-4. Child completes work and calls task_complete
-5. Task status is auto-updated based on the completion result
-6. Blocked tasks auto-unblock when dependencies complete
-7. Orchestrator receives structured completion result
-```
-
-### Manual (without `task_id`)
 
 ```
 1. Orchestrator creates tasks via {ns}_tasks_create
@@ -151,19 +139,11 @@ Tasks can declare `BlockedBy` dependencies (a list of task IDs). A blocked task 
 3. Workers discover work via {ns}_tasks_list({status:"pending", blocked:false})
 4. Worker claims a task via {ns}_tasks_claim (atomic, race-safe)
 5. Worker completes via {ns}_tasks_update({id, status:"completed"})
-6. Blocked tasks auto-unblock when dependencies complete
+6. Blocked tasks unblock when dependencies complete
 7. Orchestrator watches via {ns}_tasks_watch({id})
 ```
 
-## Configuration
-
-Include `tasks` in an agent's `toolboxes` list to enable the shared task board for that agent:
-
-```yaml
-agents:
-  - name: orchestrator
-    toolboxes: [tasks, filesystem, search]
-```
+The `pkg/agent` package provides additional integration on top of this store: `delegate` supports an optional `task_id` parameter for automatic claim/reassign, and sub-agents receive a `task_complete` tool for structured completion. See `pkg/agent/README.md` for details.
 
 ## Dependencies
 

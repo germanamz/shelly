@@ -18,7 +18,7 @@ state/
 type Store struct { /* unexported fields */ }
 ```
 
-A thread-safe key-value store. The zero value is ready to use (no constructor needed). Internally uses `sync.RWMutex` for concurrency safety and a signal channel pattern for `Watch` notifications.
+A thread-safe key-value store. The zero value is ready to use (no constructor needed). Internal structures (data map and signal channel) are lazily allocated on first use via `sync.Once`. Uses `sync.RWMutex` for concurrency safety and a signal channel pattern for `Watch` notifications.
 
 ## Store Methods
 

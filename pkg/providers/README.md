@@ -14,11 +14,12 @@ packages.
 
 ## Sub-packages
 
-| Package       | Provider  | API Endpoint              | Auth Scheme        |
-|---------------|-----------|---------------------------|--------------------|
-| `anthropic`   | Anthropic | `/v1/messages`            | `x-api-key` header |
-| `openai`      | OpenAI    | `/v1/chat/completions`    | `Authorization: Bearer` |
-| `grok`        | xAI Grok  | `/v1/chat/completions`    | `Authorization: Bearer` |
+| Package       | Provider       | API Endpoint                                  | Auth Scheme            |
+|---------------|----------------|-----------------------------------------------|------------------------|
+| `anthropic`   | Anthropic      | `/v1/messages`                                | `x-api-key` header     |
+| `openai`      | OpenAI         | `/v1/chat/completions`                        | `Authorization: Bearer` |
+| `grok`        | xAI Grok       | `/v1/chat/completions`                        | `Authorization: Bearer` |
+| `gemini`      | Google Gemini  | `/v1beta/models/{model}:generateContent`      | `x-goog-api-key` header |
 
 ## Architecture
 
@@ -40,12 +41,52 @@ All providers follow the same pattern:
 
 - **Anthropic** sends the system prompt as a top-level `system` field and places
   tool results in `"user"` role messages. Tool schemas use `input_schema`.
+  Default max tokens: 4096. Uses `ParseAnthropicRateLimitHeaders` for rate
+  limit handling. Sends a custom `anthropic-version: 2023-06-01` header.
 - **OpenAI** sends the system prompt as a `"system"` role message in the messages
   array. Tool definitions use the `{"type":"function","function":{...}}` wrapper
-  with `parameters`.
-- **Grok** follows the OpenAI-compatible format. Its constructor accepts an
-  `*http.Client` and uses `modeladapter.New()` rather than direct field
-  assignment. The model name is set after construction.
+  with `parameters`. Default max tokens: 4096. Uses
+  `ParseOpenAIRateLimitHeaders` for rate limit handling.
+- **Grok** follows the OpenAI-compatible format (same message structure and tool
+  definitions). Its constructor accepts an `*http.Client` and uses
+  `modeladapter.New()` rather than direct field assignment. The model name is
+  set after construction. Default base URL: `https://api.x.ai`. Uses
+  `ParseOpenAIRateLimitHeaders`. Exports `MarshalToolDef` as a convenience for
+  building tool definitions in the OpenAI-compatible format.
+- **Gemini** sends the system prompt as a top-level `systemInstruction` field
+  and uses `contents` (not `messages`) with role alternation between `"user"`
+  and `"model"`. Tool definitions use `functionDeclarations` grouped in a tool
+  set. Tool results are sent as `functionResponse` parts (requiring the
+  function name, resolved via a call-ID-to-name lookup map built from the
+  conversation history). Gemini does not return tool call IDs, so the adapter
+  synthesizes them using `generateCallID`. Supports `thoughtSignature`
+  round-tripping on tool calls via `content.ToolCall.Metadata`. Sanitizes JSON
+  schemas by recursively stripping `$schema` and `additionalProperties` keys
+  that the Gemini API rejects. Default max tokens: 8192.
+
+## Exported Types and Constructors
+
+### `anthropic`
+
+- **`Adapter`** -- Embeds `modeladapter.ModelAdapter`. Implements `Completer`.
+- **`New(baseURL, apiKey, model string) *Adapter`** -- Creates a configured adapter.
+
+### `openai`
+
+- **`Adapter`** -- Embeds `modeladapter.ModelAdapter`. Implements `Completer`.
+- **`New(baseURL, apiKey, model string) *Adapter`** -- Creates a configured adapter.
+
+### `grok`
+
+- **`GrokAdapter`** -- Embeds `modeladapter.ModelAdapter`. Implements `Completer`.
+- **`New(apiKey string, client *http.Client) *GrokAdapter`** -- Creates a configured adapter. A nil client falls back to `http.DefaultClient`.
+- **`MarshalToolDef(name, description string, schema json.RawMessage) apiTool`** -- Convenience helper to build an OpenAI-compatible tool definition.
+- **`DefaultBaseURL`** -- Constant: `https://api.x.ai`.
+
+### `gemini`
+
+- **`Adapter`** -- Embeds `modeladapter.ModelAdapter`. Implements `Completer`.
+- **`New(baseURL, apiKey, model string) *Adapter`** -- Creates a configured adapter.
 
 ## Dependencies
 

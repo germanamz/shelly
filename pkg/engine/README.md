@@ -42,9 +42,7 @@ reply, err := session.Send(ctx, "Hello")
 | `NewSession(agentName)` | Creates a new session. Empty name falls back to `EntryAgent`, then first agent. |
 | `Session(id)` | Retrieves an existing session by ID. |
 | `RemoveSession(id)` | Removes a session from the engine. Returns whether it existed. |
-| `ClearState()` | Clears the shared state store (placeholder for v2). |
-| `ClearTasks()` | Clears the shared task store (placeholder for v2). |
-| `Close()` | Waits for in-flight sends to complete, cancels the engine context, closes browser and MCP clients. Idempotent via `sync.Once`. |
+| `Close()` | Waits for in-flight sends to complete, cancels the engine context, closes browser and MCP clients. Returns the first error encountered. Idempotent via `sync.Once`. |
 
 ### Session
 
@@ -56,6 +54,7 @@ session.SendParts(ctx, content.Text{Text: "Hello"})  // explicit parts
 session.Chat()                                        // direct chat access
 session.Completer()                                   // underlying completer for usage reporting
 session.Respond(questionID, "yes")                    // answer a pending ask_user question
+session.AgentName()                                   // name of the session's agent
 ```
 
 Only one `Send` may be active per session at a time. Concurrent `Send` calls return an error.
@@ -65,6 +64,7 @@ Only one `Send` may be active per session at a time. Concurrent `Send` calls ret
 | Method | Description |
 |---|---|
 | `ID()` | Returns the session identifier. |
+| `AgentName()` | Returns the name of the session's agent. |
 | `Send(ctx, text)` | Appends a text user message and runs the agent's ReAct loop. Returns the agent's reply. |
 | `SendParts(ctx, ...parts)` | Like `Send` but accepts explicit `content.Part` values. |
 | `Chat()` | Returns the underlying `*chat.Chat` for direct observation. |
@@ -190,7 +190,7 @@ agents:
 entry_agent: assistant
 
 # Override built-in context window defaults or add defaults for custom kinds.
-# Built-in defaults: anthropic=200000, openai=128000, grok=131072.
+# Built-in defaults: anthropic=200000, openai=128000, grok=131072, gemini=1048576.
 default_context_windows:
   anthropic: 180000   # override the built-in anthropic default
   custom-llm: 64000   # add a default for a custom provider kind
@@ -223,7 +223,11 @@ browser:
 | Function | Description |
 |---|---|
 | `LoadConfig(path)` | Reads a YAML file, expands `${VAR}` environment variables, and returns a `Config`. |
+| `LoadConfigRaw(path)` | Reads a YAML file without expanding environment variables. Preserves `${VAR}` references, useful for config editing round-trips. |
 | `Config.Validate()` | Validates internal consistency: requires at least one provider and one agent, checks for duplicate names, verifies provider/toolbox/entry agent references, validates context window and threshold ranges, and validates effect kinds. |
+| `KnownProviderKinds()` | Returns the sorted list of registered provider kind strings. |
+| `KnownEffectKinds()` | Returns the sorted list of recognised effect kind strings. |
+| `BuiltinToolboxNames()` | Returns the sorted list of built-in toolbox names. |
 
 ### Effects
 
@@ -231,7 +235,7 @@ Agents support pluggable **effects** -- per-iteration hooks that run inside the 
 
 When the effective context window is non-zero and no explicit effects are configured, the engine auto-generates both a `trim_tool_results` effect (lightweight, runs after each completion) and a `compact` effect with the agent's `context_threshold` (default 0.8). This graduated approach trims tool results first, then falls back to full summarisation only when needed.
 
-Known provider kinds have built-in default context windows (anthropic: 200k, openai: 128k, grok: 131k). When `context_window` is omitted from the YAML, the default for the provider kind is used -- meaning compaction works out of the box. Set `context_window: 0` explicitly to disable compaction.
+Known provider kinds have built-in default context windows (anthropic: 200k, openai: 128k, grok: 131k, gemini: 1M). When `context_window` is omitted from the YAML, the default for the provider kind is used -- meaning compaction works out of the box. Set `context_window: 0` explicitly to disable compaction.
 
 Effects are sorted by priority before execution: compaction-class effects (`compact`, `sliding_window`) run first so that effects injecting messages (e.g., `reflection`, `loop_detect`) are not immediately summarized away in the same iteration.
 
@@ -277,6 +281,10 @@ The engine wires an `EventNotifier` into every registered agent. When an agent d
 
 Additionally, an `EventFunc` is wired into each agent to publish fine-grained loop events (`tool_call_start`, `tool_call_end`, `message_added`) during the ReAct loop.
 
+### Agent Reflections
+
+When the `.shelly/` directory exists, the engine resolves a reflections directory (via `shellydir.Dir.ReflectionsDir()`) and passes it to each agent via `agent.Options.ReflectionDir`. This enables agents to persist and retrieve reflection data across sessions.
+
 ### Per-Agent Skills
 
 Agents can declare a `skills` list to receive only a subset of the engine-level skills loaded from `.shelly/skills/`:
@@ -310,9 +318,13 @@ When designing agent configs, keep in mind:
 - To restrict a child's tools strictly to its config, avoid delegating from agents with broader toolbox sets, or adjust the delegation logic.
 - Built-in toolboxes that require filesystem permissions (`filesystem`, `exec`, `search`, `git`, `http`, `browser`) share a single `permissions.Store` instance and an `ask.Responder` for user prompts.
 
+### Task Board Adapter
+
+When the `tasks` toolbox is referenced by at least one agent, the engine creates a `*tasks.Store` and wires a `taskBoardAdapter` into each agent's options. This adapter implements `agent.TaskBoard` by delegating `ClaimTask` and `UpdateTaskStatus` calls to the shared task store, enabling agents to coordinate work through a shared task board.
+
 ### Provider Factory
 
-Maps provider `kind` strings to factory functions. Built-in: `anthropic`, `openai`, `grok`. Extensible via `RegisterProvider`.
+Maps provider `kind` strings to factory functions. Built-in: `anthropic`, `openai`, `grok`, `gemini`. Extensible via `RegisterProvider`.
 
 ```go
 engine.RegisterProvider("custom", func(cfg engine.ProviderConfig) (modeladapter.Completer, error) {
@@ -326,7 +338,7 @@ engine.RegisterProvider("custom", func(cfg engine.ProviderConfig) (modeladapter.
 |---|---|
 | `ProviderFactory` | Function type `func(cfg ProviderConfig) (modeladapter.Completer, error)`. |
 | `RegisterProvider(kind, factory)` | Registers a custom provider factory. Can be called before `New`. |
-| `BuiltinContextWindows` | Exported `map[string]int` of default context windows per provider kind: `anthropic: 200000`, `openai: 128000`, `grok: 131072`. |
+| `BuiltinContextWindows` | Exported `map[string]int` of default context windows per provider kind: `anthropic: 200000`, `openai: 128000`, `grok: 131072`, `gemini: 1048576`. |
 
 Context window resolution order: explicit `context_window` in provider config > `default_context_windows` map in config > `BuiltinContextWindows` built-in defaults > 0 (disabled).
 
@@ -363,6 +375,7 @@ reply, _ := session.Send(ctx, input)
 ## Dependencies
 
 - `pkg/agent` -- agent types, registry, effects interface, event notifier
+- `pkg/agent/effects` -- concrete effect implementations
 - `pkg/agentctx` -- context key helpers for agent identity
 - `pkg/chats` -- chat, message, content, role types
 - `pkg/codingtoolbox/ask` -- ask responder for user prompts
@@ -376,7 +389,7 @@ reply, _ := session.Send(ctx, input)
 - `pkg/codingtoolbox/search` -- search tools
 - `pkg/modeladapter` -- Completer interface, rate-limited completer wrapper
 - `pkg/projectctx` -- project context loading
-- `pkg/providers/anthropic`, `pkg/providers/openai`, `pkg/providers/grok` -- LLM providers
+- `pkg/providers/anthropic`, `pkg/providers/openai`, `pkg/providers/grok`, `pkg/providers/gemini` -- LLM providers
 - `pkg/shellydir` -- `.shelly/` directory path resolution and bootstrapping
 - `pkg/skill` -- skill loading and store
 - `pkg/state` -- key-value state store
