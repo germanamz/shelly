@@ -165,6 +165,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		var cmd tea.Cmd
 		m.inputBox, cmd = m.inputBox.Update(msg)
+		m.syncLayout()
 		return m, cmd
 	}
 }
@@ -197,13 +198,20 @@ func (m *AppModel) handleResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.height = msg.Height
 	format.InitMarkdownRenderer(m.width - 4)
 	m.inputBox.SetWidth(m.width)
+	m.syncLayout()
 
-	// Calculate chat area height: total minus input area.
+	return m, nil
+}
+
+// syncLayout recalculates the chat viewport height to accommodate the current
+// input area height (e.g. after auto-growth from text wrapping).
+func (m *AppModel) syncLayout() {
+	if m.height == 0 {
+		return
+	}
 	inputHeight := m.inputBox.ViewHeight()
 	chatHeight := max(m.height-inputHeight, 4)
 	m.chatView.SetSize(m.width, chatHeight)
-
-	return m, nil
 }
 
 func (m *AppModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -229,6 +237,7 @@ func (m *AppModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.inputBox.PickerActive() {
 			var cmd tea.Cmd
 			m.inputBox, cmd = m.inputBox.Update(msg)
+			m.syncLayout()
 			return m, cmd
 		}
 		if m.state == StateProcessing && m.cancelSend != nil {
@@ -242,6 +251,7 @@ func (m *AppModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Input is always active.
 	var cmd tea.Cmd
 	m.inputBox, cmd = m.inputBox.Update(msg)
+	m.syncLayout()
 	return m, cmd
 }
 

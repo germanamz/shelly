@@ -3,6 +3,7 @@ package input
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textarea"
@@ -245,25 +246,77 @@ func (m *InputModel) SetWidth(w int) {
 
 // visualLineCount returns the number of visual lines the current text occupies,
 // accounting for both hard newlines and soft wraps at the textarea width.
+// This mirrors the textarea's internal word-wrap function so the height
+// calculation stays in sync with what the textarea actually renders.
 func (m InputModel) visualLineCount() int {
 	text := m.textarea.Value()
 	if text == "" {
 		return 1
 	}
 
-	wrapWidth := max(m.textarea.Width(), 1)
+	width := max(m.textarea.Width(), 1)
 
 	total := 0
 	for line := range strings.SplitSeq(text, "\n") {
-		w := runewidth.StringWidth(line)
-		if w == 0 {
-			total++
-			continue
-		}
-		total += (w-1)/wrapWidth + 1
+		total += wordWrapLineCount(line, width)
 	}
 
 	return total
+}
+
+// wordWrapLineCount returns the number of visual lines a single hard line
+// occupies when word-wrapped at the given width. The algorithm mirrors the
+// textarea's internal wrap() function from charm.land/bubbles/v2.
+func wordWrapLineCount(text string, width int) int {
+	runes := []rune(text)
+	if len(runes) == 0 {
+		return 1
+	}
+
+	lines := 1
+	lineWidth := 0 // visual width of the current line so far
+	var wordRunes []rune
+	spaces := 0
+
+	for _, r := range runes {
+		if unicode.IsSpace(r) {
+			spaces++
+		} else {
+			wordRunes = append(wordRunes, r)
+		}
+
+		if spaces > 0 {
+			wordWidth := runewidth.StringWidth(string(wordRunes))
+			if lineWidth+wordWidth+spaces > width {
+				// Word doesn't fit on current line — wrap.
+				lines++
+				lineWidth = wordWidth + spaces
+			} else {
+				lineWidth += wordWidth + spaces
+			}
+			spaces = 0
+			wordRunes = wordRunes[:0]
+		} else {
+			// Check if a single word exceeds the line width and must be broken.
+			lastCharLen := runewidth.RuneWidth(wordRunes[len(wordRunes)-1])
+			wordWidth := runewidth.StringWidth(string(wordRunes))
+			if wordWidth+lastCharLen > width {
+				if lineWidth > 0 {
+					lines++
+				}
+				lineWidth = wordWidth
+				wordRunes = wordRunes[:0]
+			}
+		}
+	}
+
+	// Handle remaining text after the loop — mirrors the textarea's >= boundary.
+	wordWidth := runewidth.StringWidth(string(wordRunes))
+	if lineWidth+wordWidth+spaces >= width {
+		lines++
+	}
+
+	return lines
 }
 
 func (m *InputModel) Enable() tea.Cmd {
