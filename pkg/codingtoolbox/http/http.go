@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
@@ -23,11 +24,20 @@ import (
 // AskFunc asks the user a question and blocks until a response is received.
 type AskFunc func(ctx context.Context, question string, options []string) (string, error)
 
+// pendingResult holds the outcome of a single in-flight permission prompt so
+// that concurrent callers waiting on the same domain can share the result.
+type pendingResult struct {
+	done chan struct{}
+	err  error
+}
+
 // HTTP provides HTTP tools with permission gating.
 type HTTP struct {
-	store  *permissions.Store
-	ask    AskFunc
-	client *http.Client
+	store         *permissions.Store
+	ask           AskFunc
+	client        *http.Client
+	pendingMu     sync.Mutex
+	pendingDomain map[string]*pendingResult
 }
 
 // privateRanges are the CIDR blocks for private/loopback networks.
@@ -118,8 +128,9 @@ func safeTransport() *http.Transport {
 // domains and prompts the user via askFn when a domain is not yet trusted.
 func New(store *permissions.Store, askFn AskFunc) *HTTP {
 	h := &HTTP{
-		store: store,
-		ask:   askFn,
+		store:         store,
+		ask:           askFn,
+		pendingDomain: make(map[string]*pendingResult),
 	}
 
 	h.client = &http.Client{
@@ -155,6 +166,7 @@ func (h *HTTP) Tools() *toolbox.ToolBox {
 }
 
 // checkPermission checks if a domain is trusted, prompting the user if not.
+// Concurrent requests for the same domain coalesce into a single prompt.
 func (h *HTTP) checkPermission(ctx context.Context, rawURL string) error {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
@@ -166,10 +178,46 @@ func (h *HTTP) checkPermission(ctx context.Context, rawURL string) error {
 		return fmt.Errorf("http: could not extract domain from URL")
 	}
 
+	// Fast path: already trusted (no lock contention).
 	if h.store.IsDomainTrusted(domain) {
 		return nil
 	}
 
+	h.pendingMu.Lock()
+	// Re-check after acquiring lock.
+	if h.store.IsDomainTrusted(domain) {
+		h.pendingMu.Unlock()
+
+		return nil
+	}
+
+	// If a prompt is already in-flight for this domain, wait for its result.
+	if pr, ok := h.pendingDomain[domain]; ok {
+		h.pendingMu.Unlock()
+		<-pr.done
+
+		return pr.err
+	}
+
+	// We are the first — create a pending entry and release the lock.
+	pr := &pendingResult{done: make(chan struct{})}
+	h.pendingDomain[domain] = pr
+	h.pendingMu.Unlock()
+
+	// Ask the user (blocking).
+	pr.err = h.askAndApproveDomain(ctx, domain)
+
+	// Signal waiters and clean up.
+	close(pr.done)
+	h.pendingMu.Lock()
+	delete(h.pendingDomain, domain)
+	h.pendingMu.Unlock()
+
+	return pr.err
+}
+
+// askAndApproveDomain prompts the user and trusts/approves the domain.
+func (h *HTTP) askAndApproveDomain(ctx context.Context, domain string) error {
 	resp, err := h.ask(ctx, fmt.Sprintf("Allow HTTP request to %s?", domain), []string{"yes", "trust", "no"})
 	if err != nil {
 		return fmt.Errorf("http: ask permission: %w", err)

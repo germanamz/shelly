@@ -182,7 +182,7 @@ func (s *Store) Update(id string, upd Update) error {
 		t.Description = *upd.Description
 	}
 	if upd.BlockedBy != nil {
-		t.BlockedBy = *upd.BlockedBy
+		t.BlockedBy = slices.Clone(*upd.BlockedBy)
 	}
 	if upd.Metadata != nil {
 		if t.Metadata == nil {

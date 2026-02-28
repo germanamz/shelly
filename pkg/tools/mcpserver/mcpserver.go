@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
@@ -59,7 +60,11 @@ func toSDKTool(t toolbox.Tool) *mcp.Tool {
 // toSDKHandler wraps a toolbox.Handler as an SDK ToolHandler.
 func toSDKHandler(h toolbox.Handler) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		result, err := h(ctx, req.Params.Arguments)
+		args := req.Params.Arguments
+		if args == nil {
+			args = json.RawMessage("{}")
+		}
+		result, err := h(ctx, args)
 		if err != nil {
 			return &mcp.CallToolResult{
 				Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},

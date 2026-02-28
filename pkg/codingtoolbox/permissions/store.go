@@ -16,6 +16,7 @@ import (
 // Store manages permission grants persisted to a JSON file.
 type Store struct {
 	mu       sync.RWMutex
+	writeMu  sync.Mutex
 	dirs     map[string]struct{}
 	commands map[string]struct{}
 	domains  map[string]struct{}
@@ -76,10 +77,9 @@ func (s *Store) IsDirApproved(dir string) bool {
 func (s *Store) ApproveDir(dir string) error {
 	s.mu.Lock()
 	s.dirs[dir] = struct{}{}
-	snap := s.snapshot()
 	s.mu.Unlock()
 
-	return s.persistSnapshot(snap)
+	return s.persist()
 }
 
 // IsCommandTrusted reports whether a command has been trusted.
@@ -96,10 +96,9 @@ func (s *Store) IsCommandTrusted(cmd string) bool {
 func (s *Store) TrustCommand(cmd string) error {
 	s.mu.Lock()
 	s.commands[cmd] = struct{}{}
-	snap := s.snapshot()
 	s.mu.Unlock()
 
-	return s.persistSnapshot(snap)
+	return s.persist()
 }
 
 // IsDomainTrusted reports whether a domain has been trusted.
@@ -116,10 +115,9 @@ func (s *Store) IsDomainTrusted(domain string) bool {
 func (s *Store) TrustDomain(domain string) error {
 	s.mu.Lock()
 	s.domains[domain] = struct{}{}
-	snap := s.snapshot()
 	s.mu.Unlock()
 
-	return s.persistSnapshot(snap)
+	return s.persist()
 }
 
 // --- persistence ---
@@ -198,9 +196,17 @@ func (s *Store) snapshot() fileFormat {
 	return ff
 }
 
-// persistSnapshot writes the given snapshot to disk. It must be called
-// outside the lock so that blocking I/O does not hold the mutex.
-func (s *Store) persistSnapshot(ff fileFormat) error {
+// persist serializes the current state to disk. It acquires writeMu to
+// guarantee that concurrent callers write sequentially, and re-snapshots
+// under mu.RLock so the written data is always fresh.
+func (s *Store) persist() error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	s.mu.RLock()
+	ff := s.snapshot()
+	s.mu.RUnlock()
+
 	data, err := json.MarshalIndent(ff, "", "  ")
 	if err != nil {
 		return fmt.Errorf("permissions: marshal: %w", err)

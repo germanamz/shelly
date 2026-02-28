@@ -280,14 +280,19 @@ func (m AskBatchModel) handleConfirmKey(msg tea.KeyPressMsg) (AskBatchModel, tea
 	return m, nil
 }
 
+// Questions returns the original AskUserMsg for each entry in the batch.
+func (m AskBatchModel) Questions() []msgs.AskUserMsg {
+	qs := make([]msgs.AskUserMsg, len(m.entries))
+	for i, e := range m.entries {
+		qs[i] = e.question
+	}
+	return qs
+}
+
 func (m AskBatchModel) buildAnsweredCmd(customText string) tea.Cmd {
 	answers := make([]msgs.AskAnswer, len(m.entries))
 	for i, e := range m.entries {
-		resp := e.response
-		if customText != "" && i == len(m.entries)-1 {
-			resp += "\n" + customText
-		}
-		answers[i] = msgs.AskAnswer{QuestionID: e.question.Question.ID, Response: resp}
+		answers[i] = msgs.AskAnswer{QuestionID: e.question.Question.ID, Response: e.response}
 	}
 	if customText != "" && len(answers) > 0 {
 		answers[len(answers)-1].Response = m.entries[len(m.entries)-1].response

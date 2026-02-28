@@ -258,6 +258,7 @@ func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
 	if text == "/clear" {
 		if m.cancelBridge != nil {
 			m.cancelBridge()
+			m.cancelBridge = nil
 		}
 		m.eng.RemoveSession(m.sess.ID())
 		newSess, err := m.eng.NewSession("")
@@ -350,6 +351,7 @@ func (m *AppModel) drainAskBatch() (tea.Model, tea.Cmd) {
 }
 
 func (m *AppModel) handleBatchAnswered(msg msgs.AskBatchAnsweredMsg) (tea.Model, tea.Cmd) {
+	dismissed := m.askActive.Questions()
 	m.askActive = nil
 
 	if len(m.askQueue) > 0 {
@@ -362,9 +364,8 @@ func (m *AppModel) handleBatchAnswered(msg msgs.AskBatchAnsweredMsg) (tea.Model,
 
 	if msg.Answers == nil {
 		sess := m.sess
-		queue := m.askQueue
 		return m, func() tea.Msg {
-			for _, q := range queue {
+			for _, q := range dismissed {
 				_ = sess.Respond(q.Question.ID, "[user dismissed the question]")
 			}
 			return nil

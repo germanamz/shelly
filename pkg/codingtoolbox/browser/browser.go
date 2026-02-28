@@ -20,6 +20,13 @@ import (
 // AskFunc asks the user a question and blocks until a response is received.
 type AskFunc func(ctx context.Context, question string, options []string) (string, error)
 
+// pendingResult holds the outcome of a single in-flight permission prompt so
+// that concurrent callers waiting on the same domain can share the result.
+type pendingResult struct {
+	done chan struct{}
+	err  error
+}
+
 // Option configures Browser behaviour.
 type Option func(*Browser)
 
@@ -43,14 +50,18 @@ type Browser struct {
 	browserCtx  context.Context
 	browserDone context.CancelFunc
 	allocDone   context.CancelFunc
+
+	pendingMu     sync.Mutex
+	pendingDomain map[string]*pendingResult
 }
 
 // New creates a Browser that checks the given permissions store for trusted
 // domains and prompts the user via askFn when a domain is not yet trusted.
 func New(store *permissions.Store, askFn AskFunc, opts ...Option) *Browser {
 	b := &Browser{
-		store: store,
-		ask:   askFn,
+		store:         store,
+		ask:           askFn,
+		pendingDomain: make(map[string]*pendingResult),
 	}
 	for _, o := range opts {
 		o(b)
@@ -141,6 +152,7 @@ func (b *Browser) ensureBrowser(ctx context.Context) (context.Context, error) {
 }
 
 // checkPermission checks if a domain is trusted, prompting the user if not.
+// Concurrent requests for the same domain coalesce into a single prompt.
 func (b *Browser) checkPermission(ctx context.Context, rawURL string) error {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
@@ -152,10 +164,46 @@ func (b *Browser) checkPermission(ctx context.Context, rawURL string) error {
 		return fmt.Errorf("browser: could not extract domain from URL")
 	}
 
+	// Fast path: already trusted (no lock contention).
 	if b.store.IsDomainTrusted(domain) {
 		return nil
 	}
 
+	b.pendingMu.Lock()
+	// Re-check after acquiring lock.
+	if b.store.IsDomainTrusted(domain) {
+		b.pendingMu.Unlock()
+
+		return nil
+	}
+
+	// If a prompt is already in-flight for this domain, wait for its result.
+	if pr, ok := b.pendingDomain[domain]; ok {
+		b.pendingMu.Unlock()
+		<-pr.done
+
+		return pr.err
+	}
+
+	// We are the first — create a pending entry and release the lock.
+	pr := &pendingResult{done: make(chan struct{})}
+	b.pendingDomain[domain] = pr
+	b.pendingMu.Unlock()
+
+	// Ask the user (blocking).
+	pr.err = b.askAndApproveDomain(ctx, domain)
+
+	// Signal waiters and clean up.
+	close(pr.done)
+	b.pendingMu.Lock()
+	delete(b.pendingDomain, domain)
+	b.pendingMu.Unlock()
+
+	return pr.err
+}
+
+// askAndApproveDomain prompts the user and trusts/approves the domain.
+func (b *Browser) askAndApproveDomain(ctx context.Context, domain string) error {
 	resp, err := b.ask(ctx, fmt.Sprintf("Allow browser access to %s?", domain), []string{"yes", "trust", "no"})
 	if err != nil {
 		return fmt.Errorf("browser: ask permission: %w", err)

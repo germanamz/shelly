@@ -146,6 +146,9 @@ func (b *Browser) handleType(ctx context.Context, input json.RawMessage) (string
 	// If a form submit caused navigation, check domain trust on the new URL.
 	if in.Submit {
 		if err := b.checkPermission(ctx, currentURL); err != nil {
+			if navErr := chromedp.Run(opCtx, chromedp.NavigateBack()); navErr != nil {
+				b.Close()
+			}
 			return "", err
 		}
 	}

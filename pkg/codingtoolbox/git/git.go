@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
@@ -58,18 +59,27 @@ func (b *limitedBuffer) String() string { return string(b.buf) }
 // AskFunc asks the user a question and blocks until a response is received.
 type AskFunc func(ctx context.Context, question string, options []string) (string, error)
 
+// pendingResult holds the outcome of a single in-flight permission prompt so
+// that concurrent callers waiting on the same command can share the result.
+type pendingResult struct {
+	done chan struct{}
+	err  error
+}
+
 // Git provides git tools with permission gating.
 type Git struct {
-	store   *permissions.Store
-	ask     AskFunc
-	workDir string
+	store      *permissions.Store
+	ask        AskFunc
+	workDir    string
+	pendingMu  sync.Mutex
+	pendingCmd map[string]*pendingResult
 }
 
 // New creates a Git that checks the given permissions store for trusted
 // commands and prompts the user via askFn when git is not yet trusted.
 // workDir sets the working directory for all git commands.
 func New(store *permissions.Store, askFn AskFunc, workDir string) *Git {
-	return &Git{store: store, ask: askFn, workDir: workDir}
+	return &Git{store: store, ask: askFn, workDir: workDir, pendingCmd: make(map[string]*pendingResult)}
 }
 
 // Tools returns a ToolBox containing the git tools.
@@ -81,11 +91,50 @@ func (g *Git) Tools() *toolbox.ToolBox {
 }
 
 // checkPermission checks if git is trusted, prompting the user if not.
+// Concurrent requests coalesce into a single prompt for the "git" command.
 func (g *Git) checkPermission(ctx context.Context, description string) error {
-	if g.store.IsCommandTrusted("git") {
+	const key = "git"
+
+	// Fast path: already trusted (no lock contention).
+	if g.store.IsCommandTrusted(key) {
 		return nil
 	}
 
+	g.pendingMu.Lock()
+	// Re-check after acquiring lock.
+	if g.store.IsCommandTrusted(key) {
+		g.pendingMu.Unlock()
+
+		return nil
+	}
+
+	// If a prompt is already in-flight for this command, wait for its result.
+	if pr, ok := g.pendingCmd[key]; ok {
+		g.pendingMu.Unlock()
+		<-pr.done
+
+		return pr.err
+	}
+
+	// We are the first — create a pending entry and release the lock.
+	pr := &pendingResult{done: make(chan struct{})}
+	g.pendingCmd[key] = pr
+	g.pendingMu.Unlock()
+
+	// Ask the user (blocking).
+	pr.err = g.askAndApproveCmd(ctx, description)
+
+	// Signal waiters and clean up.
+	close(pr.done)
+	g.pendingMu.Lock()
+	delete(g.pendingCmd, key)
+	g.pendingMu.Unlock()
+
+	return pr.err
+}
+
+// askAndApproveCmd prompts the user and trusts/approves the git command.
+func (g *Git) askAndApproveCmd(ctx context.Context, description string) error {
 	resp, err := g.ask(ctx, fmt.Sprintf("Allow running `%s`?", description), []string{"yes", "trust", "no"})
 	if err != nil {
 		return fmt.Errorf("git: ask permission: %w", err)

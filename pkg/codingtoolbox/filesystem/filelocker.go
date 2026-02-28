@@ -2,41 +2,62 @@ package filesystem
 
 import "sync"
 
+// lockEntry holds a per-path mutex and a reference count so the entry can be
+// removed from the map when no goroutine is using it.
+type lockEntry struct {
+	mu   sync.Mutex
+	refs int
+}
+
 // FileLocker provides per-path mutual exclusion for filesystem operations.
-// It lazily allocates a mutex for each path on first use.
+// It lazily allocates a mutex for each path on first use and removes the
+// entry when the last holder unlocks.
 type FileLocker struct {
 	mu    sync.Mutex
-	locks map[string]*sync.Mutex
+	locks map[string]*lockEntry
 }
 
 // NewFileLocker creates a new FileLocker.
 func NewFileLocker() *FileLocker {
 	return &FileLocker{
-		locks: make(map[string]*sync.Mutex),
+		locks: make(map[string]*lockEntry),
 	}
 }
 
-func (fl *FileLocker) getMutex(path string) *sync.Mutex {
+func (fl *FileLocker) acquire(path string) *lockEntry {
 	fl.mu.Lock()
-	defer fl.mu.Unlock()
-
-	m, ok := fl.locks[path]
+	e, ok := fl.locks[path]
 	if !ok {
-		m = &sync.Mutex{}
-		fl.locks[path] = m
+		e = &lockEntry{}
+		fl.locks[path] = e
 	}
+	e.refs++
+	fl.mu.Unlock()
 
-	return m
+	return e
 }
 
 // Lock acquires the mutex for the given path.
 func (fl *FileLocker) Lock(path string) {
-	fl.getMutex(path).Lock()
+	fl.acquire(path).mu.Lock()
 }
 
-// Unlock releases the mutex for the given path.
+// Unlock releases the mutex for the given path and removes the internal entry
+// when no other goroutine holds a reference.
 func (fl *FileLocker) Unlock(path string) {
-	fl.getMutex(path).Unlock()
+	fl.mu.Lock()
+	e, ok := fl.locks[path]
+	if !ok {
+		fl.mu.Unlock()
+		return
+	}
+	e.refs--
+	if e.refs == 0 {
+		delete(fl.locks, path)
+	}
+	fl.mu.Unlock()
+
+	e.mu.Unlock()
 }
 
 // LockPair acquires mutexes for two paths in a consistent order to avoid

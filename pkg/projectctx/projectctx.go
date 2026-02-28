@@ -6,6 +6,7 @@ package projectctx
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/germanamz/shelly/pkg/shellydir"
@@ -122,7 +123,7 @@ func IsStale(projectRoot string, d shellydir.Dir) bool {
 		return true
 	}
 
-	modInfo, err := os.Stat(fmt.Sprintf("%s/go.mod", projectRoot))
+	modInfo, err := os.Stat(filepath.Join(projectRoot, "go.mod"))
 	if err != nil {
 		return false // No go.mod, can't determine staleness.
 	}

@@ -86,7 +86,7 @@ func (e *LoopDetectEffect) detectLoop(ic agent.IterationContext) (string, int) {
 		}
 
 		parts := msgs[i].Parts
-		for j := len(parts) - 1; j >= 0; j-- {
+		for j := len(parts) - 1; j >= 0 && len(keys) < e.cfg.WindowSize; j-- {
 			tc, ok := parts[j].(content.ToolCall)
 			if !ok {
 				continue
