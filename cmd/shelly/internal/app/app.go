@@ -123,7 +123,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateTokenCounter()
 
 		if msg.Err != nil && m.ctx.Err() == nil {
-			errLine := styles.ErrorBlockStyle.Render(
+			errLine := styles.ErrorBlockStyle.Width(m.width).Render(
 				lipgloss.NewStyle().Foreground(styles.ColorError).Render("error: " + msg.Err.Error()),
 			)
 			m.chatView.Committed.WriteString("\n" + errLine + "\n")
@@ -141,7 +141,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleBatchAnswered(msg)
 
 	case msgs.RespondErrorMsg:
-		errLine := styles.ErrorBlockStyle.Render(
+		errLine := styles.ErrorBlockStyle.Width(m.width).Render(
 			lipgloss.NewStyle().Foreground(styles.ColorError).Render("error responding: " + msg.Err.Error()),
 		)
 		m.chatView.Committed.WriteString("\n" + errLine + "\n")
@@ -273,7 +273,7 @@ func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
 		m.eng.RemoveSession(m.sess.ID())
 		newSess, err := m.eng.NewSession("")
 		if err != nil {
-			m.chatView.Committed.WriteString("\n" + styles.ErrorBlockStyle.Render("Error: "+err.Error()) + "\n")
+			m.chatView.Committed.WriteString("\n" + styles.ErrorBlockStyle.Width(m.width).Render("Error: "+err.Error()) + "\n")
 			return m, nil
 		}
 		m.sess = newSess
