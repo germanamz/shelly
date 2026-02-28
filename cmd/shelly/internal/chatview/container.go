@@ -2,6 +2,7 @@ package chatview
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -135,16 +136,12 @@ func (ac *AgentContainer) CompleteToolCall(callID, result string, isError bool) 
 
 	// If this call belongs to a group, freeze the group's EndTime when all calls are done.
 	for _, item := range ac.Items {
-		if tg, ok := item.(*ToolGroupItem); ok && tg.EndTime.IsZero() {
-			for _, c := range tg.Calls {
-				if c == tc {
-					// tc belongs to this group — check if all calls are done.
-					if !tg.IsLive() {
-						tg.EndTime = now
-					}
-					return
-				}
+		if tg, ok := item.(*ToolGroupItem); ok && tg.EndTime.IsZero() && slices.Contains(tg.Calls, tc) {
+			// tc belongs to this group — check if all calls are done.
+			if !tg.IsLive() {
+				tg.EndTime = now
 			}
+			return
 		}
 	}
 }

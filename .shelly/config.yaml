@@ -67,7 +67,7 @@ agents:
         - orchestrator-workflow
       effects: []
       options:
-        max_iterations: 15
+        max_iterations: 50
         max_delegation_depth: 1
         context_threshold: 0
       prefix: "👑"
@@ -88,7 +88,7 @@ agents:
         - planner-workflow
       effects: []
       options:
-        max_iterations: 10
+        max_iterations: 30
         max_delegation_depth: 0
         context_threshold: 0
       prefix: "📝"
@@ -115,7 +115,7 @@ agents:
         - kind: trim_tool_results
           params: {}
       options:
-        max_iterations: 20
+        max_iterations: 50
         max_delegation_depth: 0
         context_threshold: 0
       prefix: "🤖"
