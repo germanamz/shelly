@@ -94,6 +94,13 @@ func NewSlidingWindowEffect(cfg SlidingWindowConfig) *SlidingWindowEffect {
 	return &SlidingWindowEffect{cfg: cfg}
 }
 
+// Reset implements agent.Resetter.
+func (e *SlidingWindowEffect) Reset() {
+	e.mu.Lock()
+	e.runningSummary = ""
+	e.mu.Unlock()
+}
+
 // Eval implements agent.Effect.
 func (e *SlidingWindowEffect) Eval(ctx context.Context, ic agent.IterationContext) error {
 	if ic.Phase != agent.PhaseBeforeComplete || ic.Iteration == 0 {

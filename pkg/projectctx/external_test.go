@@ -126,9 +126,19 @@ func TestStripFrontmatter(t *testing.T) {
 			want: "Paragraph one.\n\nParagraph two.",
 		},
 		{
-			name: "triple dashes in body",
+			name: "triple dashes in body (inline)",
 			raw:  "---\nkey: val\n---\nContent with --- in it.",
 			want: "Content with --- in it.",
+		},
+		{
+			name: "setext heading not mistaken for closing delimiter",
+			raw:  "---\nkey: val\n---\nHeading\n---\nBody text.",
+			want: "Heading\n---\nBody text.",
+		},
+		{
+			name: "horizontal rule not mistaken for closing delimiter",
+			raw:  "---\nkey: val\n---\nParagraph one.\n---\nParagraph two.",
+			want: "Paragraph one.\n---\nParagraph two.",
 		},
 		{
 			name: "windows line endings",

@@ -376,8 +376,14 @@ func searchReflections(dir string, task string) string {
 	sort.Slice(entries, func(i, j int) bool {
 		fi, errI := entries[i].Info()
 		fj, errJ := entries[j].Info()
-		if errI != nil || errJ != nil {
+		if errI != nil && errJ != nil {
 			return false
+		}
+		if errI != nil {
+			return false // errored entries sort to the end
+		}
+		if errJ != nil {
+			return true
 		}
 		return fi.ModTime().After(fj.ModTime())
 	})

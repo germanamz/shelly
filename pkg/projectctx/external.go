@@ -73,9 +73,16 @@ func stripFrontmatter(raw string) string {
 
 	// Find the closing --- after the opening one.
 	rest := raw[4:]
-	_, after, found := strings.Cut(rest, "\n---")
+
+	// Try to find closing delimiter followed by newline (mid-document).
+	_, after, found := strings.Cut(rest, "\n---\n")
 	if !found {
-		return raw
+		// Try end-of-document case: closing delimiter is the last line.
+		if strings.HasSuffix(rest, "\n---") {
+			return "" // no content after frontmatter
+		}
+
+		return raw // no closing delimiter found, return original
 	}
 
 	return strings.TrimSpace(after)

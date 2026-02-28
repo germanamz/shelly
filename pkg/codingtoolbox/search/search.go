@@ -79,11 +79,7 @@ func (s *Search) checkPermission(ctx context.Context, dir string) error {
 			return pr.err
 		}
 
-		if s.store.IsDirApproved(abs) {
-			return nil
-		}
-
-		return fmt.Errorf("search: access denied to %s", abs)
+		return nil // Permission was granted (either "yes" or "trust")
 	}
 
 	// We are the first — create a pending entry and release the lock.
@@ -198,7 +194,7 @@ func (s *Search) handleContent(ctx context.Context, input json.RawMessage) (stri
 		if err != nil {
 			return nil
 		}
-		if !strings.HasPrefix(realPath, absReal) {
+		if realPath != absReal && !strings.HasPrefix(realPath, absReal+string(filepath.Separator)) {
 			return nil
 		}
 
@@ -323,7 +319,7 @@ func (s *Search) handleFiles(ctx context.Context, input json.RawMessage) (string
 		if err != nil {
 			return nil
 		}
-		if !strings.HasPrefix(realPath, absReal) {
+		if realPath != absReal && !strings.HasPrefix(realPath, absReal+string(filepath.Separator)) {
 			return nil
 		}
 

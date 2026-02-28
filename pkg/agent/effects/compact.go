@@ -159,6 +159,9 @@ func (e *CompactEffect) handleCompactError(ctx context.Context, ic agent.Iterati
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
+			if e.cfg.NotifyFunc != nil {
+				e.cfg.NotifyFunc(ctx, fmt.Sprintf("Retry compaction failed: %v", retryErr))
+			}
 			return nil
 		}
 	}

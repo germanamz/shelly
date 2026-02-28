@@ -237,6 +237,27 @@ func TestSlidingWindowEffect_PreservesErrorToolResults(t *testing.T) {
 	assert.True(t, found)
 }
 
+func TestSlidingWindowEffect_ResetClearsState(t *testing.T) {
+	e := NewSlidingWindowEffect(SlidingWindowConfig{
+		ContextWindow: 1000,
+		Threshold:     0.8,
+	})
+
+	// Simulate accumulated running summary.
+	e.mu.Lock()
+	e.runningSummary = "some prior summary that should be cleared"
+	e.mu.Unlock()
+
+	// Reset should clear the running summary.
+	e.Reset()
+
+	e.mu.Lock()
+	summary := e.runningSummary
+	e.mu.Unlock()
+
+	assert.Empty(t, summary, "runningSummary should be empty after Reset()")
+}
+
 func TestSlidingWindowEffect_AllSystemMessagesNoPanic(t *testing.T) {
 	uc := &usageCompleter{}
 	uc.tracker.Add(usage.TokenCount{InputTokens: 900, OutputTokens: 100})

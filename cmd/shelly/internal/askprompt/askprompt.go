@@ -295,10 +295,7 @@ func (m AskBatchModel) buildAnsweredCmd(customText string) tea.Cmd {
 		answers[i] = msgs.AskAnswer{QuestionID: e.question.Question.ID, Response: e.response}
 	}
 	if customText != "" && len(answers) > 0 {
-		answers[len(answers)-1].Response = m.entries[len(m.entries)-1].response
-		if customText != "" {
-			answers[len(answers)-1].Response += " (" + customText + ")"
-		}
+		answers[len(answers)-1].Response += " (" + customText + ")"
 	}
 	return func() tea.Msg { return msgs.AskBatchAnsweredMsg{Answers: answers} }
 }

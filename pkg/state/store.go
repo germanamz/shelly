@@ -102,7 +102,10 @@ func (s *Store) Snapshot() map[string]any {
 }
 
 // copyValue returns a deep copy of v if it is a json.RawMessage or []byte,
-// otherwise it returns v unchanged.
+// otherwise it returns v unchanged. Only json.RawMessage and []byte are
+// deep-copied; all other types (including slices, maps, and pointers) are
+// returned as shared references. Callers storing mutable aggregate types
+// should be aware that mutations will affect the stored value.
 func copyValue(v any) any {
 	switch raw := v.(type) {
 	case json.RawMessage:

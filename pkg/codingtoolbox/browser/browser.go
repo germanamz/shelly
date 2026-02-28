@@ -6,6 +6,7 @@ package browser
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -240,7 +241,8 @@ func (b *Browser) extractText(ctx context.Context, selector string) (string, err
 
 	selArg := "null"
 	if selector != "" {
-		selArg = fmt.Sprintf("%q", selector)
+		selBytes, _ := json.Marshal(selector)
+		selArg = string(selBytes)
 	}
 
 	var text string

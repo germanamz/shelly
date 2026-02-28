@@ -30,14 +30,17 @@ const (
 
 // Task represents a unit of work on the shared task board.
 type Task struct {
-	ID          string         `json:"id"`
-	Title       string         `json:"title"`
-	Description string         `json:"description,omitempty"`
-	Status      Status         `json:"status"`
-	Assignee    string         `json:"assignee,omitempty"`
-	BlockedBy   []string       `json:"blocked_by,omitempty"`
-	Metadata    map[string]any `json:"metadata,omitempty"`
-	CreatedBy   string         `json:"created_by,omitempty"`
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Description string   `json:"description,omitempty"`
+	Status      Status   `json:"status"`
+	Assignee    string   `json:"assignee,omitempty"`
+	BlockedBy   []string `json:"blocked_by,omitempty"`
+	// Metadata holds arbitrary key-value pairs. Values should be JSON-serializable
+	// primitives (string, float64, bool, nil). Mutable values (slices, maps) are
+	// shallow-copied and must not be mutated after being passed to Create or Update.
+	Metadata  map[string]any `json:"metadata,omitempty"`
+	CreatedBy string         `json:"created_by,omitempty"`
 }
 
 // Filter controls which tasks are returned by List.
@@ -319,6 +322,9 @@ func (s *Store) isBlockedLocked(id string) bool {
 }
 
 // copyTask returns a deep-enough copy of a Task for safe external use.
+// Note: Metadata is shallow-copied via maps.Copy. Mutable values stored inside
+// (slices, nested maps) are shared between the copy and the original. Callers
+// must treat returned Metadata values as read-only or risk data races.
 func (s *Store) copyTask(t *Task) Task {
 	cp := *t
 	if t.BlockedBy != nil {

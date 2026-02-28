@@ -158,7 +158,7 @@ func (a *Adapter) buildRequest(c *chat.Chat, tools []toolbox.Tool) apiRequest {
 	// Extract system prompt into systemInstruction.
 	if sp := c.SystemPrompt(); sp != "" {
 		req.SystemInstruction = &apiContent{
-			Role:  "user",
+			Role:  "",
 			Parts: []apiPart{{Text: sp}},
 		}
 	}

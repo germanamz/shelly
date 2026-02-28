@@ -136,11 +136,8 @@ func (f *FS) approveDir(ctx context.Context, dir string) error {
 		if pr.err != nil {
 			return pr.err
 		}
-		if f.store.IsDirApproved(dir) {
-			return nil
-		}
 
-		return fmt.Errorf("filesystem: access denied to %s", dir)
+		return nil // Permission was granted (either "yes" or "trust")
 	}
 
 	pr := &pendingResult{done: make(chan struct{})}

@@ -116,13 +116,13 @@ func (a *ModelAdapter) Complete(_ context.Context, _ *chat.Chat, _ []toolbox.Too
 	return message.Message{}, errors.New("adapter: Complete not implemented")
 }
 
-// httpClient returns the configured client or http.DefaultClient.
+// httpClient returns the configured client or a default client with a 10-minute timeout.
 func (a *ModelAdapter) httpClient() *http.Client {
 	if a.Client != nil {
 		return a.Client
 	}
 
-	return http.DefaultClient
+	return &http.Client{Timeout: 10 * time.Minute}
 }
 
 // NewRequest builds an *http.Request with the base URL, auth, and custom

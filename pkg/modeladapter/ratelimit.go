@@ -232,6 +232,13 @@ func (r *RateLimitedCompleter) Complete(ctx context.Context, c *chat.Chat, tools
 		}
 	}
 
+	// Defensive guard: if maxRetries was somehow 0 or negative and the loop
+	// never executed, lastErr may be nil. Return a clear error instead of a
+	// false success with an empty message.
+	if lastErr == nil {
+		lastErr = errors.New("rate limit: exhausted retries without a successful completion")
+	}
+
 	return message.Message{}, lastErr
 }
 

@@ -35,7 +35,7 @@ func TestTrimToolResultsEffect_SkipsBeforeComplete(t *testing.T) {
 	assert.Equal(t, longContent, tr.Content)
 }
 
-func TestTrimToolResultsEffect_SkipsIteration0(t *testing.T) {
+func TestTrimToolResultsEffect_PreservesRecentAtIteration0(t *testing.T) {
 	e := NewTrimToolResultsEffect(TrimToolResultsConfig{})
 
 	longContent := strings.Repeat("x", 1000)
