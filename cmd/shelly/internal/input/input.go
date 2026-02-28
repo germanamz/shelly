@@ -76,9 +76,9 @@ func (m InputModel) Update(msg tea.Msg) (InputModel, tea.Cmd) {
 	if isKey && m.CmdPicker.Active {
 		consumed, sel := m.CmdPicker.HandleKey(keyMsg)
 		if sel != "" {
-			m.textarea.SetValue(sel + " ")
+			m.textarea.Reset()
 			m.CmdPicker.Dismiss()
-			return m, nil
+			return m, func() tea.Msg { return msgs.InputSubmitMsg{Text: sel} }
 		}
 		if consumed {
 			return m, nil

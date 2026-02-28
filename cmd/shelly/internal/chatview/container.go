@@ -6,26 +6,39 @@ import (
 	"strings"
 	"time"
 
+	lipgloss "charm.land/lipgloss/v2"
+
 	"github.com/germanamz/shelly/cmd/shelly/internal/format"
 	"github.com/germanamz/shelly/cmd/shelly/internal/styles"
 )
 
+// colorStyle returns a lipgloss style with the given hex color as foreground,
+// falling back to AnswerPrefixStyle if the color is empty.
+func colorStyle(hexColor string) lipgloss.Style {
+	if hexColor == "" {
+		return styles.AnswerPrefixStyle
+	}
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(hexColor))
+}
+
 // AgentContainer accumulates display items for one agent while it's processing.
 type AgentContainer struct {
-	Agent     string
-	Prefix    string // configurable emoji prefix (e.g. "🤖", "📝", "🦾")
-	Items     []DisplayItem
-	CallIndex map[string]*ToolCallItem // callID → ToolCallItem for O(1) lookup
-	StartTime time.Time
-	EndTime   time.Time // frozen when Done is set
-	SpinMsg   string    // random message picked once at creation, used for initial spinner
-	MaxShow   int       // 0 = show all (root), >0 = windowed (sub-agent)
-	Done      bool
-	FrameIdx  int
+	Agent       string
+	Prefix      string // configurable emoji prefix (e.g. "🤖", "📝", "🦾")
+	Items       []DisplayItem
+	CallIndex   map[string]*ToolCallItem // callID → ToolCallItem for O(1) lookup
+	StartTime   time.Time
+	EndTime     time.Time // frozen when Done is set
+	SpinMsg     string    // random message picked once at creation, used for initial spinner
+	MaxShow     int       // 0 = show all (root), >0 = windowed (sub-agent)
+	Done        bool
+	FrameIdx    int
+	Color       string // hex color string, e.g. "#0969da"; empty means top-level default
+	FinalAnswer string
 }
 
 // NewAgentContainer creates a new container for the given agent.
-func NewAgentContainer(agentName, prefix string, maxShow int) *AgentContainer {
+func NewAgentContainer(agentName, prefix string, maxShow int, color string) *AgentContainer {
 	if prefix == "" {
 		prefix = "🤖"
 	}
@@ -36,6 +49,7 @@ func NewAgentContainer(agentName, prefix string, maxShow int) *AgentContainer {
 		StartTime: time.Now(),
 		SpinMsg:   format.RandomThinkingMessage(),
 		MaxShow:   maxShow,
+		Color:     color,
 	}
 }
 
@@ -45,6 +59,7 @@ func (ac *AgentContainer) AddThinking(text string) {
 		Agent:  ac.Agent,
 		Prefix: ac.Prefix,
 		Text:   text,
+		Color:  ac.Color,
 	})
 }
 
@@ -54,6 +69,7 @@ func (ac *AgentContainer) AddPlan(text string) {
 		Agent:  ac.Agent,
 		Prefix: ac.Prefix,
 		Text:   text,
+		Color:  ac.Color,
 	})
 }
 
@@ -189,7 +205,7 @@ func (ac *AgentContainer) View(width int) string {
 	return sb.String()
 }
 
-// CollapsedSummary returns a one-line summary after agent completion.
+// CollapsedSummary returns a summary after agent completion, including the final answer if present.
 func (ac *AgentContainer) CollapsedSummary() string {
 	end := ac.EndTime
 	if end.IsZero() {
@@ -201,9 +217,28 @@ func (ac *AgentContainer) CollapsedSummary() string {
 		prefix = "🤖"
 	}
 
+	headerStyle := colorStyle(ac.Color)
+
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "%s %s\n", prefix, ac.Agent)
-	fmt.Fprintf(&sb, "%s%s", styles.TreeCorner, styles.DimStyle.Render(fmt.Sprintf("Finished in %s", elapsed)))
+	fmt.Fprintf(&sb, "%s\n", headerStyle.Render(fmt.Sprintf("%s %s", prefix, ac.Agent)))
+	if ac.FinalAnswer != "" {
+		rendered := format.RenderMarkdown(ac.FinalAnswer)
+		lines := strings.Split(rendered, "\n")
+		// Trim trailing empty lines from rendered output.
+		for len(lines) > 0 && lines[len(lines)-1] == "" {
+			lines = lines[:len(lines)-1]
+		}
+		for i, line := range lines {
+			if i == 0 {
+				fmt.Fprintf(&sb, " %s%s\n", styles.TreeCorner, line)
+			} else {
+				fmt.Fprintf(&sb, "   %s\n", line)
+			}
+		}
+		fmt.Fprintf(&sb, "   %s", styles.DimStyle.Render(fmt.Sprintf("Finished in %s", elapsed)))
+	} else {
+		fmt.Fprintf(&sb, " %s%s", styles.TreeCorner, styles.DimStyle.Render(fmt.Sprintf("Finished in %s", elapsed)))
+	}
 	return sb.String()
 }
 

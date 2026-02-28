@@ -30,8 +30,10 @@ func TestChatViewAssistantFinalAnswer(t *testing.T) {
 	cv := New()
 	cv.SetSize(80, 24)
 
+	cv.StartAgent("assistant", "🤖", "")
 	msg := message.NewText("assistant", role.Assistant, "Here is my answer")
 	cv.AddMessage(msg)
+	cv.EndAgent("assistant", "")
 
 	assert.Contains(t, cv.Committed.String(), "Here is my answer")
 }

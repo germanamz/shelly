@@ -164,7 +164,7 @@ func (m WizardModel) View() tea.View {
 func (m WizardModel) mainMenuView() string {
 	var b strings.Builder
 
-	title := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorAccent)
+	title := lipgloss.NewStyle().Bold(true).Foreground(styles.ColorMagenta)
 	b.WriteString(title.Render("Shelly Config Wizard"))
 	b.WriteString("\n\n")
 

@@ -13,6 +13,16 @@ var (
 	ColorMagenta = lipgloss.Color("#8250df") // purple/magenta
 )
 
+// SubAgentPalette is the round-robin color palette for sub-agent names.
+var SubAgentPalette = []string{
+	"#0969da", // Blue
+	"#1a7f37", // Green
+	"#bc4c00", // Orange
+	"#bf3989", // Pink
+	"#0a7480", // Teal
+	"#8250df", // Purple
+}
+
 // Centralized style definitions for the TUI.
 var (
 	// User message styles.

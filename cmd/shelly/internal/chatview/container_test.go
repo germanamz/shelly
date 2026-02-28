@@ -8,7 +8,7 @@ import (
 )
 
 func TestNewAgentContainer(t *testing.T) {
-	ac := NewAgentContainer("test-agent", "🤖", 0)
+	ac := NewAgentContainer("test-agent", "🤖", 0, "")
 	assert.Equal(t, "test-agent", ac.Agent)
 	assert.Equal(t, "🤖", ac.Prefix)
 	assert.Equal(t, 0, ac.MaxShow)
@@ -18,12 +18,12 @@ func TestNewAgentContainer(t *testing.T) {
 }
 
 func TestNewAgentContainerDefaultPrefix(t *testing.T) {
-	ac := NewAgentContainer("test", "", 0)
+	ac := NewAgentContainer("test", "", 0, "")
 	assert.Equal(t, "🤖", ac.Prefix)
 }
 
 func TestAddToolCall(t *testing.T) {
-	ac := NewAgentContainer("agent", "🤖", 0)
+	ac := NewAgentContainer("agent", "🤖", 0, "")
 	tc := ac.AddToolCall("call-1", "fs_read", `{"path": "test.txt"}`)
 
 	require.Len(t, ac.Items, 1)
@@ -33,7 +33,7 @@ func TestAddToolCall(t *testing.T) {
 }
 
 func TestCompleteToolCall(t *testing.T) {
-	ac := NewAgentContainer("agent", "🤖", 0)
+	ac := NewAgentContainer("agent", "🤖", 0, "")
 	ac.AddToolCall("call-1", "fs_read", `{"path": "test.txt"}`)
 
 	ac.CompleteToolCall("call-1", "file content here", false)
@@ -45,7 +45,7 @@ func TestCompleteToolCall(t *testing.T) {
 }
 
 func TestCompleteToolCallWithError(t *testing.T) {
-	ac := NewAgentContainer("agent", "🤖", 0)
+	ac := NewAgentContainer("agent", "🤖", 0, "")
 	ac.AddToolCall("call-1", "fs_read", `{}`)
 
 	ac.CompleteToolCall("call-1", "file not found", true)
@@ -56,7 +56,7 @@ func TestCompleteToolCallWithError(t *testing.T) {
 }
 
 func TestToolGrouping(t *testing.T) {
-	ac := NewAgentContainer("agent", "🤖", 0)
+	ac := NewAgentContainer("agent", "🤖", 0, "")
 
 	tg := ac.AddToolGroup("fs_read", 4)
 	ac.AddGroupCall(tg, "call-1", `{}`)
@@ -74,7 +74,7 @@ func TestToolGrouping(t *testing.T) {
 }
 
 func TestFindLastToolGroup(t *testing.T) {
-	ac := NewAgentContainer("agent", "🤖", 0)
+	ac := NewAgentContainer("agent", "🤖", 0, "")
 
 	tg1 := ac.AddToolGroup("fs_read", 4)
 	ac.AddToolCall("single", "fs_write", `{}`)
@@ -86,7 +86,7 @@ func TestFindLastToolGroup(t *testing.T) {
 }
 
 func TestAddThinking(t *testing.T) {
-	ac := NewAgentContainer("agent", "🤖", 0)
+	ac := NewAgentContainer("agent", "🤖", 0, "")
 	ac.AddThinking("some reasoning text")
 
 	require.Len(t, ac.Items, 1)
@@ -97,7 +97,7 @@ func TestAddThinking(t *testing.T) {
 }
 
 func TestAddPlan(t *testing.T) {
-	ac := NewAgentContainer("agent", "📝", 0)
+	ac := NewAgentContainer("agent", "📝", 0, "")
 	ac.AddPlan("step 1, step 2")
 
 	require.Len(t, ac.Items, 1)
@@ -107,7 +107,7 @@ func TestAddPlan(t *testing.T) {
 }
 
 func TestCollapsedSummary(t *testing.T) {
-	ac := NewAgentContainer("agent", "🤖", 0)
+	ac := NewAgentContainer("agent", "🤖", 0, "")
 	ac.Done = true
 	summary := ac.CollapsedSummary()
 
@@ -116,14 +116,14 @@ func TestCollapsedSummary(t *testing.T) {
 }
 
 func TestViewThinking(t *testing.T) {
-	ac := NewAgentContainer("agent", "🤖", 0)
+	ac := NewAgentContainer("agent", "🤖", 0, "")
 	// No items, should show "is thinking..."
 	view := ac.View(80)
 	assert.Contains(t, view, "is thinking...")
 }
 
 func TestAdvanceSpinners(t *testing.T) {
-	ac := NewAgentContainer("agent", "🤖", 0)
+	ac := NewAgentContainer("agent", "🤖", 0, "")
 	ac.AddToolCall("call-1", "fs_read", `{}`)
 
 	assert.Equal(t, 0, ac.FrameIdx)
@@ -132,8 +132,8 @@ func TestAdvanceSpinners(t *testing.T) {
 }
 
 func TestSubAgentNesting(t *testing.T) {
-	parent := NewAgentContainer("parent", "🤖", 0)
-	child := NewAgentContainer("child", "🦾", 4)
+	parent := NewAgentContainer("parent", "🤖", 0, "")
+	child := NewAgentContainer("child", "🦾", 4, "")
 	sa := &SubAgentItem{Container: child}
 	parent.Items = append(parent.Items, sa)
 
@@ -145,7 +145,7 @@ func TestSubAgentNesting(t *testing.T) {
 }
 
 func TestWindowedView(t *testing.T) {
-	ac := NewAgentContainer("agent", "🤖", 2)
+	ac := NewAgentContainer("agent", "🤖", 2, "")
 	ac.AddThinking("text1")
 	ac.AddThinking("text2")
 	ac.AddThinking("text3")

@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/ask"
+	"github.com/germanamz/shelly/pkg/tasks"
 )
 
 // --- Bridge → TUI messages ---
@@ -82,4 +83,9 @@ type RespondErrorMsg struct {
 // FilePickerEntriesMsg delivers the discovered file list.
 type FilePickerEntriesMsg struct {
 	Entries []string
+}
+
+// TasksChangedMsg is sent by the bridge when the task store is mutated.
+type TasksChangedMsg struct {
+	Tasks []tasks.Task
 }

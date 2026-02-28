@@ -10,6 +10,7 @@ import (
 	"github.com/germanamz/shelly/pkg/chats/chat"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/ask"
 	"github.com/germanamz/shelly/pkg/engine"
+	"github.com/germanamz/shelly/pkg/tasks"
 )
 
 // Start launches the event watcher and chat watcher goroutines.
@@ -18,7 +19,7 @@ import (
 // agents are forwarded via events instead of the chat watcher.
 // Returns a cancel function that cancels the bridge context and waits for
 // both goroutines to exit, ensuring no stale messages are sent after return.
-func Start(ctx context.Context, p *tea.Program, c *chat.Chat, events *engine.EventBus, sessionAgent string) context.CancelFunc {
+func Start(ctx context.Context, p *tea.Program, c *chat.Chat, events *engine.EventBus, taskStore *tasks.Store, sessionAgent string) context.CancelFunc {
 	bridgeCtx, cancel := context.WithCancel(ctx)
 
 	var wg sync.WaitGroup
@@ -89,6 +90,22 @@ func Start(ctx context.Context, p *tea.Program, c *chat.Chat, events *engine.Eve
 			}
 		}
 	})
+
+	// Task watcher: forwards task store mutations to the TUI.
+	if taskStore != nil {
+		wg.Go(func() {
+			for {
+				ch := taskStore.Changes()
+				select {
+				case <-bridgeCtx.Done():
+					return
+				case <-ch:
+					allTasks := taskStore.List(tasks.Filter{})
+					p.Send(msgs.TasksChangedMsg{Tasks: allTasks})
+				}
+			}
+		})
+	}
 
 	return func() {
 		cancel()

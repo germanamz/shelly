@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	lipgloss "charm.land/lipgloss/v2"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
@@ -26,10 +27,12 @@ const LogoArt = `
 
 // ChatViewModel uses a viewport to display committed content and live agent work.
 type ChatViewModel struct {
-	viewport   viewport.Model
-	agents     map[string]*AgentContainer
-	subAgents  map[string]*SubAgentItem // nested sub-agent containers keyed by agent name
-	agentOrder []string                 // agent names in arrival order
+	viewport      viewport.Model
+	agents        map[string]*AgentContainer
+	subAgents     map[string]*SubAgentItem // nested sub-agent containers keyed by agent name
+	agentOrder    []string                 // agent names in arrival order
+	colorRegistry map[string]string // agent name → hex color string
+	nextColorSlot int
 
 	Committed     *strings.Builder // rendered committed content (pointer to avoid copy panic)
 	HasMessages   bool
@@ -44,10 +47,11 @@ type ChatViewModel struct {
 func New() ChatViewModel {
 	vp := viewport.New()
 	return ChatViewModel{
-		viewport:  vp,
-		agents:    make(map[string]*AgentContainer),
-		subAgents: make(map[string]*SubAgentItem),
-		Committed: &strings.Builder{},
+		viewport:      vp,
+		agents:        make(map[string]*AgentContainer),
+		subAgents:     make(map[string]*SubAgentItem),
+		colorRegistry: make(map[string]string),
+		Committed:     &strings.Builder{},
 	}
 }
 
@@ -109,10 +113,34 @@ func (m *ChatViewModel) MarkMessageSent() {
 
 // CommitUserMessage renders a user message and appends it to committed content.
 func (m *ChatViewModel) CommitUserMessage(text string) {
-	userLine := "\n" + format.RenderUserMessage(text)
+	highlighted := highlightFilePaths(text)
+	userLine := "\n" + format.RenderUserMessage(highlighted)
 	m.Committed.WriteString(userLine)
 	m.Committed.WriteString("\n")
 	m.HasMessages = true
+}
+
+// highlightFilePaths applies accent color to @path tokens in user input text.
+func highlightFilePaths(text string) string {
+	accentStyle := lipgloss.NewStyle().Foreground(styles.ColorAccent)
+	runes := []rune(text)
+	var result strings.Builder
+	i := 0
+	for i < len(runes) {
+		if runes[i] == '@' {
+			j := i + 1
+			for j < len(runes) && runes[j] != ' ' && runes[j] != '\n' && runes[j] != '\t' {
+				j++
+			}
+			token := string(runes[i:j])
+			result.WriteString(accentStyle.Render(token))
+			i = j
+		} else {
+			result.WriteRune(runes[i])
+			i++
+		}
+	}
+	return result.String()
 }
 
 // AddMessage processes a chat message. Final answers are committed directly.
@@ -170,37 +198,27 @@ func (m *ChatViewModel) processAssistantMessage(msg message.Message) tea.Cmd {
 
 	// Final answer — no tool calls.
 	if text != "" {
-		// Sub-agent final answers go into their container as a thinking item
-		// so they render inline rather than being committed to scrollback.
+		// Sub-agent final answers are stored on the container; CollapsedSummary/SubAgentItem will render them.
 		if _, isSub := m.subAgents[agentName]; isSub {
 			ac := m.resolveContainer(agentName)
 			if ac != nil {
-				ac.AddThinking(text)
+				ac.FinalAnswer = text
 			}
 			return nil
 		}
 
-		// Top-level final answer — commit to scrollback.
+		// Top-level final answer — store on container; CollapsedSummary will include it.
+		// If there is no active container (e.g. agent never made tool calls), commit directly.
 		ac := m.resolveContainer(agentName)
-		prefix := "🤖"
 		if ac != nil {
-			prefix = ac.Prefix
+			ac.FinalAnswer = text
+		} else {
+			rendered := format.RenderMarkdown(text)
+			m.Committed.WriteString("\n")
+			m.Committed.WriteString(rendered)
+			m.Committed.WriteString("\n")
+			m.HasMessages = true
 		}
-		rendered := format.RenderMarkdown(text)
-		header := styles.AnswerPrefixStyle.Render(fmt.Sprintf("%s %s", prefix, agentName))
-		lines := strings.Split(rendered, "\n")
-		var sb strings.Builder
-		sb.WriteString(header)
-		for i, line := range lines {
-			if i == 0 {
-				fmt.Fprintf(&sb, "\n %s%s", styles.TreeCorner, line)
-			} else {
-				fmt.Fprintf(&sb, "\n   %s", line)
-			}
-		}
-		m.Committed.WriteString("\n")
-		m.Committed.WriteString(sb.String())
-		m.Committed.WriteString("\n")
 		return nil
 	}
 	return nil
@@ -244,7 +262,8 @@ func (m *ChatViewModel) getOrCreateContainer(agentName, prefix string) *AgentCon
 	if ac := m.resolveContainer(agentName); ac != nil {
 		return ac
 	}
-	ac := NewAgentContainer(agentName, prefix, 0)
+	// Auto-created top-level containers use empty string to indicate default style.
+	ac := NewAgentContainer(agentName, prefix, 0, "")
 	m.agents[agentName] = ac
 	m.agentOrder = append(m.agentOrder, agentName)
 	return ac
@@ -257,7 +276,10 @@ func (m *ChatViewModel) StartAgent(agentName, prefix, parent string) {
 		if parentAC == nil {
 			parentAC = m.getOrCreateContainer(parent, "")
 		}
-		childAC := NewAgentContainer(agentName, prefix, 4)
+		color := styles.SubAgentPalette[m.nextColorSlot%len(styles.SubAgentPalette)]
+		m.nextColorSlot++
+		m.colorRegistry[agentName] = color
+		childAC := NewAgentContainer(agentName, prefix, 4, color)
 		sa := &SubAgentItem{Container: childAC}
 		parentAC.Items = append(parentAC.Items, sa)
 		m.subAgents[agentName] = sa
@@ -267,7 +289,9 @@ func (m *ChatViewModel) StartAgent(agentName, prefix, parent string) {
 	if _, ok := m.agents[agentName]; ok {
 		return
 	}
-	ac := NewAgentContainer(agentName, prefix, 0)
+	// Top-level agents use empty string to indicate default (AnswerPrefixStyle).
+	m.colorRegistry[agentName] = ""
+	ac := NewAgentContainer(agentName, prefix, 0, "")
 	m.agents[agentName] = ac
 	m.agentOrder = append(m.agentOrder, agentName)
 }

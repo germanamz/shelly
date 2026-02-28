@@ -61,11 +61,12 @@ type Update struct {
 
 // Store is a thread-safe task board. The zero value is ready to use.
 type Store struct {
-	mu     sync.RWMutex
-	once   sync.Once
-	signal chan struct{}
-	tasks  map[string]*Task
-	nextID int
+	mu       sync.RWMutex
+	once     sync.Once
+	signal   chan struct{}
+	changeCh chan struct{}
+	tasks    map[string]*Task
+	nextID   int
 }
 
 // init ensures internal structures are allocated.
@@ -73,6 +74,7 @@ func (s *Store) init() {
 	s.once.Do(func() {
 		s.tasks = make(map[string]*Task)
 		s.signal = make(chan struct{})
+		s.changeCh = make(chan struct{})
 	})
 }
 
@@ -80,6 +82,22 @@ func (s *Store) init() {
 func (s *Store) notify() {
 	close(s.signal)
 	s.signal = make(chan struct{})
+}
+
+// notifyChange signals all watchers of Changes(). Must be called with mu held.
+func (s *Store) notifyChange() {
+	ch := s.changeCh
+	s.changeCh = make(chan struct{})
+	close(ch)
+}
+
+// Changes returns a channel that is closed whenever any task is mutated.
+// After receiving from the returned channel, call Changes() again to get the next signal.
+func (s *Store) Changes() <-chan struct{} {
+	s.init()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.changeCh
 }
 
 // Create adds a new task to the board with status "pending" and returns its
@@ -124,6 +142,7 @@ func (s *Store) Create(task Task) (string, error) {
 		cp.Metadata = maps.Clone(cp.Metadata)
 	}
 	s.tasks[cp.ID] = &cp
+	s.notifyChange()
 
 	return cp.ID, nil
 }
@@ -205,6 +224,7 @@ func (s *Store) Update(id string, upd Update) error {
 	}
 
 	s.notify()
+	s.notifyChange()
 
 	return nil
 }
@@ -237,6 +257,7 @@ func (s *Store) Claim(id, agent string) error {
 	t.Assignee = agent
 	t.Status = StatusInProgress
 	s.notify()
+	s.notifyChange()
 
 	return nil
 }
@@ -266,6 +287,7 @@ func (s *Store) Reassign(id, agent string) error {
 	t.Assignee = agent
 	t.Status = StatusInProgress
 	s.notify()
+	s.notifyChange()
 
 	return nil
 }
