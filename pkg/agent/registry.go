@@ -22,6 +22,7 @@ type Registry struct {
 	mu        sync.RWMutex
 	factories map[string]Factory
 	entries   map[string]Entry
+	counters  map[string]int
 }
 
 // NewRegistry creates an empty Registry.
@@ -29,7 +30,18 @@ func NewRegistry() *Registry {
 	return &Registry{
 		factories: make(map[string]Factory),
 		entries:   make(map[string]Entry),
+		counters:  make(map[string]int),
 	}
+}
+
+// NextID increments and returns a monotonic counter for the given config name.
+// It is used to generate unique instance names for spawned agents.
+func (r *Registry) NextID(configName string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.counters[configName]++
+	return r.counters[configName]
 }
 
 // Register adds an agent factory to the registry. If an agent with the same
@@ -82,6 +94,7 @@ func (r *Registry) Spawn(name string, depth int) (*Agent, bool) {
 
 	agent := f()
 	agent.depth = depth
+	agent.configName = name
 
 	return agent, true
 }

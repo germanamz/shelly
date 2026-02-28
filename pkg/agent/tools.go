@@ -24,6 +24,37 @@ type AgentEventData struct {
 	Parent string // Name of the parent agent (empty for top-level).
 }
 
+// taskSlug extracts a short keyword from a task description for use in instance
+// names. It picks the first word that is >= 3 characters long and not a common
+// stop word, lowercases it, and truncates to 12 characters. Falls back to "task".
+func taskSlug(task string) string {
+	stopWords := map[string]struct{}{
+		"the": {}, "and": {}, "for": {}, "with": {}, "from": {},
+		"that": {}, "this": {}, "into": {}, "onto": {}, "over": {},
+		"some": {}, "then": {}, "than": {}, "also": {}, "just": {},
+	}
+
+	for w := range strings.FieldsSeq(task) {
+		w = strings.ToLower(w)
+		// Strip non-alphanumeric characters from edges.
+		w = strings.TrimFunc(w, func(r rune) bool {
+			return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+		})
+		if len(w) < 3 {
+			continue
+		}
+		if _, stop := stopWords[w]; stop {
+			continue
+		}
+		if len(w) > 12 {
+			w = w[:12]
+		}
+		return w
+	}
+
+	return "task"
+}
+
 // orchestrationToolBox builds a ToolBox containing the built-in orchestration
 // tools (list_agents, delegate) for the given agent.
 func orchestrationToolBox(a *Agent) *toolbox.ToolBox {
@@ -46,10 +77,10 @@ func listAgentsTool(a *Agent) toolbox.Tool {
 		Handler: func(_ context.Context, _ json.RawMessage) (string, error) {
 			entries := a.registry.List()
 
-			// Filter out self.
+			// Filter out self using configName (registry key).
 			var filtered []Entry
 			for _, e := range entries {
-				if !strings.EqualFold(e.Name, a.name) {
+				if !strings.EqualFold(e.Name, a.configName) {
 					filtered = append(filtered, e)
 				}
 			}
@@ -100,7 +131,7 @@ func delegateTool(a *Agent) toolbox.Tool {
 			}
 
 			for _, t := range di.Tasks {
-				if strings.EqualFold(t.Agent, a.name) {
+				if strings.EqualFold(t.Agent, a.configName) {
 					return "", fmt.Errorf("delegate: self-delegation is not allowed")
 				}
 			}
@@ -133,6 +164,9 @@ func delegateTool(a *Agent) toolbox.Tool {
 						}
 						return
 					}
+
+					// Generate a unique instance name: "<configName>-<slug>-<counter>".
+					child.name = fmt.Sprintf("%s-%s-%d", t.Agent, taskSlug(t.Task), a.registry.NextID(t.Agent))
 
 					child.registry = a.registry
 					child.options.EventNotifier = eventNotifier

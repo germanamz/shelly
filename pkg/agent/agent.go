@@ -81,6 +81,7 @@ type Options struct {
 // agents via a Registry, and learns procedures from Skills.
 type Agent struct {
 	name             string
+	configName       string // Template/kind name for registry lookups (defaults to name).
 	description      string
 	instructions     string
 	completer        modeladapter.Completer
@@ -97,6 +98,7 @@ type Agent struct {
 func New(name, description, instructions string, completer modeladapter.Completer, opts Options) *Agent {
 	return &Agent{
 		name:         name,
+		configName:   name,
 		description:  description,
 		instructions: instructions,
 		completer:    completer,
@@ -128,6 +130,11 @@ func (a *Agent) Init() {
 
 // Name returns the agent's name.
 func (a *Agent) Name() string { return a.name }
+
+// ConfigName returns the agent's config/template name used for registry lookups.
+// For session agents this equals Name(); for spawned sub-agents it is the
+// registry key that was used to create the agent.
+func (a *Agent) ConfigName() string { return a.configName }
 
 // Description returns the agent's description.
 func (a *Agent) Description() string { return a.description }
@@ -428,7 +435,7 @@ func (a *Agent) buildSystemPrompt() string {
 		entries := a.registry.List()
 		var others []Entry
 		for _, e := range entries {
-			if e.Name != a.name {
+			if e.Name != a.configName {
 				others = append(others, e)
 			}
 		}

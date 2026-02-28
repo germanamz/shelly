@@ -36,7 +36,8 @@ type Agent struct { /* unexported fields */ }
 | `Init()` | Builds and sets the system prompt. Called automatically by `Run()`, but can be called manually after `SetRegistry` and `AddToolBoxes`. Safe to call multiple times. |
 | `SetRegistry(r *Registry)` | Enables dynamic delegation by setting the agent's registry. |
 | `AddToolBoxes(tbs ...*toolbox.ToolBox)` | Adds user-provided toolboxes, deduplicating by pointer equality. |
-| `Name() string` | Returns the agent's name. |
+| `Name() string` | Returns the agent's instance name (unique per spawned agent). |
+| `ConfigName() string` | Returns the agent's config/template name (registry key). Equals `Name()` for session agents. |
 | `Description() string` | Returns the agent's description. |
 | `Prefix() string` | Returns the display prefix, defaulting to the robot emoji if unset. |
 | `Chat() *chat.Chat` | Returns the agent's chat. |
@@ -146,7 +147,8 @@ type Registry struct { /* unexported fields */ }
 | `Register(name, description string, factory Factory)` | Registers an agent factory. Replaces existing entries with the same name. |
 | `Get(name string) (Factory, bool)` | Returns the factory for the named agent. |
 | `List() []Entry` | Returns all entries sorted by name. |
-| `Spawn(name string, depth int) (*Agent, bool)` | Creates a fresh agent instance with the given delegation depth. |
+| `Spawn(name string, depth int) (*Agent, bool)` | Creates a fresh agent instance with the given delegation depth. Sets `configName` to the registry key. |
+| `NextID(configName string) int` | Returns a monotonically increasing counter for the given config name, used for unique instance name generation. |
 
 ### Factory
 
@@ -305,7 +307,7 @@ When depth > 0 (sub-agent), an additional tool is injected:
 The `delegate` tool:
 
 1. Validates input (rejects self-delegation, enforces `MaxDelegationDepth`).
-2. Spawns child agents from the registry with `depth + 1`.
+2. Spawns child agents from the registry with `depth + 1` and generates a unique instance name (`<configName>-<taskSlug>-<counter>`).
 3. Propagates the parent's registry, `EventNotifier`, `EventFunc`, `ReflectionDir`, and `TaskBoard` to each child. Each child keeps its own `MaxDelegationDepth` from the factory.
 4. Calls `child.AddToolBoxes(parent.toolboxes...)` for toolbox inheritance.
 5. Prepends a `<delegation_context>` user message with the provided context.
@@ -313,7 +315,16 @@ The `delegate` tool:
 7. Appends the task as a user message.
 8. Runs all tasks concurrently and collects results.
 
-Safety guards: self-delegation rejected (case-insensitive), `MaxDelegationDepth` enforced.
+Safety guards: self-delegation rejected (case-insensitive, compared against `configName`), `MaxDelegationDepth` enforced.
+
+### Instance Names vs Config Names
+
+Agents have two name concepts:
+
+- **Config name** (`ConfigName()`): The template/kind name used for registry lookups and self-exclusion. For session agents, this equals the instance name. Set by `Spawn()` to the registry key.
+- **Instance name** (`Name()`): A unique identifier per agent instance. For session agents, this equals the config name. For spawned sub-agents, it is generated as `<configName>-<taskSlug>-<counter>` (e.g., `coder-refactor-1`, `coder-parsing-2`).
+
+This separation allows multiple children of the same type to be spawned in parallel while remaining distinguishable in events, task boards, and logs. The config name is used for registry lookups, self-exclusion in `list_agents`/`delegate`, and system prompt filtering. The instance name is used for identity, context propagation, event notifications, and task board claims.
 
 ### Automatic Task Lifecycle
 

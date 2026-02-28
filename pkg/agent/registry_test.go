@@ -10,7 +10,7 @@ import (
 func TestRegistryRegisterAndGet(t *testing.T) {
 	r := NewRegistry()
 	r.Register("worker", "Does work", func() *Agent {
-		return &Agent{name: "worker"}
+		return &Agent{name: "worker", configName: "worker"}
 	})
 
 	f, ok := r.Get("worker")
@@ -53,13 +53,14 @@ func TestRegistryListEmpty(t *testing.T) {
 func TestRegistrySpawn(t *testing.T) {
 	r := NewRegistry()
 	r.Register("worker", "Does work", func() *Agent {
-		return &Agent{name: "worker"}
+		return &Agent{name: "worker", configName: "worker"}
 	})
 
 	agent, ok := r.Spawn("worker", 3)
 
 	require.True(t, ok)
 	assert.Equal(t, "worker", agent.name)
+	assert.Equal(t, "worker", agent.configName)
 	assert.Equal(t, 3, agent.depth)
 }
 
@@ -74,7 +75,7 @@ func TestRegistrySpawnMissing(t *testing.T) {
 func TestRegistrySpawnFreshInstances(t *testing.T) {
 	r := NewRegistry()
 	r.Register("worker", "Does work", func() *Agent {
-		return &Agent{name: "worker"}
+		return &Agent{name: "worker", configName: "worker"}
 	})
 
 	a1, _ := r.Spawn("worker", 0)
@@ -86,10 +87,10 @@ func TestRegistrySpawnFreshInstances(t *testing.T) {
 func TestRegistryReplace(t *testing.T) {
 	r := NewRegistry()
 	r.Register("worker", "Version 1", func() *Agent {
-		return &Agent{name: "worker-v1"}
+		return &Agent{name: "worker-v1", configName: "worker-v1"}
 	})
 	r.Register("worker", "Version 2", func() *Agent {
-		return &Agent{name: "worker-v2"}
+		return &Agent{name: "worker-v2", configName: "worker-v2"}
 	})
 
 	entries := r.List()
@@ -99,4 +100,30 @@ func TestRegistryReplace(t *testing.T) {
 	agent, ok := r.Spawn("worker", 0)
 	require.True(t, ok)
 	assert.Equal(t, "worker-v2", agent.name)
+}
+
+func TestRegistryNextID(t *testing.T) {
+	r := NewRegistry()
+
+	// First call for "coder" returns 1.
+	assert.Equal(t, 1, r.NextID("coder"))
+	// Second call increments.
+	assert.Equal(t, 2, r.NextID("coder"))
+	// Different config name starts at 1.
+	assert.Equal(t, 1, r.NextID("reviewer"))
+	// Original keeps incrementing.
+	assert.Equal(t, 3, r.NextID("coder"))
+}
+
+func TestRegistrySpawnSetsConfigName(t *testing.T) {
+	r := NewRegistry()
+	// Factory returns agent with a different name than the registry key.
+	r.Register("coder", "Writes code", func() *Agent {
+		return &Agent{name: "coder", configName: "coder"}
+	})
+
+	agent, ok := r.Spawn("coder", 1)
+	require.True(t, ok)
+	// Spawn should set configName to the registry key.
+	assert.Equal(t, "coder", agent.configName)
 }
