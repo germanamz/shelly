@@ -2,13 +2,53 @@
 All multi-line text wraps using pre-word wrapping at the terminal width.
 The UI resizes dynamically with the terminal. Minimum supported terminal width is 80 columns.
 Color theme follows the GitHub terminal light theme.
+Output flows as normal terminal text. Shelly does not manage an internal viewport; the terminal's native scroll is used for browsing history. Messages are appended to the output stream and the terminal auto-scrolls as new content arrives.
+
+## Agent Name Colors
+Each sub-agent is assigned a distinct color for its name, determined by the order in which it first appears in the session. The same color is applied consistently everywhere the agent name is rendered: container headers, task list parentheticals, delegation descriptions, and finished summaries. This allows quick visual identification across concurrent activity.
+
+Color palette (cycled round-robin by agent registration order):
+
+| Slot | Color name | Hex |
+|------|-----------|-----|
+| 1 | Blue | #0969da |
+| 2 | Green | #1a7f37 |
+| 3 | Orange | #bc4c00 |
+| 4 | Pink | #bf3989 |
+| 5 | Teal | #0a7480 |
+| 6 | Purple | #8250df |
+
+The entry/top-level agent always uses the primary foreground color (#24292f) and is not assigned a slot color.
 
 # User Input
-The user input is displayed at the bottom of the screen. Below the user input there is the total sum of used tokens of the session. Large token counts are formatted (e.g., 1.2k, 15k).
+The user input is rendered below the last message, not pinned at a fixed screen position. As new messages are appended, the terminal auto-scrolls to keep the input visible. Below the user input there is the total sum of used tokens of the session. Large token counts are formatted (e.g., 1.2k, 15k).
 Enter submits the message. Multi-line input is supported by pressing Shift+Enter or Alt+Enter to insert a newline.
 The token counter is hidden when a picker (file or command) is open.
 The input remains enabled while the agent is working. Messages sent during agent processing are queued and delivered when the agent is ready. Press Escape to interrupt the agent.
 Escape is consumed by the innermost active context first: an open picker is dismissed before the agent is interrupted.
+
+## Current Tasks
+When the agent has active tasks, a task panel is displayed immediately above the user input. It opens with a title line showing the word **Tasks** followed by counts for each status: `N pending  N in progress  N completed`. Below the title, tasks are listed sorted by status: pending first, in progress second, completed last. Each task uses an icon to reflect its state:
+- `○` — pending (not yet started)
+- `⣾` — in progress (braille spinner, animates in **magenta**)
+- `✓` — completed; both the icon and text are rendered in **light gray** (#656d76)
+
+A maximum of 6 tasks are shown at a time. When there are more, the list shows the 6 most relevant (prioritizing pending and in-progress over completed). The task list disappears once all tasks are done.
+
+The agent assigned to a task is shown in parentheses immediately after the task text. If no agent is assigned, the parenthetical is omitted.
+
+|                                                                                                                |
+|                                                                                                                |
+| Tasks  1 pending  1 in progress  1 completed                                                                   |
+| ○ Implementing login endpoint (coder)                                                                          |
+| ⣾ Researching authentication patterns (researcher)                                                             |
+| ✓ Writing unit tests (coder)                                                                                   |
+| -------------------------------------------------------------------------------------------------------------- |
+| >  (placeholder for the user input)                                                                            |
+| -------------------------------------------------------------------------------------------------------------- |
+| 19000 tokens                                                                                                   |
+|                                                                                                                |
+|                                                                                                                |
 
 ## Simple User Input
 |                                                                                                                |
@@ -34,7 +74,7 @@ The list filters as the user types. Press Escape to dismiss the picker. The curr
 |                                                                                                                |
 
 ## Command Input
-When the user types / the command picker is displayed. The picker works the same as the file picker: the list filters as the user types, the user can select a command using the up and down arrow keys, and confirm the command using the enter key. Press Escape to dismiss the picker. The currently selected item is displayed in **bold and underlined**. The picker shows a maximum of 4 visible items; the rest are accessible by scrolling with the up and down arrow keys.
+When the user types / the command picker is displayed. The list filters as the user types; navigate with the up and down arrow keys. Pressing Enter on a highlighted command executes it immediately — the picker closes, the command runs without requiring a second Enter, and a command log entry is appended to the message area (see **Command message**). Press Escape to dismiss the picker without executing. The currently selected item is displayed in **bold and underlined**. The picker shows a maximum of 4 visible items; the rest are accessible by scrolling with the up and down arrow keys.
 
 ### Picker open
 |                                                                                                                |
@@ -45,16 +85,6 @@ When the user types / the command picker is displayed. The picker works the same
 | /help                                                                                                          |
 | /clear                                                                                                         |
 | /exit                                                                                                          |
-|                                                                                                                |
-|                                                                                                                |
-
-### After command selected
-|                                                                                                                |
-|                                                                                                                |
-| -------------------------------------------------------------------------------------------------------------- |
-| > /command command arg                                                                                         |
-| -------------------------------------------------------------------------------------------------------------- |
-| 19000 tokens                                                                                                   |
 |                                                                                                                |
 |                                                                                                                |
 
@@ -75,6 +105,14 @@ Before the first message, the message area displays a seashell ASCII art drawing
 |    neque rhoncus, bibendum lacus eleifend, scelerisque augue. Nam ut est dolor. Mauris ullamcorper, neque      |
 |    seddignissim ornare, neque mauris auctor ex, ac lobortis elit sem eget purus. Sed eleifend mattis sem in    |
 |    fringilla. Fusce condimentum risus ut maximus feugiat.                                                      |
+|                                                                                                                |
+|                                                                                                                |
+
+## Command message
+When a command is executed it appends a log entry to the message area so users can track which commands have run during the session. The entry shows the command name and any arguments in **dim** (#656d76), prefixed with a `⌘` symbol.
+|                                                                                                                |
+|                                                                                                                |
+| ⌘ /clear                                                                                                       |
 |                                                                                                                |
 |                                                                                                                |
 
@@ -219,11 +257,12 @@ Top-level agent containers have no persistent header. Items (reasoning, tool cal
 |                                                                                                                |
 |                                                                                                                |
 
-When the agent finishes, the container collapses to a summary with the agent name and elapsed time in **dim**:
+When the agent finishes, the container collapses to show the agent name, the final answer/result text (markdown-rendered), and the elapsed time below the result in **dim**:
 |                                                                                                                |
 |                                                                                                                |
 | 🤖 <agent name>                                                                                                |
-| └ Finished in 5.3s                                                                                             |
+|  └ <final answer or result text from the agent>                                                                |
+|    Finished in 5.3s                                                                                            |
 |                                                                                                                |
 |                                                                                                                |
 
@@ -250,7 +289,7 @@ The delegate tool call is displayed in the parent agent's container as a regular
 |                                                                                                                |
 
 ## Sub-agent container structure
-Sub-agent containers are nested inside their parent's container. While active, the header shows the agent name in **magenta** (#8250df) with a braille spinner. All items inside the container are indented with `  │ ` (2 spaces + tree pipe). The container shows a maximum of 4 visible items; older items are hidden behind a "... N more items" indicator in **dim**. Items inside the container use the same rendering as top-level items (reasoning, tool calls, groups) but at a reduced width.
+Sub-agent containers are nested inside their parent's container. While active, the header shows the agent name in **magenta** (#8250df) with a braille spinner. All items inside the container are indented with `  │ ` (2 spaces + tree pipe). The container shows a maximum of 4 visible items; older items are hidden behind a "... N more items" indicator in **dim**. Items inside the container use the same rendering as top-level items (reasoning, tool calls, groups) but at a reduced width. Reasoning text from sub-agents is always rendered as markdown text — never as raw JSON.
 
 ### Sub-agent thinking (no items yet)
 |                                                                                                                |
@@ -273,10 +312,12 @@ Sub-agent containers are nested inside their parent's container. While active, t
 |                                                                                                                |
 
 ### Sub-agent finished
+When a sub-agent finishes, its container collapses to show the agent header, the final answer/result text (markdown-rendered), and the elapsed time below that result in **dim**.
 |                                                                                                                |
 |                                                                                                                |
 | 🤖 <sub agent name>                                                                                            |
-| └ Finished in 5.3s                                                                                             |
+|  └ <final answer or result text from the sub-agent>                                                            |
+|    Finished in 5.3s                                                                                            |
 |                                                                                                                |
 |                                                                                                                |
 
@@ -302,14 +343,16 @@ A complete example showing two sub-agents running concurrently inside the parent
 |                                                                                                                |
 
 ## After sub-agents finished
-When a sub agent finishes, its container collapses to show only the header and a summary line with elapsed time in **dim**.
+When a sub agent finishes, its container collapses to show the header, the agent's final answer/result (markdown-rendered), and the elapsed time below the result in **dim**.
 |                                                                                                                |
 |                                                                                                                |
 | 🤖 <sub agent 1 name>                                                                                          |
-| └ Finished in 5.3s                                                                                             |
+|  └ <final answer or result text from sub-agent 1>                                                              |
+|    Finished in 5.3s                                                                                            |
 |                                                                                                                |
 | 🤖 <sub agent 2 name>                                                                                          |
-| └ Finished in 4.1s                                                                                             |
+|  └ <final answer or result text from sub-agent 2>                                                              |
+|    Finished in 4.1s                                                                                            |
 |                                                                                                                |
 |                                                                                                                |
 
