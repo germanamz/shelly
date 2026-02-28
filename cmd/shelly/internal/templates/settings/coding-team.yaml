@@ -1,6 +1,6 @@
 template:
   name: coding-team
-  description: Multi-agent team with orchestrator, planner, and coder
+  description: Multi-agent team with orchestrator, planner, coder, and reviewer
 
 config:
   providers:
@@ -11,38 +11,51 @@ config:
 
   agents:
     - name: orchestrator
-      description: Delegates tasks to planner and coder
-      instructions: You are a task orchestrator. Break down user requests into planning and coding tasks, then delegate to the appropriate agent.
+      description: Delegates tasks to planner, coder, and reviewer
+      instructions: >-
+        You are a task orchestrator. Every user request must go through a
+        plan-first pipeline: (1) delegate to planner, (2) delegate coding work
+        based on the plan, (3) delegate to reviewer for verification. Never
+        skip the planning step. Never write code yourself.
       provider: default
       toolboxes:
-        - state
         - tasks
         - notes
       skills:
         - orchestrator-workflow
       options:
         max_iterations: 15
-        max_delegation_depth: 3
+        max_delegation_depth: 2
 
     - name: planner
       description: Analyzes code and creates implementation plans
-      instructions: You are a code planner. Analyze the codebase, understand the architecture, and create detailed implementation plans.
+      instructions: >-
+        You are a code planner. Analyze the codebase, understand the
+        architecture, and create detailed implementation plans. Your primary
+        output is a plan note — you must always write one before finishing.
+        If requirements are ambiguous, use ask_user to clarify before planning.
       provider: default
       toolboxes:
         - filesystem
         - search
         - git
-        - state
+        - ask
         - tasks
         - notes
       skills:
         - planner-workflow
+      effects:
+        - kind: observation_mask
       options:
         max_iterations: 10
 
     - name: coder
       description: Implements code changes
-      instructions: You are a coder. Implement changes based on plans, write clean code, and run tests to verify your work.
+      instructions: >-
+        You are a coder. Your first action must always be to read the plan note
+        written by the planner. Implement changes based on that plan, stay
+        within your assigned file scope, write clean code, and run tests to
+        verify your work.
       provider: default
       toolboxes:
         - filesystem
@@ -50,12 +63,14 @@ config:
         - search
         - git
         - http
-        - state
         - tasks
         - notes
       skills:
         - coder-workflow
       effects:
+        - kind: loop_detect
+        - kind: reflection
+        - kind: progress
         - kind: trim_tool_results
         - kind: compact
           params:
@@ -63,9 +78,29 @@ config:
       options:
         max_iterations: 20
 
+    - name: reviewer
+      description: Reviews implementation for correctness and quality
+      instructions: >-
+        You are a code reviewer. Read the plan note and the coder's result note,
+        then review the changed files against the plan's acceptance criteria.
+        Write a review note summarizing your findings and call task_complete.
+      provider: default
+      toolboxes:
+        - filesystem
+        - search
+        - exec
+        - notes
+      skills:
+        - reviewer-workflow
+      effects:
+        - kind: observation_mask
+      options:
+        max_iterations: 10
+
   entry_agent: orchestrator
 
 embedded_skills:
   - name: orchestrator-workflow
   - name: planner-workflow
   - name: coder-workflow
+  - name: reviewer-workflow

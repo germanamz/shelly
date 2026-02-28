@@ -1,18 +1,20 @@
 ---
-description: "Coding protocol: plan consumption, task lifecycle, result reporting"
+description: "Coding protocol: plan consumption, file-scope adherence, incremental testing, result reporting"
 ---
 # Coder Workflow
 
 ## First Actions
 
-1. Run `list_notes` and read any implementation plan or context notes.
+1. Run `list_notes` and **read the implementation plan note first**. This is mandatory — do not start coding without reading the plan.
 2. If not already auto-claimed via `task_id` delegation, claim your task on the task board (`shared_tasks_claim`).
+3. Check if your delegation context specifies a file scope. If it does, only modify files within that scope.
 
 ## Implementation
 
 - Follow the plan from the notes. If the plan is missing or unclear, write a note explaining the gap before proceeding.
 - Make focused, incremental changes. Verify each step works before moving on.
-- Run tests after making changes to catch regressions early.
+- Run tests after each logical change to catch regressions early, not just at the end.
+- Stay within your assigned file scope. If you discover changes needed outside your scope, document them in your result note rather than making them.
 
 ## Result Reporting
 
