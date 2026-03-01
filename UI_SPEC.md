@@ -2,7 +2,14 @@
 All multi-line text wraps using pre-word wrapping at the terminal width.
 The UI resizes dynamically with the terminal. Minimum supported terminal width is 80 columns.
 Color theme follows the GitHub terminal light theme.
-Output flows as normal terminal text. Shelly does not manage an internal viewport; the terminal's native scroll is used for browsing history. Messages are appended to the output stream and the terminal auto-scrolls as new content arrives.
+## Layout
+
+The screen is split into two vertically stacked regions:
+
+1. **Messages region** (top) — a grow-only block that holds all user messages, agent messages, tool calls, and sub-agent containers. New items are appended at the bottom of this block, increasing its height. This region is never re-rendered in place; it only grows downward. The terminal's native scroll is used for browsing history.
+2. **Input region** (bottom) — a fixed-height area rendered immediately below the messages region. It contains, in order from top to bottom: the task panel (when active), the user input field, and the token counter. When the questions UI is active it replaces the entire input region. This region is re-rendered in place as its contents change (e.g., task status updates, spinner animation) without affecting the messages region above.
+
+Because the messages region only appends and never re-renders, and the input region re-renders independently below it, there are no race conditions between agent output and input display. The terminal auto-scrolls as new content arrives in either region.
 
 ## Agent Name Colors
 Each sub-agent is assigned a distinct color for its name, determined by the order in which it first appears in the session. The same color is applied consistently everywhere the agent name is rendered: container headers, task list parentheticals, delegation descriptions, and finished summaries. This allows quick visual identification across concurrent activity.
@@ -21,7 +28,7 @@ Color palette (cycled round-robin by agent registration order):
 The entry/top-level agent always uses the primary foreground color (#24292f) and is not assigned a slot color.
 
 # User Input
-The user input is rendered below the last message, not pinned at a fixed screen position. As new messages are appended, the terminal auto-scrolls to keep the input visible. Below the user input there is the total sum of used tokens of the session. Large token counts are formatted (e.g., 1.2k, 15k).
+The user input lives inside the input region (see Layout). Below the user input there is the total sum of used tokens of the session. Large token counts are formatted (e.g., 1.2k, 15k).
 Enter submits the message. Multi-line input is supported by pressing Shift+Enter or Alt+Enter to insert a newline.
 The token counter is hidden when a picker (file or command) is open.
 The input remains enabled while the agent is working. Messages sent during agent processing are queued and delivered when the agent is ready. Press Escape to interrupt the agent.
