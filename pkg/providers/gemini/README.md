@@ -36,6 +36,15 @@ Key mapping details:
 - The model name is part of the URL path, not the request body.
 - HTTP 429 responses are returned as `*modeladapter.RateLimitError`.
 
+## Limitations
+
+- **No adaptive throttling.** The Gemini API does not return rate limit
+  headers (e.g., `x-ratelimit-remaining-*`). The `HeaderParser` field is not
+  set, so `LastRateLimitInfo()` always returns nil and adaptive throttling
+  via `adaptFromServerInfo()` is inactive. The `RateLimitedCompleter` still
+  provides proactive throttling (TPM/RPM sliding window) and reactive retry
+  (429 + exponential backoff).
+
 ## Exported API
 
 ### Types

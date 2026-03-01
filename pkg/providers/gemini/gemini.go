@@ -36,6 +36,12 @@ func New(baseURL, apiKey, model string) *Adapter {
 	a.Name = model
 	a.MaxTokens = 8192
 
+	// HeaderParser is intentionally not set. The Gemini API does not return
+	// rate limit headers as of 2026-03. Adaptive throttling
+	// (adaptFromServerInfo) is unavailable; the RateLimitedCompleter falls
+	// back to proactive throttling only. When Google adds rate limit headers,
+	// set a.HeaderParser here (likely ParseOpenAIRateLimitHeaders).
+
 	return a
 }
 
