@@ -270,7 +270,111 @@ When the `tasks` toolbox is enabled:
 
 Per-iteration hooks that run at defined phases of the ReAct loop. Effects optionally implement `Resetter` for per-run state cleanup.
 
-### 7.1 Available Effects
+### 7.1 Effect Interface
+
+```go
+type Effect interface {
+    Eval(ctx context.Context, ic IterationContext) error
+}
+
+type Resetter interface {
+    Reset()
+}
+```
+
+`IterationContext` provides per-iteration state without exposing the full Agent:
+
+```go
+type IterationContext struct {
+    Phase     IterationPhase          // PhaseBeforeComplete or PhaseAfterComplete
+    Iteration int                     // Zero-based iteration counter
+    Chat      *chat.Chat              // Mutable chat container
+    Completer modeladapter.Completer  // For token usage queries and LLM calls
+    AgentName string                  // Current agent identity
+}
+```
+
+`EffectFunc` is an adapter that lets ordinary functions implement `Effect`.
+
+### 7.2 Phases
+
+Two phases exist within each ReAct iteration:
+
+| Phase | Constant | Timing | Purpose |
+|-------|----------|--------|---------|
+| **Before Complete** | `PhaseBeforeComplete` (0) | Before the LLM call | Context management: compaction, summarization, message injection |
+| **After Complete** | `PhaseAfterComplete` (1) | After the LLM reply, before tool dispatch | Lightweight cleanup: trimming tool results |
+
+### 7.3 Phase Execution in the Agent Lifecycle
+
+Effects execute at two precise points within each iteration of the ReAct loop. The full iteration cycle with effects is:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Run() entry                                                 │
+│  ├─ Init() — ensure system prompt exists                    │
+│  ├─ Collect tools from all toolboxes (deduplicate by name)  │
+│  ├─ Reset all effects that implement Resetter               │
+│  │                                                          │
+│  └─ for i := 0; i < MaxIterations; i++ {                    │
+│       │                                                     │
+│       ├─ ① evalEffects(PhaseBeforeComplete, iteration=i)    │
+│       │    Effects run synchronously, in registration order  │
+│       │    (after priority sorting). Each effect receives    │
+│       │    the same IterationContext. If any returns error,  │
+│       │    the loop aborts.                                  │
+│       │                                                     │
+│       │    At this point the chat may be mutated:            │
+│       │    - Compaction replaces all messages with summary   │
+│       │    - Sliding window evicts old messages              │
+│       │    - Observation mask replaces tool result content   │
+│       │    - Loop detect injects intervention message        │
+│       │    - Reflection injects reflection prompt            │
+│       │    - Progress injects progress reminder              │
+│       │                                                     │
+│       ├─ ② completer.Complete(chat, tools) → reply          │
+│       │    The LLM sees the chat as mutated by phase ①      │
+│       │                                                     │
+│       ├─ ③ Append reply to chat; emit message_added event   │
+│       │                                                     │
+│       ├─ ④ evalEffects(PhaseAfterComplete, iteration=i)     │
+│       │    Same execution model as ①, but for cleanup.      │
+│       │    Currently only TrimToolResultsEffect runs here.  │
+│       │    Chat mutations at this phase affect the NEXT      │
+│       │    iteration's PhaseBeforeComplete view.             │
+│       │                                                     │
+│       ├─ ⑤ If no tool calls in reply → return (final answer)│
+│       │                                                     │
+│       ├─ ⑥ Execute all tool calls concurrently (WaitGroup)  │
+│       │                                                     │
+│       ├─ ⑦ Append tool results to chat                      │
+│       │                                                     │
+│       └─ ⑧ If task_complete was called → return             │
+│     }                                                       │
+│  return ErrMaxIterations                                    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key details:**
+
+- **Synchronous, ordered execution.** Effects run sequentially in their sorted order within each phase. An effect can observe chat mutations made by earlier effects in the same phase.
+- **Iteration=0 guard.** Most effects skip iteration 0 (no prior LLM response to analyze). Only `TrimToolResultsEffect` at `PhaseAfterComplete` can meaningfully run on iteration 0 since the first reply exists by then.
+- **Phase filtering.** Each effect internally checks `ic.Phase` and returns `nil` immediately if the phase doesn't match. This is an effect-level convention, not enforced by the framework.
+- **Error propagation.** Any non-nil error from an effect aborts the ReAct loop entirely. Effects that perform best-effort operations (e.g., compaction) handle their own errors internally and only propagate context cancellation.
+- **Reset on Run().** Before the loop starts, every effect implementing `Resetter` has `Reset()` called. This clears per-run state (e.g., injection guards) so effects behave correctly across multiple `Run()` calls on a long-lived session agent.
+
+### 7.4 Effect Priority & Sorting
+
+When the engine builds effects from YAML config, they are sorted by priority class before being passed to the agent:
+
+| Priority | Class | Effects | Rationale |
+|----------|-------|---------|-----------|
+| 0 | Compaction | `CompactEffect`, `SlidingWindowEffect` | Must run first so that message-injecting effects don't have their injections immediately summarized away |
+| 1 | All others | `TrimToolResultsEffect`, `ObservationMaskEffect`, `LoopDetectEffect`, `ReflectionEffect`, `ProgressEffect` | Run after compaction is settled |
+
+Sorting is stable (`sort.SliceStable`) so effects within the same priority class preserve their config declaration order.
+
+### 7.5 Available Effects
 
 | Effect | Kind | Phase | Purpose |
 |--------|------|-------|---------|
@@ -282,44 +386,90 @@ Per-iteration hooks that run at defined phases of the ReAct loop. Effects option
 | **ReflectionEffect** | `reflection` | Before | Detect consecutive failures and inject reflection prompt |
 | **ProgressEffect** | `progress` | Before | Periodic progress note prompts |
 
-### 7.2 CompactEffect
+### 7.6 CompactEffect
 
-- **Trigger:** When `input_tokens >= context_window × threshold` (default 0.8)
-- **Action:** Renders conversation transcript, sends to LLM for summarization
-- **Summary format:** Goal, Completed Work, Files Touched, Key Decisions, Errors, Current State, Next Steps
-- **Result:** Replaces chat with system prompt + single compacted user message
+- **Phase:** `PhaseBeforeComplete` (skips iteration 0)
+- **Trigger:** When `input_tokens >= context_window × threshold` (default 0.8). Token usage is read from the completer's `UsageTracker.Last()` — the most recent LLM call's reported input tokens.
+- **Action:** Renders conversation transcript (skipping system messages; tool args truncated to 200 chars, tool results to 500 chars), sends to LLM with a structured summarization prompt.
+- **Summary format:** Goal, Completed Work, Files Touched, Key Decisions, Errors, Current State, Next Steps.
+- **Result:** Replaces entire chat with system prompt + single compacted user message containing the summary and a continuation instruction.
+- **Error handling:** Context errors (cancellation, deadline) are always propagated. Other compaction failures are handled gracefully — if `AskFunc` is configured, the user is asked whether to continue or retry; otherwise the error is silently swallowed to avoid aborting the loop.
+- **Notification:** Emits "Context window compacted" via `NotifyFunc` on success (shows in TUI as a compaction event).
 
-### 7.3 TrimToolResultsEffect
+### 7.7 TrimToolResultsEffect
 
-- Truncates content of tool results in older messages
-- Preserves most recent N tool messages untrimmed (default 4)
-- Error results are never trimmed
-- Uses metadata to avoid re-trimming already-trimmed results
+- **Phase:** `PhaseAfterComplete` (runs every iteration, no iteration-0 guard)
+- **Action:** Finds all tool-role messages, identifies the most recent N (default 4), and truncates older tool results that exceed `MaxResultLength` (default 500 chars) by appending "… [trimmed]".
+- **Preservation rules:** The last `PreserveRecent` tool messages are never trimmed. Error results (`IsError: true`) are never trimmed regardless of position.
+- **Idempotency:** Sets a `"trimmed"` metadata key on affected messages. Messages already marked are skipped on subsequent iterations.
+- **Chat mutation:** Only calls `Chat.Replace()` if at least one message was actually modified.
 
-### 7.4 LoopDetectEffect
+### 7.8 SlidingWindowEffect
 
-- Scans a sliding window for consecutive identical tool calls
-- Injects intervention message at threshold (default 3 identical calls)
-- Re-injection guard prevents spam at the same count
+- **Phase:** `PhaseBeforeComplete` (skips iteration 0)
+- **Trigger:** Same token-threshold mechanism as CompactEffect (default threshold 0.7 — lower than compact to trigger earlier).
+- **Three-zone model:**
+  - **Zone 1 (Recent):** Last N messages (default 10) — full fidelity, untouched.
+  - **Zone 2 (Medium):** Next M messages before recent (default 10) — tool results trimmed to `TrimLength` (default 200 chars), text and tool calls preserved.
+  - **Zone 3 (Old):** All remaining messages — incrementally summarized into a running summary and removed.
+- **Incremental summarization:** Old messages are rendered as a transcript and sent to the LLM along with the existing running summary. The LLM updates the summary to incorporate new information. The summary persists across iterations via `runningSummary` field.
+- **Result:** Chat is reconstructed as: system prompt → optional `[Context summary]` user message → medium-zone messages → recent-zone messages.
+- **Failure handling:** If summarization fails, old messages are retained (no data loss) and medium-zone trimming is skipped. A notification is emitted.
+- **Concurrency:** The `runningSummary` field is protected by a `sync.Mutex`. The LLM call is performed outside the lock.
+- **Implements `Resetter`:** Clears the running summary between `Run()` calls.
 
-### 7.5 ReflectionEffect
+### 7.9 ObservationMaskEffect
 
-- Counts consecutive error-only tool results
-- Injects reflection prompt at threshold (default 2 failures)
-- Prompts agent to reconsider its approach
+- **Phase:** `PhaseBeforeComplete` (skips iteration 0)
+- **Trigger:** When `input_tokens >= context_window × threshold` (default 0.6 — lower than both sliding window and compact, acting as a lightweight first tier).
+- **Action:** Replaces tool result content in messages older than `RecentWindow` (default 10 messages from the end) with brief placeholders of the form `[tool result for <tool_name>: <80-char preview>]`.
+- **Preservation:** Error results are never masked. Recent-window messages are untouched. Already-masked messages (identified by `"obs_masked"` metadata key) are skipped.
+- **Tool name resolution:** Scans preceding assistant messages for the `ToolCall` matching the result's `ToolCallID`.
 
-### 7.6 ProgressEffect
+### 7.10 LoopDetectEffect
 
-- Every N iterations (default 5), injects a prompt to write a progress note
-- Only activates if `write_note` tool is available
+- **Phase:** `PhaseBeforeComplete` (skips iteration 0)
+- **Detection:** Scans the last `WindowSize` (default 10) tool calls from assistant messages, comparing `toolName + "\x00" + arguments` keys. Counts consecutive identical entries from the most recent call backward.
+- **Intervention:** When the count reaches `Threshold` (default 3), injects a user-role message: _"You have called {tool} with the same arguments {N} times. This is not making progress. Try a different approach or tool."_
+- **Re-injection guard:** Tracks `lastInjectedCount`. Only injects when the current count exceeds the last injected count, preventing duplicate interventions at the same repetition level.
+- **Implements `Resetter`:** Clears `lastInjectedCount` between `Run()` calls.
 
-### 7.7 Auto-Generated Effects
+### 7.11 ReflectionEffect
 
-When the effective context window is non-zero and no explicit effects are configured, the engine auto-generates:
-1. `trim_tool_results` (lightweight, runs after completion)
-2. `compact` with the agent's context threshold (default 0.8)
+- **Phase:** `PhaseBeforeComplete` (skips iteration 0)
+- **Detection:** Scans from the end of the chat, grouping consecutive tool-role messages between assistant messages into "steps". A step counts as a failure only if ALL tool results in that step have `IsError: true` (no successes). Counting stops at the first successful step or non-tool/non-assistant message.
+- **Intervention:** When consecutive failure count reaches `FailureThreshold` (default 2), injects a user-role reflection prompt asking the agent to: (1) analyze what went wrong, (2) identify root cause, (3) describe a different strategy.
+- **Re-injection guard:** Same mechanism as LoopDetectEffect — only injects when count increases past the last injection point.
+- **Implements `Resetter`:** Clears `lastInjectedCount` between `Run()` calls.
 
-Effect priority sorting ensures compaction-class effects run before injection effects.
+### 7.12 ProgressEffect
+
+- **Phase:** `PhaseBeforeComplete` (skips iteration 0)
+- **Precondition:** Only activates when `HasNotesTool` is true (the `write_note` tool is available to the agent).
+- **Trigger:** Every `Interval` iterations (default 5), when `iteration % interval == 0`.
+- **Action:** Injects a user-role message prompting the agent to write a progress note documenting: what was accomplished, what remains, any blockers. This ensures continuity if context is later compacted.
+
+### 7.13 Auto-Generated Effects
+
+When the effective context window is non-zero and no explicit effects are configured in YAML, the engine auto-generates a default effect stack:
+
+1. `trim_tool_results` — Lightweight cleanup running at `PhaseAfterComplete` every iteration.
+2. `compact` with the agent's `context_threshold` (default 0.8) — Full summarization as a fallback at `PhaseBeforeComplete`.
+
+This graduated approach trims tool results continuously, then falls back to full summarization only when token usage actually approaches the context limit.
+
+The default `context_threshold` of 0.8 is applied when `context_window > 0` and no explicit threshold is set.
+
+### 7.14 Effect Lifecycle Summary
+
+| Lifecycle Event | What Happens |
+|-----------------|-------------|
+| **Engine builds agent** | Effect instances created from YAML config (or auto-generated). Priority-sorted. |
+| **`Run()` starts** | All `Resetter` effects have `Reset()` called to clear per-run state. |
+| **Each iteration, before LLM** | All effects evaluated with `PhaseBeforeComplete`. Compaction-class effects run first (priority 0), then injection effects (priority 1). |
+| **Each iteration, after LLM** | All effects evaluated with `PhaseAfterComplete`. Effects that don't match this phase return nil immediately. |
+| **Effect returns error** | ReAct loop aborts. Only context cancellation errors are typically propagated; other failures are handled internally. |
+| **`Run()` ends** | No cleanup hook. State persists for next `Run()` call until `Reset()` is called. |
 
 ---
 
