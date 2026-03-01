@@ -36,6 +36,53 @@ func TestResponder_AskWithOptions(t *testing.T) {
 	assert.NotEmpty(t, received.ID)
 }
 
+func TestResponder_AskWithMultiSelect(t *testing.T) {
+	var received Question
+
+	var r *Responder
+	r = NewResponder(func(_ context.Context, q Question) {
+		received = q
+		go func() {
+			_ = r.Respond(q.ID, "red,blue")
+		}()
+	})
+
+	tb := r.Tools()
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:        "tc1",
+		Name:      "ask_user",
+		Arguments: `{"question":"Pick colors","options":["red","blue","green"],"multiSelect":true}`,
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+	assert.Equal(t, "red,blue", tr.Content)
+	assert.True(t, received.MultiSelect)
+	assert.Equal(t, []string{"red", "blue", "green"}, received.Options)
+}
+
+func TestResponder_AskWithHeader(t *testing.T) {
+	var received Question
+
+	var r *Responder
+	r = NewResponder(func(_ context.Context, q Question) {
+		received = q
+		go func() {
+			_ = r.Respond(q.ID, "OAuth")
+		}()
+	})
+
+	tb := r.Tools()
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:        "tc1",
+		Name:      "ask_user",
+		Arguments: `{"question":"Which auth method?","options":["OAuth","JWT"],"header":"Auth"}`,
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+	assert.Equal(t, "OAuth", tr.Content)
+	assert.Equal(t, "Auth", received.Header)
+}
+
 func TestResponder_AskFreeForm(t *testing.T) {
 	var r *Responder
 	r = NewResponder(func(_ context.Context, q Question) {

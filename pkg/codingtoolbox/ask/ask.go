@@ -77,15 +77,17 @@ func (r *Responder) Tools() *toolbox.ToolBox {
 }
 
 type askInput struct {
-	Question string   `json:"question"`
-	Options  []string `json:"options,omitempty"`
+	Question    string   `json:"question"`
+	Options     []string `json:"options,omitempty"`
+	Header      string   `json:"header,omitempty"`
+	MultiSelect bool     `json:"multiSelect,omitempty"`
 }
 
 func (r *Responder) askUserTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "ask_user",
 		Description: "Ask the user a question. Optionally provide multiple-choice options. The user may select an option or provide a custom response.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string","description":"The question to ask the user"},"options":{"type":"array","items":{"type":"string"},"description":"Optional list of choices for the user to select from"}},"required":["question"]}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string","description":"The question to ask the user"},"options":{"type":"array","items":{"type":"string"},"description":"Optional list of choices for the user to select from"},"header":{"type":"string","description":"Short tab label for the question (single word, e.g. Auth, Style)"},"multiSelect":{"type":"boolean","description":"When true the user can select multiple options (checkboxes). Defaults to false (single choice)."}},"required":["question"]}`),
 		Handler:     r.handleAsk,
 	}
 }
@@ -95,7 +97,16 @@ func (r *Responder) askUserTool() toolbox.Tool {
 // filesystem) can use this to request user input without going through the
 // tool handler JSON layer.
 func (r *Responder) Ask(ctx context.Context, text string, options []string) (string, error) {
-	if text == "" {
+	return r.askQuestion(ctx, Question{
+		Text:    text,
+		Options: options,
+	})
+}
+
+// askQuestion registers the question, notifies the frontend, and blocks until
+// a response arrives or the context is cancelled.
+func (r *Responder) askQuestion(ctx context.Context, q Question) (string, error) {
+	if q.Text == "" {
 		return "", fmt.Errorf("ask: question is required")
 	}
 
@@ -106,11 +117,7 @@ func (r *Responder) Ask(ctx context.Context, text string, options []string) (str
 	r.pending[id] = ch
 	r.mu.Unlock()
 
-	q := Question{
-		ID:      id,
-		Text:    text,
-		Options: options,
-	}
+	q.ID = id
 
 	if r.onAsk != nil {
 		r.onAsk(ctx, q)
@@ -143,7 +150,12 @@ func (r *Responder) handleAsk(ctx context.Context, input json.RawMessage) (strin
 		return "", fmt.Errorf("ask_user: invalid input: %w", err)
 	}
 
-	resp, err := r.Ask(ctx, in.Question, in.Options)
+	resp, err := r.askQuestion(ctx, Question{
+		Text:        in.Question,
+		Options:     in.Options,
+		Header:      in.Header,
+		MultiSelect: in.MultiSelect,
+	})
 	if err != nil {
 		return "", fmt.Errorf("ask_user: %w", err)
 	}
