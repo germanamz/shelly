@@ -113,6 +113,7 @@ type delegateResult struct {
 	Result     string            `json:"result,omitempty"`
 	Completion *CompletionResult `json:"completion,omitempty"`
 	Error      string            `json:"error,omitempty"`
+	Warning    string            `json:"warning,omitempty"`
 }
 
 func delegateTool(a *Agent) toolbox.Tool {
@@ -206,7 +207,14 @@ func delegateTool(a *Agent) toolbox.Tool {
 							}
 							writeReflection(reflectionDir, t.Agent, t.Task, cr)
 							if t.TaskID != "" && taskBoard != nil {
-								_ = taskBoard.UpdateTaskStatus(t.TaskID, cr.Status)
+								if updateErr := taskBoard.UpdateTaskStatus(t.TaskID, cr.Status); updateErr != nil {
+									results[i] = delegateResult{
+										Agent:      t.Agent,
+										Completion: cr,
+										Warning:    fmt.Sprintf("task board update failed for %q: %v", t.TaskID, updateErr),
+									}
+									return
+								}
 							}
 							results[i] = delegateResult{
 								Agent:      t.Agent,
@@ -227,7 +235,12 @@ func delegateTool(a *Agent) toolbox.Tool {
 							writeReflection(reflectionDir, t.Agent, t.Task, cr)
 						}
 						if t.TaskID != "" && taskBoard != nil {
-							_ = taskBoard.UpdateTaskStatus(t.TaskID, cr.Status)
+							if updateErr := taskBoard.UpdateTaskStatus(t.TaskID, cr.Status); updateErr != nil {
+								dr := buildDelegateResult(t.Agent, reply, cr)
+								dr.Warning = fmt.Sprintf("task board update failed for %q: %v", t.TaskID, updateErr)
+								results[i] = dr
+								return
+							}
 						}
 					}
 

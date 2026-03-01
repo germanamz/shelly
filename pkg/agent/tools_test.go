@@ -346,10 +346,11 @@ func TestDelegateToolToolboxInheritance(t *testing.T) {
 // mockTaskBoard records ClaimTask and UpdateTaskStatus calls for testing.
 // It is safe for concurrent use.
 type mockTaskBoard struct {
-	mu      sync.Mutex
-	claims  []mockClaim
-	updates []mockStatusUpdate
-	claimFn func(id, agent string) error // optional custom claim behaviour
+	mu       sync.Mutex
+	claims   []mockClaim
+	updates  []mockStatusUpdate
+	claimFn  func(id, agent string) error  // optional custom claim behaviour
+	updateFn func(id, status string) error // optional custom update behaviour
 }
 
 type mockClaim struct {
@@ -376,6 +377,9 @@ func (m *mockTaskBoard) UpdateTaskStatus(id, status string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.updates = append(m.updates, mockStatusUpdate{ID: id, Status: status})
+	if m.updateFn != nil {
+		return m.updateFn(id, status)
+	}
 	return nil
 }
 
@@ -1293,4 +1297,103 @@ func TestConfigNamePreservedForSelfDelegation(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "self-delegation")
+}
+
+func TestDelegateToolUpdateStatusError(t *testing.T) {
+	t.Run("successful completion path", func(t *testing.T) {
+		board := &mockTaskBoard{
+			updateFn: func(_, _ string) error {
+				return errors.New("board unavailable")
+			},
+		}
+
+		reg := NewRegistry()
+		reg.Register("worker", "Does work", func() *Agent {
+			return New("worker", "", "", &sequenceCompleter{
+				replies: []message.Message{
+					message.New("", role.Assistant,
+						content.ToolCall{
+							ID:        "c1",
+							Name:      "task_complete",
+							Arguments: `{"status":"completed","summary":"did it"}`,
+						},
+					),
+				},
+			}, Options{})
+		})
+
+		a := &Agent{name: "orch", configName: "orch", registry: reg, chat: chat.New(), options: Options{TaskBoard: board, MaxDelegationDepth: 1}}
+		tool := delegateTool(a)
+
+		result, err := tool.Handler(context.Background(), json.RawMessage(
+			`{"tasks":[{"agent":"worker","task":"do","context":"ctx","task_id":"task-1"}]}`,
+		))
+
+		require.NoError(t, err)
+
+		var results []delegateResult
+		require.NoError(t, json.Unmarshal([]byte(result), &results))
+		require.Len(t, results, 1)
+
+		assert.Equal(t, "worker", results[0].Agent)
+		assert.Contains(t, results[0].Warning, "task board update failed")
+		assert.Contains(t, results[0].Warning, "board unavailable")
+		assert.Empty(t, results[0].Error)
+		// Child's completion and result are still present.
+		require.NotNil(t, results[0].Completion)
+		assert.Equal(t, "completed", results[0].Completion.Status)
+		assert.Equal(t, "did it", results[0].Result)
+	})
+
+	t.Run("iteration exhaustion path", func(t *testing.T) {
+		board := &mockTaskBoard{
+			updateFn: func(_, _ string) error {
+				return errors.New("board unavailable")
+			},
+		}
+
+		reg := NewRegistry()
+		reg.Register("worker", "Does work", func() *Agent {
+			return New("worker", "", "", &sequenceCompleter{
+				replies: []message.Message{
+					message.New("", role.Assistant,
+						content.ToolCall{ID: "c1", Name: "echo", Arguments: `{}`},
+					),
+					message.New("", role.Assistant,
+						content.ToolCall{ID: "c2", Name: "echo", Arguments: `{}`},
+					),
+				},
+			}, Options{MaxIterations: 1})
+		})
+
+		echoTB := toolbox.New()
+		echoTB.Register(toolbox.Tool{
+			Name:        "echo",
+			Description: "Echoes input",
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+			Handler: func(_ context.Context, input json.RawMessage) (string, error) {
+				return string(input), nil
+			},
+		})
+
+		a := &Agent{name: "orch", configName: "orch", registry: reg, chat: chat.New(), toolboxes: []*toolbox.ToolBox{echoTB}, options: Options{TaskBoard: board, MaxDelegationDepth: 1}}
+		tool := delegateTool(a)
+
+		result, err := tool.Handler(context.Background(), json.RawMessage(
+			`{"tasks":[{"agent":"worker","task":"do stuff","context":"ctx","task_id":"task-42"}]}`,
+		))
+
+		require.NoError(t, err)
+
+		var results []delegateResult
+		require.NoError(t, json.Unmarshal([]byte(result), &results))
+		require.Len(t, results, 1)
+
+		assert.Equal(t, "worker", results[0].Agent)
+		assert.Contains(t, results[0].Warning, "task board update failed")
+		assert.Contains(t, results[0].Warning, "board unavailable")
+		assert.Empty(t, results[0].Error)
+		require.NotNil(t, results[0].Completion)
+		assert.Equal(t, "failed", results[0].Completion.Status)
+	})
 }
