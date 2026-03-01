@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/germanamz/shelly/cmd/shelly/internal/templates"
+	"github.com/germanamz/shelly/pkg/agent"
 	"github.com/germanamz/shelly/pkg/engine"
 	"github.com/germanamz/shelly/pkg/projectctx"
 	"github.com/germanamz/shelly/pkg/shellydir"
@@ -79,6 +80,25 @@ func runIndex(args []string) error {
 	}
 	fmt.Fprintln(os.Stderr)
 	defer func() { _ = eng.Close() }()
+
+	// Subscribe to engine events so the user can see indexing progress.
+	sub := eng.Events().Subscribe(64)
+	defer eng.Events().Unsubscribe(sub)
+
+	go func() {
+		for ev := range sub.C {
+			switch ev.Kind {
+			case engine.EventToolCallStart:
+				if d, ok := ev.Data.(agent.ToolCallEventData); ok {
+					fmt.Fprintf(os.Stderr, "\r\033[K  [%s] calling %s...", ev.Agent, d.ToolName)
+				}
+			case engine.EventAgentStart:
+				fmt.Fprintf(os.Stderr, "\r\033[K  Agent %s started\n", ev.Agent)
+			case engine.EventAgentEnd:
+				fmt.Fprintf(os.Stderr, "\r\033[K  Agent %s finished\n", ev.Agent)
+			}
+		}
+	}()
 
 	sess, err := eng.NewSession("")
 	if err != nil {
