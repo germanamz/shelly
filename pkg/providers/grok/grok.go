@@ -33,6 +33,7 @@ func New(apiKey string, client *http.Client) *GrokAdapter {
 		ModelAdapter: modeladapter.New(DefaultBaseURL, modeladapter.Auth{Key: apiKey}, client),
 	}
 	a.HeaderParser = modeladapter.ParseOpenAIRateLimitHeaders
+	a.MaxTokens = 4096
 	return a
 }
 

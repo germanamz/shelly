@@ -27,6 +27,7 @@ func TestNew(t *testing.T) {
 
 	assert.Equal(t, DefaultBaseURL, g.BaseURL)
 	assert.Equal(t, "test-key", g.Auth.Key)
+	assert.Equal(t, 4096, g.MaxTokens)
 }
 
 func TestComplete_TextResponse(t *testing.T) {

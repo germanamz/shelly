@@ -21,7 +21,7 @@ A systematic comparison of the codebase against `FEATURE_SPEC.md` across all 21 
 | 1 | Gemini rate limit header parser missing | Medium | ~~Not Implemented~~ **Done** (documented — Gemini API does not expose rate limit headers) | §3 |
 | 2 | Template naming: `dev-team` → `coding-team` | Low | ~~Naming Mismatch~~ **Done** | §16.2 |
 | 3 | CLI `--template list` vs `--list` flag | Low | ~~Spec/Code Divergence~~ **Done** | §16.2 |
-| 4 | Grok constructor doesn't set Name/MaxTokens | Low | API Inconsistency | §2.2 |
+| 4 | Grok constructor doesn't set Name/MaxTokens | Low | ~~API Inconsistency~~ **Done** | §2.2 |
 | 5 | Spec describes dev-team as 3 agents, code has 5 | Low | Spec Outdated | §16.2 |
 
 ---
@@ -613,4 +613,4 @@ These form a connected feature area and should be implemented together:
 9. **#2 Template rename** (`coding-team` → `dev-team`) — User-facing naming mismatch
 10. **#5 Spec description update** — Docs accuracy
 11. **#3 CLI flag docs** — Docs accuracy
-12. **#4 Grok constructor default** — API consistency polish
+12. ~~**#4 Grok constructor default** — API consistency polish~~ **Done**
