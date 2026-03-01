@@ -678,3 +678,145 @@ The selected item shows `>` cursor, highlighted text, and the description in **d
 - **q** or **Ctrl+C**: Quit without applying
 
 When no templates are available, displays "No templates available" in **dim**.
+
+# Put Together
+
+A complete session walkthrough showing how all UI elements combine. The user asks Shelly to add JWT authentication to an API. The session progresses through input, processing, delegation, concurrent sub-agent work, task tracking, and the final answer.
+
+## 1. Empty state — session start
+```
+       __       ____    
+  ___ / /  ___ / / /_ __
+ (_-</ _ \/ -_) / / // /
+/___/_//_/\__/_/_/\_, / 
+                 /___/  
+                        
+
+```
+
+## 2. User sends a message
+```
+🧑‍💻 User
+ └ Add JWT authentication to the /api routes. Use the existing user model
+   and add refresh token support.
+
+```
+
+## 3. Agent processing indicator
+```
+  ⣾ Consulting ancient scrolls...
+
+```
+
+## 4. Agent reasoning and first tool calls
+```
+🤖 shelly
+ └ I'll research the existing codebase first, then implement JWT auth with
+   refresh tokens. Let me delegate this to specialized agents.
+
+🔧 Used tools
+ └ Finished with 3 tools in 0.3s
+
+```
+
+## 5. Delegation with concurrent sub-agents and task panel
+The parent agent delegates to two sub-agents. The task panel appears above user input as tasks are created.
+
+```
+🔧 Delegating to researcher, coder 4.2s ⣾
+ ├─ Research JWT best practices and review the existing auth
+ │  middleware in the codebase
+ ├─ Implement JWT authentication with refresh tokens on the
+ │  /api routes using the existing user model
+
+🤖 researcher ⣾
+  ... 2 more items
+  │ 🤖 researcher
+  │  └ Found the existing middleware pattern in src/middleware/auth.go.
+  │    The project uses chi router with middleware chaining.
+  │ 🔧 Searching for "middleware" in "src/" 0.5s ⣾
+
+🤖 coder ⣾
+  │ 🔧 Used tools
+  │  └ Finished with 2 tools in 1.2s
+  │ 🤖 coder
+  │  └ Implementing JWT service based on researcher findings.
+  │ 🔧 Editing file "src/services/jwt.go" 0.3s ⣾
+
+Tasks  1 pending  2 in progress  1 completed
+○ Write integration tests (coder)
+⣾ Researching authentication patterns (researcher)
+⣾ Implementing JWT auth service (coder)
+✓ Analyze existing user model (researcher)
+──────────────────────────────────────────────────────────────────────────────────
+>
+──────────────────────────────────────────────────────────────────────────────────
+15.2k tokens
+```
+
+## 6. Sub-agents finish, parent resumes
+```
+🤖 researcher
+ └ The codebase uses chi router v5 with middleware chaining. Auth middleware
+   is in src/middleware/auth.go. The user model has ID, Email, and
+   PasswordHash fields. Recommend using golang-jwt/jwt/v5.
+   Finished in 8.1s
+
+🤖 coder
+ └ Implemented JWT auth: added src/services/jwt.go (token generation and
+   validation), src/middleware/jwt.go (route protection), and updated
+   src/routes/api.go with auth middleware. Refresh token rotation is stored
+   in the user_sessions table.
+   Finished in 12.4s
+
+🔧 Delegating to researcher, coder
+ ├─ Research JWT best practices and review the existing auth
+ │  middleware in the codebase
+ ├─ Implement JWT authentication with refresh tokens on the
+ │  /api routes using the existing user model
+ └ Done in 12.4s
+
+```
+
+## 7. Agent asks a follow-up question
+```
+*Expiry* [Storage] [Confirm]
+
+What should the access token expiry be?
+
+1. 15 minutes (Recommended)
+2. 1 hour
+3. (Place holder for a multiple line text input, for a free form answer)
+
+← Left tab, → Right tab, ↑ Up, ↓ Down, ↵ Confirm, Esc Dismiss
+```
+
+## 8. Final answer after user confirms
+```
+🧑‍💻 User
+ └ 15 minutes, Database
+
+🤖 shelly
+ └ Done! Here's what was added:
+
+   **New files:**
+   - `src/services/jwt.go` — Token generation, validation, and refresh rotation
+   - `src/middleware/jwt.go` — Chi middleware for protected routes
+   - `src/models/session.go` — Refresh token session model
+
+   **Modified files:**
+   - `src/routes/api.go` — Applied JWT middleware to /api group
+   - `src/models/user.go` — Added Sessions relation
+
+   Access tokens expire in 15 minutes, refresh tokens in 7 days. Refresh
+   tokens are stored in a `user_sessions` table with rotation on each use.
+
+   Run `go test ./src/...` to verify.
+
+──────────────────────────────────────────────────────────────────────────────────
+>
+──────────────────────────────────────────────────────────────────────────────────
+24.8k tokens
+```
+
+The task panel is gone because all tasks completed (see the General section: "The task list disappears once all tasks are done").
