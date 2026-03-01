@@ -6,7 +6,6 @@ import (
 	"time"
 
 	lipgloss "charm.land/lipgloss/v2"
-	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/germanamz/shelly/cmd/shelly/internal/format"
@@ -16,7 +15,7 @@ import (
 	"github.com/germanamz/shelly/pkg/chats/role"
 )
 
-// LogoArt is the ASCII art displayed before the first message.
+// LogoArt is the ASCII art displayed at startup via tea.Println.
 const LogoArt = `
        __       ____
   ___ / /  ___ / / /_ __
@@ -25,44 +24,36 @@ const LogoArt = `
                  /___/
 `
 
-// ChatViewModel uses a viewport to display committed content and live agent work.
+// ChatViewModel renders live agent activity. Committed content is printed to
+// the terminal via tea.Println so the terminal's own scroll handles history.
 type ChatViewModel struct {
-	viewport      viewport.Model
 	agents        map[string]*AgentContainer
 	subAgents     map[string]*SubAgentItem // nested sub-agent containers keyed by agent name
 	agentOrder    []string                 // agent names in arrival order
-	colorRegistry map[string]string // agent name → hex color string
+	colorRegistry map[string]string        // agent name → hex color string
 	nextColorSlot int
 
-	Committed     *strings.Builder // rendered committed content (pointer to avoid copy panic)
 	HasMessages   bool
 	Processing    bool
 	SpinnerIdx    int
 	ProcessingMsg string
 
-	Width, Height int
+	Width int
 }
 
 // New creates a new ChatViewModel.
 func New() ChatViewModel {
-	vp := viewport.New()
 	return ChatViewModel{
-		viewport:      vp,
 		agents:        make(map[string]*AgentContainer),
 		subAgents:     make(map[string]*SubAgentItem),
 		colorRegistry: make(map[string]string),
-		Committed:     &strings.Builder{},
 	}
 }
 
-// View renders the viewport content (committed + live).
+// View renders only the live (in-progress) agent content and spinner.
+// Committed content has already been printed to the terminal via tea.Println.
 func (m *ChatViewModel) View() string {
 	var live strings.Builder
-
-	// Show empty state before any messages.
-	if !m.HasMessages && !m.Processing && len(m.agents) == 0 {
-		return styles.DimStyle.Render(LogoArt)
-	}
 
 	// Render active agent containers (live content).
 	for _, name := range m.agentOrder {
@@ -85,25 +76,12 @@ func (m *ChatViewModel) View() string {
 		)
 	}
 
-	// Combine committed + live content.
-	combined := m.Committed.String() + live.String()
-	m.viewport.SetContent(combined)
-
-	// Always scroll to bottom — viewport state is ephemeral (View operates on
-	// a copy due to bubbletea v2 value receivers) so the offset resets to 0
-	// each render. Without GotoBottom, content taller than the viewport would
-	// only show the first screenful.
-	m.viewport.GotoBottom()
-
-	return m.viewport.View()
+	return live.String()
 }
 
-// SetSize sets the viewport dimensions.
-func (m *ChatViewModel) SetSize(w, h int) {
+// SetWidth sets the render width used for content formatting.
+func (m *ChatViewModel) SetWidth(w int) {
 	m.Width = w
-	m.Height = h
-	m.viewport.SetWidth(w)
-	m.viewport.SetHeight(h)
 }
 
 // MarkMessageSent records that content has been displayed.
@@ -111,13 +89,12 @@ func (m *ChatViewModel) MarkMessageSent() {
 	m.HasMessages = true
 }
 
-// CommitUserMessage renders a user message and appends it to committed content.
-func (m *ChatViewModel) CommitUserMessage(text string) {
+// CommitUserMessage renders a user message and emits it as a tea.Println cmd.
+func (m *ChatViewModel) CommitUserMessage(text string) tea.Cmd {
 	highlighted := highlightFilePaths(text)
 	userLine := "\n" + format.RenderUserMessage(highlighted)
-	m.Committed.WriteString(userLine)
-	m.Committed.WriteString("\n")
 	m.HasMessages = true
+	return tea.Println(userLine)
 }
 
 // highlightFilePaths applies accent color to @path tokens in user input text.
@@ -143,7 +120,7 @@ func highlightFilePaths(text string) string {
 	return result.String()
 }
 
-// AddMessage processes a chat message. Final answers are committed directly.
+// AddMessage processes a chat message. Final answers are emitted via tea.Println.
 func (m *ChatViewModel) AddMessage(msg message.Message) tea.Cmd {
 	switch msg.Role {
 	case role.System, role.User:
@@ -198,7 +175,7 @@ func (m *ChatViewModel) processAssistantMessage(msg message.Message) tea.Cmd {
 
 	// Final answer — no tool calls.
 	if text != "" {
-		// Sub-agent final answers are stored on the container; CollapsedSummary/SubAgentItem will render them.
+		// Sub-agent final answers are stored on the container.
 		if _, isSub := m.subAgents[agentName]; isSub {
 			ac := m.resolveContainer(agentName)
 			if ac != nil {
@@ -207,19 +184,16 @@ func (m *ChatViewModel) processAssistantMessage(msg message.Message) tea.Cmd {
 			return nil
 		}
 
-		// Top-level final answer — store on container; CollapsedSummary will include it.
-		// If there is no active container (e.g. agent never made tool calls), commit directly.
+		// Top-level final answer — store on container for CollapsedSummary.
+		// If there is no active container (e.g. agent never made tool calls), emit directly.
 		ac := m.resolveContainer(agentName)
 		if ac != nil {
 			ac.FinalAnswer = text
 		} else {
 			rendered := format.RenderMarkdown(text)
-			m.Committed.WriteString("\n")
-			m.Committed.WriteString(rendered)
-			m.Committed.WriteString("\n")
 			m.HasMessages = true
+			return tea.Println("\n" + rendered + "\n")
 		}
-		return nil
 	}
 	return nil
 }
@@ -262,7 +236,6 @@ func (m *ChatViewModel) getOrCreateContainer(agentName, prefix string) *AgentCon
 	if ac := m.resolveContainer(agentName); ac != nil {
 		return ac
 	}
-	// Auto-created top-level containers use empty string to indicate default style.
 	ac := NewAgentContainer(agentName, prefix, 0, "")
 	m.agents[agentName] = ac
 	m.agentOrder = append(m.agentOrder, agentName)
@@ -289,27 +262,27 @@ func (m *ChatViewModel) StartAgent(agentName, prefix, parent string) {
 	if _, ok := m.agents[agentName]; ok {
 		return
 	}
-	// Top-level agents use empty string to indicate default (AnswerPrefixStyle).
 	m.colorRegistry[agentName] = ""
 	ac := NewAgentContainer(agentName, prefix, 0, "")
 	m.agents[agentName] = ac
 	m.agentOrder = append(m.agentOrder, agentName)
 }
 
-// EndAgent collapses the named agent's container into a summary and commits it.
-func (m *ChatViewModel) EndAgent(agentName, _ string) {
+// EndAgent collapses the named agent's container into a summary and emits it
+// via tea.Println so it persists in the terminal's scroll buffer.
+func (m *ChatViewModel) EndAgent(agentName, _ string) tea.Cmd {
 	// Check if this is a nested sub-agent.
 	if sa, ok := m.subAgents[agentName]; ok {
 		sa.Container.Done = true
 		sa.Container.EndTime = time.Now()
 		delete(m.subAgents, agentName)
-		return
+		return nil
 	}
 
 	// Top-level agent.
 	ac, ok := m.agents[agentName]
 	if !ok {
-		return
+		return nil
 	}
 
 	ac.Done = true
@@ -325,10 +298,9 @@ func (m *ChatViewModel) EndAgent(agentName, _ string) {
 	}
 
 	if summary != "" {
-		m.Committed.WriteString("\n")
-		m.Committed.WriteString(summary)
-		m.Committed.WriteString("\n")
+		return tea.Println("\n" + summary + "\n")
 	}
+	return nil
 }
 
 // SetProcessing sets the processing state and picks a random spinner message.
@@ -357,7 +329,6 @@ func (m *ChatViewModel) Clear() {
 	m.agents = make(map[string]*AgentContainer)
 	m.subAgents = make(map[string]*SubAgentItem)
 	m.agentOrder = nil
-	m.Committed.Reset()
 	m.Processing = false
 	m.SpinnerIdx = 0
 	m.ProcessingMsg = ""

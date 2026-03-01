@@ -73,11 +73,13 @@ func (m AppModel) InputEnabled() bool {
 }
 
 func (m AppModel) Init() tea.Cmd {
+	logoPrint := tea.Println(styles.DimStyle.Render(chatview.LogoArt))
 	// Delay focusing the input so that stale terminal escape-sequence
 	// responses (e.g. OSC 11 background-color) are drained first.
-	return tea.Tick(200*time.Millisecond, func(time.Time) tea.Msg {
+	drainTick := tea.Tick(200*time.Millisecond, func(time.Time) tea.Msg {
 		return msgs.InitDrainMsg{}
 	})
+	return tea.Batch(logoPrint, drainTick)
 }
 
 func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -114,8 +116,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case msgs.AgentEndMsg:
-		m.chatView.EndAgent(msg.Agent, msg.Parent)
-		return m, nil
+		cmd := m.chatView.EndAgent(msg.Agent, msg.Parent)
+		return m, cmd
 
 	case msgs.SendCompleteMsg:
 		// Ignore stale completions from cancelled sends.
@@ -131,7 +133,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			errLine := styles.ErrorBlockStyle.Width(m.width).Render(
 				lipgloss.NewStyle().Foreground(styles.ColorError).Render("error: " + msg.Err.Error()),
 			)
-			m.chatView.Committed.WriteString("\n" + errLine + "\n")
+			return m, tea.Println("\n" + errLine + "\n")
 		}
 
 		return m, nil
@@ -149,8 +151,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		errLine := styles.ErrorBlockStyle.Width(m.width).Render(
 			lipgloss.NewStyle().Foreground(styles.ColorError).Render("error responding: " + msg.Err.Error()),
 		)
-		m.chatView.Committed.WriteString("\n" + errLine + "\n")
-		return m, nil
+		return m, tea.Println("\n" + errLine + "\n")
 
 	case msgs.TasksChangedMsg:
 		m.tasks = msg.Tasks
@@ -187,7 +188,7 @@ func (m AppModel) View() tea.View {
 
 	var parts []string
 
-	// Chat viewport.
+	// Live agent activity (spinners, tool calls in progress).
 	chatContent := m.chatView.View()
 	if chatContent != "" {
 		parts = append(parts, chatContent)
@@ -218,33 +219,9 @@ func (m *AppModel) handleResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// syncLayout recalculates the chat viewport height to accommodate the current
-// input area height and task panel (e.g. after auto-growth from text wrapping).
+// syncLayout updates the chat view width after input or window size changes.
 func (m *AppModel) syncLayout() {
-	if m.height == 0 {
-		return
-	}
-	inputHeight := m.inputBox.ViewHeight()
-	chatHeight := max(m.height-inputHeight-m.taskPanelHeight(), 4)
-	m.chatView.SetSize(m.width, chatHeight)
-}
-
-// taskPanelHeight returns the number of lines the task panel occupies (0 when hidden).
-func (m *AppModel) taskPanelHeight() int {
-	if len(m.tasks) == 0 {
-		return 0
-	}
-	active := 0
-	for _, t := range m.tasks {
-		if t.Status == tasks.StatusPending || t.Status == tasks.StatusInProgress {
-			active++
-		}
-	}
-	if active == 0 {
-		return 0
-	}
-	shown := min(len(m.tasks), 6)
-	return 1 + shown // 1 header line + task rows
+	m.chatView.SetWidth(m.width)
 }
 
 func (m *AppModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -299,13 +276,11 @@ func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if text == "/help" {
-		m.chatView.Committed.WriteString("\n" + styles.DimStyle.Render("⌘ /help") + "\n")
-		m.chatView.Committed.WriteString("\n" + helpText() + "\n")
-		return m, nil
+		helpOutput := "\n" + styles.DimStyle.Render("⌘ /help") + "\n\n" + helpText() + "\n"
+		return m, tea.Println(helpOutput)
 	}
 
 	if text == "/clear" {
-		m.chatView.Committed.WriteString("\n" + styles.DimStyle.Render("⌘ /clear") + "\n")
 		if m.cancelSend != nil {
 			m.cancelSend()
 			m.cancelSend = nil
@@ -318,19 +293,19 @@ func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
 		m.eng.RemoveSession(m.sess.ID())
 		newSess, err := m.eng.NewSession("")
 		if err != nil {
-			m.chatView.Committed.WriteString("\n" + styles.ErrorBlockStyle.Width(m.width).Render("Error: "+err.Error()) + "\n")
-			return m, nil
+			errLine := styles.ErrorBlockStyle.Width(m.width).Render("Error: " + err.Error())
+			return m, tea.Println("\n" + errLine + "\n")
 		}
 		m.sess = newSess
 		m.chatView.Clear()
 		m.inputBox.Reset()
 		m.cancelBridge = bridge.Start(m.ctx, m.program, m.sess.Chat(), m.eng.Events(), m.eng.Tasks(), m.sess.AgentName())
 		m.state = StateIdle
-		return m, nil
+		return m, tea.Println("\n" + styles.DimStyle.Render("⌘ /clear") + "\n")
 	}
 
-	// Commit user message to viewport.
-	m.chatView.CommitUserMessage(text)
+	// Commit user message to terminal output.
+	printCmd := m.chatView.CommitUserMessage(text)
 	m.chatView.MarkMessageSent()
 
 	if m.state == StateProcessing {
@@ -343,10 +318,10 @@ func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
 		m.cancelSend = cancelSend
 		sess := m.sess
 		sendStart := time.Now()
-		return m, func() tea.Msg {
+		return m, tea.Batch(printCmd, func() tea.Msg {
 			_, err := sess.Send(sendCtx, text)
 			return msgs.SendCompleteMsg{Err: err, Duration: time.Since(sendStart), Generation: gen}
-		}
+		})
 	}
 
 	m.state = StateProcessing
@@ -366,7 +341,7 @@ func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
 		return msgs.SendCompleteMsg{Err: err, Duration: time.Since(sendStart), Generation: gen}
 	}
 
-	return m, tea.Batch(sendCmd, tickCmd())
+	return m, tea.Batch(printCmd, sendCmd, tickCmd())
 }
 
 // updateTokenCounter refreshes the token count displayed below the input.
