@@ -215,7 +215,7 @@ func (m AppModel) View() tea.View {
 }
 
 func (m *AppModel) handleResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
-	m.width = msg.Width
+	m.width = max(msg.Width, 80)
 	m.height = msg.Height
 	format.InitMarkdownRenderer(m.width - 4)
 	m.inputBox.SetWidth(m.width)
