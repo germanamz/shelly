@@ -144,11 +144,6 @@ func delegateTool(a *Agent) toolbox.Tool {
 
 			var wg sync.WaitGroup
 
-			// Snapshot toolboxes before spawning goroutines to avoid a data
-			// race on the parent's a.toolboxes slice.
-			toolboxSnapshot := make([]*toolbox.ToolBox, len(a.toolboxes))
-			copy(toolboxSnapshot, a.toolboxes)
-
 			eventNotifier := a.options.EventNotifier
 			eventFunc := a.options.EventFunc
 			reflectionDir := a.options.ReflectionDir
@@ -173,7 +168,6 @@ func delegateTool(a *Agent) toolbox.Tool {
 					child.options.EventFunc = eventFunc
 					child.options.ReflectionDir = reflectionDir
 					child.options.TaskBoard = taskBoard
-					child.AddToolBoxes(toolboxSnapshot...)
 					prependContext(child, t.Context)
 
 					if reflections := searchReflections(reflectionDir, t.Task); reflections != "" {

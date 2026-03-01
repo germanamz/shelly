@@ -748,8 +748,9 @@ func TestSpawnAgentsResilientErrors(t *testing.T) {
 	assert.Contains(t, spawnResultStr, "worker-b exploded")
 }
 
-func TestSpawnAgentsToolboxInheritance(t *testing.T) {
-	// Parent toolbox with a custom tool.
+func TestDelegateChildUsesOwnToolboxesOnly(t *testing.T) {
+	// Parent has parent_tool; child has child_tool via factory.
+	// After delegation, child should only have access to child_tool, not parent_tool.
 	parentTB := toolbox.New()
 	parentTB.Register(toolbox.Tool{
 		Name:        "parent_tool",
@@ -760,18 +761,33 @@ func TestSpawnAgentsToolboxInheritance(t *testing.T) {
 		},
 	})
 
+	childTB := toolbox.New()
+	childTB.Register(toolbox.Tool{
+		Name:        "child_tool",
+		Description: "A tool owned by the child",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Handler: func(_ context.Context, _ json.RawMessage) (string, error) {
+			return "child_tool_result", nil
+		},
+	})
+
 	reg := NewRegistry()
 
-	// Worker that calls parent_tool to prove it was inherited.
+	// Worker calls child_tool (should succeed), then parent_tool (should fail).
 	reg.Register("worker", "Worker", func() *Agent {
-		return New("worker", "", "", &sequenceCompleter{
+		w := New("worker", "", "", &sequenceCompleter{
 			replies: []message.Message{
 				message.New("", role.Assistant,
-					content.ToolCall{ID: "c1", Name: "parent_tool", Arguments: `{}`},
+					content.ToolCall{ID: "c1", Name: "child_tool", Arguments: `{}`},
 				),
-				message.NewText("", role.Assistant, "got parent tool"),
+				message.New("", role.Assistant,
+					content.ToolCall{ID: "c2", Name: "parent_tool", Arguments: `{}`},
+				),
+				message.NewText("", role.Assistant, "done"),
 			},
 		}, Options{})
+		w.AddToolBoxes(childTB)
+		return w
 	})
 
 	orchCompleter := &sequenceCompleter{
@@ -780,7 +796,7 @@ func TestSpawnAgentsToolboxInheritance(t *testing.T) {
 				content.ToolCall{
 					ID:        "c1",
 					Name:      "delegate",
-					Arguments: `{"tasks":[{"agent":"worker","task":"use parent tool","context":""}]}`,
+					Arguments: `{"tasks":[{"agent":"worker","task":"use tools","context":""}]}`,
 				},
 			),
 			message.NewText("", role.Assistant, "Done."),
@@ -796,13 +812,13 @@ func TestSpawnAgentsToolboxInheritance(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Done.", result.TextContent())
 
-	// Verify the spawn result contains the worker's response.
-	var spawnResultStr string
+	// Parse the delegate result to inspect child outcomes.
+	var delegateResultStr string
 	a.Chat().Each(func(_ int, m message.Message) bool {
 		if m.Role == role.Tool {
 			for _, p := range m.Parts {
 				if tr, ok := p.(content.ToolResult); ok && !tr.IsError {
-					spawnResultStr = tr.Content
+					delegateResultStr = tr.Content
 					return false
 				}
 			}
@@ -810,7 +826,8 @@ func TestSpawnAgentsToolboxInheritance(t *testing.T) {
 		return true
 	})
 
-	assert.Contains(t, spawnResultStr, "got parent tool")
+	// The child should have completed (it got "done" as final reply).
+	assert.Contains(t, delegateResultStr, "done")
 }
 
 // --- Completion protocol tests ---
@@ -1046,53 +1063,4 @@ func TestAddToolBoxesDeduplicatesWithinSingleCall(t *testing.T) {
 	// Passing the same pointer twice in one call.
 	a.AddToolBoxes(tb, tb)
 	assert.Len(t, a.toolboxes, 1)
-}
-
-func TestDelegateToolboxInheritance(t *testing.T) {
-	// Parent toolbox with a custom tool.
-	parentTB := toolbox.New()
-	parentTB.Register(toolbox.Tool{
-		Name:        "parent_tool",
-		Description: "A tool from the parent",
-		InputSchema: json.RawMessage(`{"type":"object"}`),
-		Handler: func(_ context.Context, _ json.RawMessage) (string, error) {
-			return "parent_tool_result", nil
-		},
-	})
-
-	reg := NewRegistry()
-
-	// Worker that calls parent_tool to prove it was inherited.
-	reg.Register("worker", "Worker", func() *Agent {
-		return New("worker", "", "", &sequenceCompleter{
-			replies: []message.Message{
-				message.New("", role.Assistant,
-					content.ToolCall{ID: "c1", Name: "parent_tool", Arguments: `{}`},
-				),
-				message.NewText("", role.Assistant, "got parent tool"),
-			},
-		}, Options{})
-	})
-
-	orchCompleter := &sequenceCompleter{
-		replies: []message.Message{
-			message.New("", role.Assistant,
-				content.ToolCall{
-					ID:        "c1",
-					Name:      "delegate",
-					Arguments: `{"tasks":[{"agent":"worker","task":"use parent tool","context":""}]}`,
-				},
-			),
-			message.NewText("", role.Assistant, "Done."),
-		},
-	}
-
-	a := New("orch", "", "", orchCompleter, Options{MaxDelegationDepth: 1})
-	a.SetRegistry(reg)
-	a.AddToolBoxes(parentTB)
-
-	result, err := a.Run(context.Background())
-
-	require.NoError(t, err)
-	assert.Equal(t, "Done.", result.TextContent())
 }

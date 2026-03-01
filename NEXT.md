@@ -15,7 +15,7 @@ A systematic comparison of the codebase against `FEATURE_SPEC.md` across all 21 
 | 8 | Generator produces only shallow package listing | **High** | ~~Incomplete~~ **Done** (removed — replaced by agent-driven indexing) | §12 |
 | 9 | No knowledge graph system (`.shelly/knowledge/`) | **High** | ~~Not Implemented~~ **Done** | §12.2 |
 | 10 | No `project-indexer` skill in any template | **High** | ~~Not Implemented~~ **Done** | §12.2 |
-| 11 | Delegation leaks parent toolboxes to child agents | **High** | Spec Violation | §6.3 |
+| 11 | Delegation leaks parent toolboxes to child agents | **High** | ~~Spec Violation~~ **Done** | §6.3 |
 | 12 | Task board status update errors silently discarded | Medium | No Error Handling | §6.5 |
 | 13 | No task claim rollback on child failure | Medium | Missing Cleanup | §6.5 |
 | 1 | Gemini rate limit header parser missing | Medium | Not Implemented | §3 |
@@ -591,7 +591,7 @@ For completeness, all other spec sections are fully implemented:
 
 ### High Priority — Delegation Bugs (§6)
 
-1. **#11 Remove parent toolbox leakage** — Spec violation, security concern (least privilege). Small, targeted fix.
+1. ~~**#11 Remove parent toolbox leakage** — Spec violation, security concern (least privilege). Small, targeted fix.~~ **Done**
 
 ### High Priority — Context Generation System (§12)
 

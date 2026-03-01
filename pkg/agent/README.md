@@ -309,7 +309,7 @@ The `delegate` tool:
 1. Validates input (rejects self-delegation, enforces `MaxDelegationDepth`).
 2. Spawns child agents from the registry with `depth + 1` and generates a unique instance name (`<configName>-<taskSlug>-<counter>`).
 3. Propagates the parent's registry, `EventNotifier`, `EventFunc`, `ReflectionDir`, and `TaskBoard` to each child. Each child keeps its own `MaxDelegationDepth` from the factory.
-4. Calls `child.AddToolBoxes(parent.toolboxes...)` for toolbox inheritance.
+4. Child uses only its own configured toolboxes (no inheritance from parent).
 5. Prepends a `<delegation_context>` user message with the provided context.
 6. Searches for relevant prior reflections and prepends them as `<prior_reflections>`.
 7. Appends the task as a user message.
@@ -358,9 +358,9 @@ When `Options.EventNotifier` is set, the `delegate` tool publishes lifecycle eve
 
 The notifier is automatically propagated to children so nested delegation chains publish events at every level.
 
-### Toolbox Inheritance
+### Toolbox Isolation
 
-When a parent delegates to a child, the child receives a union of its own toolboxes and the parent's toolboxes. `AddToolBoxes` deduplicates by pointer equality, so shared `*ToolBox` instances are not duplicated.
+Children use only their own configured toolboxes. Parent toolboxes are **not** inherited during delegation. This enforces least-privilege: a child configured with `[filesystem, search]` only has access to those tools, regardless of what the parent has.
 
 ### Display Prefix
 

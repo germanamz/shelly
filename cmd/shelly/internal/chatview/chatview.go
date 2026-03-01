@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	lipgloss "charm.land/lipgloss/v2"
 	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
 
 	"github.com/germanamz/shelly/cmd/shelly/internal/format"
 	"github.com/germanamz/shelly/cmd/shelly/internal/styles"
