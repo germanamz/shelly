@@ -45,7 +45,8 @@ config:
       skills:
         - project-indexer
       options:
-        max_iterations: 20
+        max_iterations: 100
+        max_delegation_depth: 1
 
     - name: index-explorer
       description: Explores assigned areas and writes knowledge files
@@ -66,7 +67,7 @@ config:
       skills:
         - project-indexer
       options:
-        max_iterations: 10
+        max_iterations: 30
 
   entry_agent: index-lead
 

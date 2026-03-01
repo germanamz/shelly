@@ -436,6 +436,56 @@ func TestWatchNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
+func TestWatchUnclaimedTimeout(t *testing.T) {
+	// Override the timeout for testing.
+	orig := unclaimedTimeout
+	unclaimedTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { unclaimedTimeout = orig })
+
+	s := &Store{}
+	id := mustCreate(t, s, Task{Title: "orphan task"})
+
+	start := time.Now()
+	_, err := s.WatchCompleted(context.Background(), id)
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no assignee")
+	assert.Less(t, elapsed, 5*time.Second, "should not block for a long time")
+}
+
+func TestWatchUnclaimedTimeoutResetsOnClaim(t *testing.T) {
+	// Override the timeout for testing.
+	orig := unclaimedTimeout
+	unclaimedTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { unclaimedTimeout = orig })
+
+	s := &Store{}
+	id := mustCreate(t, s, Task{Title: "task"})
+
+	done := make(chan struct{})
+	var result Task
+	var watchErr error
+
+	go func() {
+		result, watchErr = s.WatchCompleted(context.Background(), id)
+		close(done)
+	}()
+
+	// Claim the task before the unclaimed timeout fires.
+	time.Sleep(50 * time.Millisecond)
+	require.NoError(t, s.Claim(id, "worker"))
+
+	// Complete the task after the original unclaimed timeout would have fired.
+	time.Sleep(300 * time.Millisecond)
+	completed := StatusCompleted
+	require.NoError(t, s.Update(id, Update{Status: &completed}))
+
+	<-done
+	require.NoError(t, watchErr)
+	assert.Equal(t, StatusCompleted, result.Status)
+}
+
 // --- Concurrency tests ---
 
 func TestConcurrentClaim(t *testing.T) {

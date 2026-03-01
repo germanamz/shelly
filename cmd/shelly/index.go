@@ -9,8 +9,13 @@ import (
 	"path/filepath"
 	"syscall"
 
+	tea "charm.land/bubbletea/v2"
+	lipgloss "charm.land/lipgloss/v2"
+	"github.com/germanamz/shelly/cmd/shelly/internal/app"
+	"github.com/germanamz/shelly/cmd/shelly/internal/format"
+	"github.com/germanamz/shelly/cmd/shelly/internal/msgs"
 	"github.com/germanamz/shelly/cmd/shelly/internal/templates"
-	"github.com/germanamz/shelly/pkg/agent"
+	"github.com/germanamz/shelly/cmd/shelly/internal/tty"
 	"github.com/germanamz/shelly/pkg/engine"
 	"github.com/germanamz/shelly/pkg/projectctx"
 	"github.com/germanamz/shelly/pkg/shellydir"
@@ -81,39 +86,33 @@ func runIndex(args []string) error {
 	fmt.Fprintln(os.Stderr)
 	defer func() { _ = eng.Close() }()
 
-	// Subscribe to engine events so the user can see indexing progress.
-	sub := eng.Events().Subscribe(64)
-	defer eng.Events().Unsubscribe(sub)
-
-	go func() {
-		for ev := range sub.C {
-			switch ev.Kind {
-			case engine.EventToolCallStart:
-				if d, ok := ev.Data.(agent.ToolCallEventData); ok {
-					fmt.Fprintf(os.Stderr, "\r\033[K  [%s] calling %s...", ev.Agent, d.ToolName)
-				}
-			case engine.EventAgentStart:
-				fmt.Fprintf(os.Stderr, "\r\033[K  Agent %s started\n", ev.Agent)
-			case engine.EventAgentEnd:
-				fmt.Fprintf(os.Stderr, "\r\033[K  Agent %s finished\n", ev.Agent)
-			}
-		}
-	}()
-
 	sess, err := eng.NewSession("")
 	if err != nil {
 		return err
 	}
 
-	// Send a trigger message to start the indexing team.
-	reply, err := sess.Send(ctx, "Index this project. Build or update the knowledge graph in .shelly/.")
-	if err != nil {
-		return fmt.Errorf("index: %w", err)
-	}
+	model := app.NewAppModel(ctx, sess, eng)
+	model.InitialMessage = "Index this project. Build or update the knowledge graph in .shelly/."
 
-	if text := reply.TextContent(); text != "" {
-		fmt.Println(text)
-	}
-	fmt.Println("\nKnowledge graph updated.")
-	return nil
+	format.IsDarkBG = lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
+	tty.FlushStdinBuffer()
+
+	staleFilter := tty.NewStaleEscapeFilter(func(m tea.Model) bool {
+		switch v := m.(type) {
+		case app.AppModel:
+			return v.InputEnabled()
+		case *app.AppModel:
+			return v.InputEnabled()
+		default:
+			return true
+		}
+	})
+	p := tea.NewProgram(model, tea.WithFilter(staleFilter))
+
+	go func() {
+		p.Send(msgs.ProgramReadyMsg{Program: p})
+	}()
+
+	_, err = p.Run()
+	return err
 }

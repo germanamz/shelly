@@ -51,6 +51,9 @@ type AppModel struct {
 	sendStart      time.Time
 	tasks          []tasks.Task
 	spinnerIdx     int
+
+	// InitialMessage, when set, is auto-submitted once the TUI is ready.
+	InitialMessage string
 }
 
 // NewAppModel creates a new AppModel.
@@ -98,6 +101,11 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case msgs.ProgramReadyMsg:
 		m.program = msg.Program
 		m.cancelBridge = bridge.Start(m.ctx, msg.Program, m.sess.Chat(), m.eng.Events(), m.eng.Tasks(), m.sess.AgentName())
+		if m.InitialMessage != "" {
+			text := m.InitialMessage
+			m.InitialMessage = ""
+			return m.handleSubmit(msgs.InputSubmitMsg{Text: text})
+		}
 		return m, nil
 
 	case msgs.FilePickerEntriesMsg:

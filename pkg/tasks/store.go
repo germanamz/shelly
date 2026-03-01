@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/germanamz/shelly/pkg/agentctx"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
@@ -292,10 +293,18 @@ func (s *Store) Reassign(id, agent string) error {
 	return nil
 }
 
+// unclaimedTimeout is how long WatchCompleted waits for an unclaimed task
+// to be picked up before returning an error. This prevents indefinite blocking
+// when no agent is available to claim the task.
+var unclaimedTimeout = 15 * time.Second
+
 // WatchCompleted blocks until the task reaches "completed" or "failed",
-// or the context is cancelled.
+// or the context is cancelled. If the task remains pending with no assignee
+// for longer than unclaimedTimeout, it returns an error.
 func (s *Store) WatchCompleted(ctx context.Context, id string) (Task, error) {
 	s.init()
+
+	unclaimedSince := time.Now()
 
 	for {
 		s.mu.RLock()
@@ -311,13 +320,34 @@ func (s *Store) WatchCompleted(ctx context.Context, id string) (Task, error) {
 			return cp, nil
 		}
 
+		// Check for unclaimed timeout: if the task has been pending with no
+		// assignee for too long, no agent is available to work on it.
+		if t.Assignee == "" && time.Since(unclaimedSince) > unclaimedTimeout {
+			s.mu.RUnlock()
+			return Task{}, fmt.Errorf("tasks: task %q has no assignee after %s; no agent appears available to claim it", id, unclaimedTimeout)
+		}
+
+		// Reset the clock whenever the task has an assignee.
+		if t.Assignee != "" {
+			unclaimedSince = time.Now()
+		}
+
 		sig := s.signal
 		s.mu.RUnlock()
+
+		// Compute remaining time until unclaimed deadline for the poll timer.
+		remaining := unclaimedTimeout - time.Since(unclaimedSince)
+		if remaining <= 0 {
+			remaining = time.Millisecond
+		}
 
 		select {
 		case <-ctx.Done():
 			return Task{}, ctx.Err()
 		case <-sig:
+		case <-time.After(remaining):
+			// Wake up to re-check the unclaimed timeout even when no store
+			// mutations produce a signal.
 		}
 	}
 }

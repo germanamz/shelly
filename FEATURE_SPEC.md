@@ -696,6 +696,8 @@ Thread-safe key-value store (blackboard pattern). Values stored as `json.RawMess
 
 Status flow: `pending` → `in_progress` → `completed` / `failed`. Blocking dependencies prevent claiming/reassigning until all deps complete. Task changes broadcast via notification channel.
 
+**Unclaimed task timeout:** `WatchCompleted` (and the `{ns}_tasks_watch` tool) enforces a 15-second timeout for unclaimed tasks. If a watched task remains in `pending` status with no assignee for longer than the timeout, the watch returns an error instead of blocking indefinitely. The timeout resets whenever the task acquires an assignee, so it only triggers when no agent is available to claim the task. This prevents the entry agent from hanging when tasks are created on the board but no worker agent exists to process them (e.g., when `max_delegation_depth` is 0 and the `delegate` tool is not injected).
+
 ### 9.13 Toolbox Assignment
 
 - Each agent declares its `toolboxes` list in YAML config
