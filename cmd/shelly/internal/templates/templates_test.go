@@ -21,7 +21,7 @@ func TestList(t *testing.T) {
 	}
 
 	assert.True(t, names["simple-assistant"], "should include simple-assistant")
-	assert.True(t, names["coding-team"], "should include coding-team")
+	assert.True(t, names["dev-team"], "should include dev-team")
 }
 
 func TestGet(t *testing.T) {
@@ -81,11 +81,11 @@ func TestApply(t *testing.T) {
 		assert.True(t, hasIndexer, "should include project-indexer skill")
 	})
 
-	t.Run("coding team with skills", func(t *testing.T) {
+	t.Run("dev team with skills", func(t *testing.T) {
 		dir := t.TempDir()
 		shellyDir := filepath.Join(dir, ".shelly")
 
-		tmpl, err := Get("coding-team")
+		tmpl, err := Get("dev-team")
 		require.NoError(t, err)
 
 		err = Apply(tmpl, shellyDir, false)

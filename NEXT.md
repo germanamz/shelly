@@ -19,7 +19,7 @@ A systematic comparison of the codebase against `FEATURE_SPEC.md` across all 21 
 | 12 | Task board status update errors silently discarded | Medium | ~~No Error Handling~~ **Done** | §6.5 |
 | 13 | No task claim rollback on child failure | Medium | ~~Missing Cleanup~~ **Done** | §6.5 |
 | 1 | Gemini rate limit header parser missing | Medium | ~~Not Implemented~~ **Done** (documented — Gemini API does not expose rate limit headers) | §3 |
-| 2 | Template naming: `dev-team` → `coding-team` | Low | Naming Mismatch | §16.2 |
+| 2 | Template naming: `dev-team` → `coding-team` | Low | ~~Naming Mismatch~~ **Done** | §16.2 |
 | 3 | CLI `--template list` vs `--list` flag | Low | Spec/Code Divergence | §16.2 |
 | 4 | Grok constructor doesn't set Name/MaxTokens | Low | API Inconsistency | §2.2 |
 | 5 | Spec describes dev-team as 3 agents, code has 5 | Low | Spec Outdated | §16.2 |

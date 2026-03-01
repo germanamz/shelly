@@ -1,5 +1,5 @@
 template:
-  name: coding-team
+  name: dev-team
   description: Multi-agent team with lead, explorer, planner, coder, and reviewer
 
 config:
