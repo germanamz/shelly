@@ -17,7 +17,7 @@ A systematic comparison of the codebase against `FEATURE_SPEC.md` across all 21 
 | 10 | No `project-indexer` skill in any template | **High** | ~~Not Implemented~~ **Done** | §12.2 |
 | 11 | Delegation leaks parent toolboxes to child agents | **High** | ~~Spec Violation~~ **Done** | §6.3 |
 | 12 | Task board status update errors silently discarded | Medium | ~~No Error Handling~~ **Done** | §6.5 |
-| 13 | No task claim rollback on child failure | Medium | Missing Cleanup | §6.5 |
+| 13 | No task claim rollback on child failure | Medium | ~~Missing Cleanup~~ **Done** | §6.5 |
 | 1 | Gemini rate limit header parser missing | Medium | Not Implemented | §3 |
 | 2 | Template naming: `dev-team` → `coding-team` | Low | Naming Mismatch | §16.2 |
 | 3 | CLI `--template list` vs `--list` flag | Low | Spec/Code Divergence | §16.2 |
@@ -605,7 +605,7 @@ These form a connected feature area and should be implemented together:
 ### Medium Priority
 
 6. ~~**#12 Task board silent error handling** — Could cause watch hangs in multi-agent workflows~~ **Done**
-7. **#13 Task claim rollback** — Stale tasks on child failure
+7. ~~**#13 Task claim rollback** — Stale tasks on child failure~~ **Done**
 8. **#1 Gemini rate limit headers** — Functional gap in adaptive throttling
 
 ### Low Priority — Documentation & Polish

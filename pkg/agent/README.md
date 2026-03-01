@@ -332,6 +332,8 @@ When `Options.TaskBoard` is set, the `delegate` tool supports an optional `task_
 
 1. **Before `child.Run()`**: `TaskBoard.ClaimTask(taskID, childName)` is called. Claim errors cause the task to fail immediately.
 2. **After `child.Run()`**: if the child produced a `CompletionResult`, `TaskBoard.UpdateTaskStatus(taskID, cr.Status)` is called automatically. If the child exhausts iterations, a synthetic `CompletionResult` with status "failed" is created and the task is updated accordingly.
+3. **On child error**: if `child.Run()` returns a non-`ErrMaxIterations` error (e.g. context cancellation, completer failure), the task is rolled back to `"failed"` so it doesn't stay stuck in `in_progress`.
+4. **No completion fallback**: if the child finishes without error but never called `task_complete`, the task is automatically updated to `"completed"` since the child ran to natural conclusion.
 
 ### Structured Completion Protocol
 

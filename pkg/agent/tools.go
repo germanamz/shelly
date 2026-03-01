@@ -206,45 +206,34 @@ func delegateTool(a *Agent) toolbox.Tool {
 								Caveats: "Iteration limit reached. Check progress notes for partial work.",
 							}
 							writeReflection(reflectionDir, t.Agent, t.Task, cr)
-							if t.TaskID != "" && taskBoard != nil {
-								if updateErr := taskBoard.UpdateTaskStatus(t.TaskID, cr.Status); updateErr != nil {
-									results[i] = delegateResult{
-										Agent:      t.Agent,
-										Completion: cr,
-										Warning:    fmt.Sprintf("task board update failed for %q: %v", t.TaskID, updateErr),
-									}
-									return
-								}
-							}
-							results[i] = delegateResult{
-								Agent:      t.Agent,
-								Completion: cr,
-							}
+							dr := delegateResult{Agent: t.Agent, Completion: cr}
+							dr.Warning = tryUpdateTask(taskBoard, t.TaskID, cr.Status)
+							results[i] = dr
 							return
 						}
-						results[i] = delegateResult{
-							Agent: t.Agent,
-							Error: err.Error(),
-						}
+						// Rollback task to "failed" so it doesn't stay stuck in_progress.
+						dr := delegateResult{Agent: t.Agent, Error: err.Error()}
+						dr.Warning = tryUpdateTask(taskBoard, t.TaskID, "failed")
+						results[i] = dr
 						return
 					}
 
 					// Auto-update task status based on completion result.
-					if cr := child.CompletionResult(); cr != nil {
+					cr := child.CompletionResult()
+					if cr != nil {
 						if cr.Status == "failed" {
 							writeReflection(reflectionDir, t.Agent, t.Task, cr)
 						}
-						if t.TaskID != "" && taskBoard != nil {
-							if updateErr := taskBoard.UpdateTaskStatus(t.TaskID, cr.Status); updateErr != nil {
-								dr := buildDelegateResult(t.Agent, reply, cr)
-								dr.Warning = fmt.Sprintf("task board update failed for %q: %v", t.TaskID, updateErr)
-								results[i] = dr
-								return
-							}
-						}
+						dr := buildDelegateResult(t.Agent, reply, cr)
+						dr.Warning = tryUpdateTask(taskBoard, t.TaskID, cr.Status)
+						results[i] = dr
+					} else {
+						// Child finished without calling task_complete — mark as completed
+						// since it ran to natural conclusion without error.
+						dr := buildDelegateResult(t.Agent, reply, nil)
+						dr.Warning = tryUpdateTask(taskBoard, t.TaskID, "completed")
+						results[i] = dr
 					}
-
-					results[i] = buildDelegateResult(t.Agent, reply, child.CompletionResult())
 				})
 			}
 
@@ -304,6 +293,19 @@ func taskCompleteTool(a *Agent) toolbox.Tool {
 			return fmt.Sprintf("Task marked as %s.", tci.Status), nil
 		},
 	}
+}
+
+// tryUpdateTask updates a task's status on the board. Returns a non-empty
+// warning string if the update fails; returns "" on success or when no update
+// is needed (empty taskID or nil board).
+func tryUpdateTask(taskBoard TaskBoard, taskID, status string) string {
+	if taskID == "" || taskBoard == nil {
+		return ""
+	}
+	if err := taskBoard.UpdateTaskStatus(taskID, status); err != nil {
+		return fmt.Sprintf("task board update failed for %q: %v", taskID, err)
+	}
+	return ""
 }
 
 const maxDelegateResultLen = 2000

@@ -503,7 +503,7 @@ func TestDelegateToolWithTaskIDNoBoard(t *testing.T) {
 }
 
 func TestDelegateToolWithTaskIDNoCompletion(t *testing.T) {
-	// Child doesn't call task_complete — task stays in_progress (no status update).
+	// Child doesn't call task_complete — task is auto-completed since it ran to natural conclusion.
 	board := &mockTaskBoard{}
 
 	reg := NewRegistry()
@@ -529,9 +529,11 @@ func TestDelegateToolWithTaskIDNoCompletion(t *testing.T) {
 	require.Len(t, results, 1)
 	assert.Equal(t, "done without completion", results[0].Result)
 
-	// Task was claimed but status was not updated (no completion result).
+	// Task was claimed and auto-completed.
 	require.Len(t, board.claims, 1)
-	assert.Empty(t, board.updates)
+	require.Len(t, board.updates, 1)
+	assert.Equal(t, "task-1", board.updates[0].ID)
+	assert.Equal(t, "completed", board.updates[0].Status)
 }
 
 func TestDelegateToolPropagatesOptionsToChild(t *testing.T) {
@@ -1396,4 +1398,105 @@ func TestDelegateToolUpdateStatusError(t *testing.T) {
 		require.NotNil(t, results[0].Completion)
 		assert.Equal(t, "failed", results[0].Completion.Status)
 	})
+}
+
+func TestDelegateToolErrorRollsBackTask(t *testing.T) {
+	// child.Run() returns a non-ErrMaxIterations error → task updated to "failed".
+	board := &mockTaskBoard{}
+
+	reg := NewRegistry()
+	reg.Register("worker", "Does work", func() *Agent {
+		return New("worker", "", "", &errorCompleter{
+			err: errors.New("completer crashed"),
+		}, Options{})
+	})
+
+	a := &Agent{name: "orch", configName: "orch", registry: reg, chat: chat.New(), options: Options{TaskBoard: board, MaxDelegationDepth: 1}}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"worker","task":"do","context":"ctx","task_id":"task-err"}]}`,
+	))
+
+	require.NoError(t, err)
+
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	assert.Contains(t, results[0].Error, "completer crashed")
+
+	// Task was claimed and rolled back to "failed".
+	require.Len(t, board.claims, 1)
+	assert.Equal(t, "task-err", board.claims[0].ID)
+	require.Len(t, board.updates, 1)
+	assert.Equal(t, "task-err", board.updates[0].ID)
+	assert.Equal(t, "failed", board.updates[0].Status)
+}
+
+func TestDelegateToolErrorRollbackUpdateFails(t *testing.T) {
+	// child.Run() error + UpdateTaskStatus error → Warning populated.
+	board := &mockTaskBoard{
+		updateFn: func(_, _ string) error {
+			return errors.New("board unavailable")
+		},
+	}
+
+	reg := NewRegistry()
+	reg.Register("worker", "Does work", func() *Agent {
+		return New("worker", "", "", &errorCompleter{
+			err: errors.New("completer crashed"),
+		}, Options{})
+	})
+
+	a := &Agent{name: "orch", configName: "orch", registry: reg, chat: chat.New(), options: Options{TaskBoard: board, MaxDelegationDepth: 1}}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"worker","task":"do","context":"ctx","task_id":"task-err"}]}`,
+	))
+
+	require.NoError(t, err)
+
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	assert.Contains(t, results[0].Error, "completer crashed")
+	assert.Contains(t, results[0].Warning, "task board update failed")
+	assert.Contains(t, results[0].Warning, "board unavailable")
+}
+
+func TestDelegateToolNoCompletionUpdatesTask(t *testing.T) {
+	// Child finishes without error but no CompletionResult → task auto-completed.
+	board := &mockTaskBoard{}
+
+	reg := NewRegistry()
+	reg.Register("worker", "Does work", func() *Agent {
+		return New("worker", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.NewText("", role.Assistant, "all done"),
+			},
+		}, Options{})
+	})
+
+	a := &Agent{name: "orch", configName: "orch", registry: reg, chat: chat.New(), options: Options{TaskBoard: board, MaxDelegationDepth: 1}}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"worker","task":"do","context":"ctx","task_id":"task-nc"}]}`,
+	))
+
+	require.NoError(t, err)
+
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	assert.Equal(t, "all done", results[0].Result)
+	assert.Empty(t, results[0].Warning)
+
+	// Task was claimed and auto-completed.
+	require.Len(t, board.claims, 1)
+	assert.Equal(t, "task-nc", board.claims[0].ID)
+	require.Len(t, board.updates, 1)
+	assert.Equal(t, "task-nc", board.updates[0].ID)
+	assert.Equal(t, "completed", board.updates[0].Status)
 }
