@@ -8,6 +8,13 @@ import (
 
 const gitignoreContent = "local/\n"
 
+const starterContext = `# Project Context
+
+<!-- This file is auto-loaded into agent context. -->
+<!-- Run 'shelly index' to populate it, or edit manually. -->
+<!-- Reference deeper docs in .shelly/knowledge/ for on-demand access. -->
+`
+
 const skeletonConfig = `providers:
   - name: default
     kind: anthropic        # anthropic | openai | grok | gemini
@@ -47,12 +54,20 @@ func BootstrapWithConfig(d Dir, config []byte) error {
 		return fmt.Errorf("shellydir: create skills dir: %w", err)
 	}
 
+	if err := os.MkdirAll(d.KnowledgeDir(), 0o750); err != nil {
+		return fmt.Errorf("shellydir: create knowledge dir: %w", err)
+	}
+
 	if err := EnsureStructure(d); err != nil {
 		return err
 	}
 
 	if err := ensureFile(d.ConfigPath(), config); err != nil {
 		return fmt.Errorf("shellydir: config: %w", err)
+	}
+
+	if err := ensureFile(d.ContextPath(), []byte(starterContext)); err != nil {
+		return fmt.Errorf("shellydir: context: %w", err)
 	}
 
 	return nil

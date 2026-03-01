@@ -46,6 +46,7 @@ type Engine struct {
 	browserToolbox *shellybrowser.Browser
 	dir            shellydir.Dir
 	projectCtx     projectctx.Context
+	knowledgeStale bool
 	skills         []skill.Skill
 
 	mu        sync.RWMutex
@@ -246,6 +247,10 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 // Events returns the engine's event bus.
 func (e *Engine) Events() *EventBus { return e.events }
 
+// KnowledgeStale reports whether the knowledge graph is outdated relative to
+// the latest git commit. The check runs during engine initialization.
+func (e *Engine) KnowledgeStale() bool { return e.knowledgeStale }
+
 // State returns the shared state store, or nil if state is not enabled.
 func (e *Engine) State() *state.Store { return e.store }
 
@@ -317,11 +322,12 @@ func (e *Engine) RemoveSession(id string) bool {
 // connections concurrently to reduce startup latency.
 func (e *Engine) parallelInit(ctx context.Context, cfg Config, dir shellydir.Dir, status func(string)) error {
 	var (
-		skillsErr    error
-		mcpErr       error
-		loadedSkills []skill.Skill
-		loadedCtx    projectctx.Context
-		wg           sync.WaitGroup
+		skillsErr      error
+		mcpErr         error
+		loadedSkills   []skill.Skill
+		loadedCtx      projectctx.Context
+		knowledgeStale bool
+		wg             sync.WaitGroup
 	)
 
 	skillsDir := dir.SkillsDir()
@@ -343,12 +349,8 @@ func (e *Engine) parallelInit(ctx context.Context, cfg Config, dir shellydir.Dir
 		status("Loading project context...")
 		start := time.Now()
 		projectRoot := filepath.Dir(dir.Root())
-		if projectctx.IsStale(projectRoot, dir) {
-			if _, err := projectctx.Generate(projectRoot, dir); err != nil {
-				status(fmt.Sprintf("Context generation failed: %s", err))
-			}
-		}
 		loadedCtx = projectctx.Load(dir, projectRoot)
+		knowledgeStale = projectctx.IsKnowledgeStale(projectRoot, dir)
 		status(fmt.Sprintf("Project context ready (%s)", time.Since(start).Round(time.Millisecond)))
 	})
 
@@ -361,6 +363,7 @@ func (e *Engine) parallelInit(ctx context.Context, cfg Config, dir shellydir.Dir
 	// Assign after all goroutines are done to avoid data races.
 	e.skills = loadedSkills
 	e.projectCtx = loadedCtx
+	e.knowledgeStale = knowledgeStale
 
 	if skillsErr != nil {
 		return skillsErr

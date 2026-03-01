@@ -93,9 +93,18 @@ func Apply(t Template, shellyDirPath string, force bool) error {
 		return fmt.Errorf("templates: create skills dir: %w", err)
 	}
 
+	if err := os.MkdirAll(dir.KnowledgeDir(), 0o750); err != nil {
+		return fmt.Errorf("templates: create knowledge dir: %w", err)
+	}
+
 	// Ensure local/ and .gitignore.
 	if err := shellydir.EnsureStructure(dir); err != nil {
 		return fmt.Errorf("templates: ensure structure: %w", err)
+	}
+
+	// Create starter context.md if it doesn't exist.
+	if err := ensureFile(dir.ContextPath(), []byte(starterContext)); err != nil {
+		return fmt.Errorf("templates: context: %w", err)
 	}
 
 	// Marshal and write config.
@@ -127,6 +136,29 @@ func Apply(t Template, shellyDirPath string, force bool) error {
 	}
 
 	return nil
+}
+
+const starterContext = `# Project Context
+
+<!-- This file is auto-loaded into agent context. -->
+<!-- Run 'shelly index' to populate it, or edit manually. -->
+<!-- Reference deeper docs in .shelly/knowledge/ for on-demand access. -->
+`
+
+// ensureFile creates a file with the given content only if it does not exist.
+func ensureFile(path string, content []byte) error {
+	f, err := os.OpenFile(filepath.Clean(path), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		if os.IsExist(err) {
+			return nil
+		}
+		return err
+	}
+	_, writeErr := f.Write(content)
+	if closeErr := f.Close(); writeErr == nil {
+		writeErr = closeErr
+	}
+	return writeErr
 }
 
 // load parses a template from the embedded filesystem and resolves skill

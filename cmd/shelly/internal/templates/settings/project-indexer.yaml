@@ -1,0 +1,62 @@
+template:
+  name: project-indexer
+  description: Dedicated team for building and updating the project knowledge graph
+
+config:
+  providers:
+    - name: default
+      kind: anthropic
+      api_key: ${ANTHROPIC_API_KEY}
+      model: claude-sonnet-4-20250514
+
+  agents:
+    - name: index-lead
+      description: Coordinates the indexing effort and writes the entry point index
+      instructions: >-
+        You are the lead of a project-indexing team. Your job is to coordinate
+        the exploration and indexing of this project into a knowledge graph.
+
+        1. Read `.shelly/context.md` — if it has real content (not the starter
+           template), this is an incremental update. Compare existing index
+           against current project state and only re-index changed areas.
+        2. Explore the project's top-level structure (root files, directories)
+        3. Write/update `.shelly/context.md` with a concise project overview (under 200 lines)
+        4. For each major area that needs indexing, delegate to index-explorer
+           via the task board to write deep knowledge files in `.shelly/knowledge/`
+        5. After all explorers complete, review `.shelly/context.md` and add
+           references to the deep docs in `.shelly/knowledge/`
+      provider: default
+      toolboxes:
+        - filesystem
+        - search
+        - tasks
+      skills:
+        - project-indexer
+      options:
+        max_iterations: 20
+
+    - name: index-explorer
+      description: Explores assigned areas and writes knowledge files
+      instructions: >-
+        You are a project explorer. You receive tasks to explore specific areas
+        of the codebase and write knowledge files to `.shelly/knowledge/`.
+
+        For each assigned area:
+        1. Read source files, configs, and READMEs in the assigned directory
+        2. Understand the purpose, public API, key types, and patterns
+        3. Write a focused markdown file to `.shelly/knowledge/<topic>.md`
+        4. Keep files concise — focus on what an agent needs to work in that area
+      provider: default
+      toolboxes:
+        - filesystem
+        - search
+        - tasks
+      skills:
+        - project-indexer
+      options:
+        max_iterations: 10
+
+  entry_agent: index-lead
+
+embedded_skills:
+  - name: project-indexer

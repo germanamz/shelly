@@ -12,9 +12,9 @@ A systematic comparison of the codebase against `FEATURE_SPEC.md` across all 21 
 |---|------|----------|--------|---------|
 | 6 | Context generation is orphaned — `Generate()` never called | **High** | ~~Dead Code~~ **Done** | §12 |
 | 7 | No runtime staleness detection — `IsStale()` never called | **High** | ~~Not Wired~~ **Done** | §12 |
-| 8 | Generator produces only shallow package listing | **High** | ~~Incomplete~~ **Done** | §12 |
-| 9 | No knowledge graph system (`.shelly/knowledge/`) | **High** | Not Implemented | §12.2 |
-| 10 | No `project-indexer` skill in any template | **High** | Not Implemented | §12.2 |
+| 8 | Generator produces only shallow package listing | **High** | ~~Incomplete~~ **Done** (removed — replaced by agent-driven indexing) | §12 |
+| 9 | No knowledge graph system (`.shelly/knowledge/`) | **High** | ~~Not Implemented~~ **Done** | §12.2 |
+| 10 | No `project-indexer` skill in any template | **High** | ~~Not Implemented~~ **Done** | §12.2 |
 | 11 | Delegation leaks parent toolboxes to child agents | **High** | Spec Violation | §6.3 |
 | 12 | Task board status update errors silently discarded | Medium | No Error Handling | §6.5 |
 | 13 | No task claim rollback on child failure | Medium | Missing Cleanup | §6.5 |
@@ -598,9 +598,9 @@ For completeness, all other spec sections are fully implemented:
 These form a connected feature area and should be implemented together:
 
 2. ~~**#6 Wire `Generate()` + `IsStale()` into engine** — Minimal effort, unlocks the generated context source~~ **Done**
-3. ~~**#8 Enhance generator output** — Phase 1 (README descriptions) provides high value for low effort~~ **Done**
-4. **#9 Bootstrap knowledge graph skeleton** — Add `context.md` and `knowledge/` to bootstrap + templates
-5. **#10 Create `project-indexer` skill** — Enables the agent-driven knowledge graph vision
+3. ~~**#8 Enhance generator output** — Phase 1 (README descriptions) provides high value for low effort~~ **Done** (removed — replaced by agent-driven indexing)
+4. ~~**#9 Bootstrap knowledge graph skeleton** — Add `context.md` and `knowledge/` to bootstrap + templates~~ **Done**
+5. ~~**#10 Create `project-indexer` skill** — Enables the agent-driven knowledge graph vision~~ **Done**
 
 ### Medium Priority
 

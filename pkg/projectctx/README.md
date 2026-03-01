@@ -1,21 +1,38 @@
 # projectctx
 
-Package `projectctx` loads curated context and generates/caches a structural project index for injection into agent system prompts.
+Package `projectctx` loads curated context and checks knowledge graph staleness for injection into agent system prompts.
 
 ## Purpose
 
-Agents need to understand the project they are working in. This package assembles project context from three sources and combines them into a single `Context` value:
+Agents need to understand the project they are working in. This package assembles project context from two sources and combines them into a single `Context` value:
 
 1. **External context** -- context files from other AI coding tools, loaded from the project root:
    - `CLAUDE.md` (Claude Code)
    - `.cursorrules` (Cursor legacy)
    - `.cursor/rules/*.mdc` (Cursor modern, sorted alphabetically, YAML frontmatter stripped)
-2. **Curated context** -- hand-written `*.md` files in the `.shelly/` root (e.g., `context.md`).
-3. **Generated index** -- an auto-generated structural overview cached in `.shelly/local/context-cache.json`.
+2. **Curated context** -- hand-written `*.md` files in the `.shelly/` root (e.g., `context.md`). These serve as the knowledge graph entry points, auto-loaded into every agent's system prompt.
 
-External context appears first in the combined output, followed by curated, then generated -- so project-specific Shelly context takes precedence by appearing later.
+External context appears first in the combined output, followed by curated -- so project-specific Shelly context takes precedence by appearing later.
 
 The combined context is injected into agent system prompts via `agent.Options.Context`.
+
+### Knowledge Graph
+
+The knowledge graph is a filesystem-based markdown graph that agents build and maintain:
+
+```
+.shelly/
+  context.md              <- Entry point (auto-loaded into prompts via LoadCurated)
+  *.md                    <- Additional indexes (auto-loaded)
+  knowledge/              <- Deep nodes (read on-demand by agents)
+    architecture.md
+    api-contracts.md
+    ...
+```
+
+**Entry points** (`.shelly/*.md`) are loaded automatically. **Deep nodes** (`.shelly/knowledge/*.md`) are read on-demand by agents when needed.
+
+The knowledge graph is built by a dedicated **project-indexing team** (`shelly index`), not by task agents.
 
 ## Exported Types
 
@@ -23,9 +40,8 @@ The combined context is injected into agent system prompts via `agent.Options.Co
 
 ```go
 type Context struct {
-    External  string // Content from external AI tool context files.
-    Curated   string // Content from curated *.md files in .shelly/.
-    Generated string // Auto-generated structural index.
+    External string // Content from external AI tool context files.
+    Curated  string // Content from curated *.md files in .shelly/.
 }
 ```
 
@@ -39,7 +55,7 @@ type Context struct {
 func Load(d shellydir.Dir, projectRoot string) Context
 ```
 
-Assembles project context from all three sources (external, curated, generated cache). All sources are best-effort: missing files are silently skipped.
+Assembles project context from both sources (external, curated). All sources are best-effort: missing files are silently skipped.
 
 ### LoadCurated
 
@@ -55,35 +71,15 @@ Reads all `*.md` files from the `.shelly/` root directory (via `Dir.ContextFiles
 func LoadExternal(projectRoot string) string
 ```
 
-Reads context files from external AI coding tools at the project root:
-- `CLAUDE.md`
-- `.cursorrules`
-- `.cursor/rules/*.mdc` (sorted alphabetically, YAML frontmatter stripped)
+Reads context files from external AI coding tools at the project root. Returns concatenated content separated by `\n\n`. Missing files and empty files are silently skipped.
 
-Returns concatenated content separated by `\n\n`. Missing files and empty files are silently skipped.
-
-### Generate
+### IsKnowledgeStale
 
 ```go
-func Generate(projectRoot string, d shellydir.Dir) (string, error)
+func IsKnowledgeStale(projectRoot string, d shellydir.Dir) bool
 ```
 
-Creates a structural project index and writes it to the cache file at `.shelly/local/context-cache.json`. Creates the `local/` directory if needed. Returns the generated index string.
-
-### IsStale
-
-```go
-func IsStale(projectRoot string, d shellydir.Dir) bool
-```
-
-Checks whether the cached index is older than the project's `go.mod`. Returns `true` if the cache file is missing or stale. Returns `false` if there is no `go.mod` (staleness cannot be determined).
-
-## Generated Index Contents
-
-The structural index includes:
-- Go module path (from `go.mod`)
-- Entry points (`cmd/*/main.go` patterns)
-- Package listing (`pkg/` subdirectories containing `.go` files, depth-limited to 4 levels)
+Checks whether the knowledge graph entry point (`context.md`) is outdated relative to the latest git commit. Returns `true` if `context.md` is missing or older than the most recent commit. Returns `false` if git is not available or the project is not a git repository (fail open).
 
 ## Usage
 
@@ -93,10 +89,9 @@ d := shellydir.New(".shelly")
 // Load all context sources.
 ctx := projectctx.Load(d, "/path/to/project")
 
-// Check if regeneration is needed.
-if projectctx.IsStale("/path/to/project", d) {
-    generated, err := projectctx.Generate("/path/to/project", d)
-    // ...
+// Check if knowledge graph needs refreshing.
+if projectctx.IsKnowledgeStale("/path/to/project", d) {
+    // Suggest: "Run 'shelly index' to refresh."
 }
 
 // Inject into agent options.

@@ -19,8 +19,13 @@ config:
         - exec
         - search
         - git
+      skills:
+        - project-indexer
       options:
         max_iterations: 10
         max_delegation_depth: 2
 
   entry_agent: assistant
+
+embedded_skills:
+  - name: project-indexer

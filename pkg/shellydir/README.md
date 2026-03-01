@@ -6,7 +6,7 @@ Package `shellydir` encapsulates all path knowledge for the `.shelly/` project d
 
 The `.shelly/` directory is the single source of truth for a Shelly instance running in a project. This package provides:
 
-- **`Dir`** -- a zero-dependency value object with path accessors for config, context, skills, permissions, notes, reflections, and local runtime state.
+- **`Dir`** -- a zero-dependency value object with path accessors for config, context, skills, knowledge, permissions, notes, reflections, and local runtime state.
 - **`Bootstrap`** / **`BootstrapWithConfig`** -- creates a `.shelly/` directory from scratch with the full initial structure and a skeleton (or custom) config.
 - **`EnsureStructure`** -- creates the `local/` directory and `.gitignore` if missing (idempotent).
 - **`MigratePermissions`** -- moves the legacy `permissions.json` from `.shelly/` to `.shelly/local/` (idempotent).
@@ -17,18 +17,20 @@ The `.shelly/` directory is the single source of truth for a Shelly instance run
 .shelly/
   .gitignore            # contains "local/"
   config.yaml           # main config (committed)
-  context.md            # curated project instructions (committed)
+  context.md            # curated project instructions / knowledge graph entry point (committed)
   skills/               # skill folders (committed)
     code-review/
       SKILL.md
+  knowledge/            # deep knowledge graph nodes (committed, read on-demand by agents)
+    architecture.md
+    api-contracts.md
   local/                # gitignored runtime state
     permissions.json    # permission grants
-    context-cache.json  # auto-generated project index
     notes/              # agent notes (created by consumers, not this package)
     reflections/        # agent reflections (created by consumers, not this package)
 ```
 
-`Bootstrap` creates the root, `skills/`, `local/`, `.gitignore`, and `config.yaml`. The `notes/` and `reflections/` directories are not created by this package; `Dir` only provides path accessors for them.
+`Bootstrap` creates the root, `skills/`, `knowledge/`, `local/`, `.gitignore`, `config.yaml`, and a starter `context.md`. The `notes/` and `reflections/` directories are not created by this package; `Dir` only provides path accessors for them.
 
 ## Exported Types
 
@@ -48,9 +50,9 @@ A value object that resolves paths within a `.shelly/` directory. Created with `
 | `ConfigPath()` | `.shelly/config.yaml` |
 | `ContextPath()` | `.shelly/context.md` |
 | `SkillsDir()` | `.shelly/skills` |
+| `KnowledgeDir()` | `.shelly/knowledge` |
 | `LocalDir()` | `.shelly/local` |
 | `PermissionsPath()` | `.shelly/local/permissions.json` |
-| `ContextCachePath()` | `.shelly/local/context-cache.json` |
 | `NotesDir()` | `.shelly/local/notes` |
 | `ReflectionsDir()` | `.shelly/local/reflections` |
 | `GitignorePath()` | `.shelly/.gitignore` |
@@ -76,7 +78,7 @@ Creates a `Dir` rooted at the given path. The path is converted to an absolute p
 func Bootstrap(d Dir) error
 ```
 
-Creates the `.shelly/` directory from scratch with a full initial structure: root, `skills/`, `local/`, `.gitignore`, and a skeleton `config.yaml`. Existing files are never overwritten, making it safe to run on an already-initialized directory. Delegates to `BootstrapWithConfig` with a built-in skeleton config.
+Creates the `.shelly/` directory from scratch with a full initial structure: root, `skills/`, `knowledge/`, `local/`, `.gitignore`, a skeleton `config.yaml`, and a starter `context.md`. Existing files are never overwritten, making it safe to run on an already-initialized directory. Delegates to `BootstrapWithConfig` with a built-in skeleton config.
 
 ### BootstrapWithConfig
 
@@ -84,7 +86,7 @@ Creates the `.shelly/` directory from scratch with a full initial structure: roo
 func BootstrapWithConfig(d Dir, config []byte) error
 ```
 
-Same as `Bootstrap` but uses the provided config content instead of the skeleton default. Creates root and `skills/` directories, calls `EnsureStructure` for `local/` and `.gitignore`, then writes the config file. Existing files are never overwritten.
+Same as `Bootstrap` but uses the provided config content instead of the skeleton default. Creates root, `skills/`, and `knowledge/` directories, calls `EnsureStructure` for `local/` and `.gitignore`, then writes the config file and starter `context.md`. Existing files are never overwritten.
 
 ### EnsureStructure
 
@@ -126,6 +128,7 @@ if d.Exists() {
 
 cfg := d.ConfigPath()        // ".shelly/config.yaml"
 perms := d.PermissionsPath() // ".shelly/local/permissions.json"
+knowledge := d.KnowledgeDir() // ".shelly/knowledge"
 ctxFiles := d.ContextFiles() // all *.md files in .shelly/
 ```
 

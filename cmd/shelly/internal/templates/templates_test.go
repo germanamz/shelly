@@ -59,8 +59,26 @@ func TestApply(t *testing.T) {
 		assert.DirExists(t, filepath.Join(shellyDir, "local"))
 		assert.FileExists(t, filepath.Join(shellyDir, ".gitignore"))
 
-		// No embedded skills for simple-assistant.
-		assert.Empty(t, tmpl.EmbeddedSkills)
+		// Knowledge dir should exist.
+		assert.DirExists(t, filepath.Join(shellyDir, "knowledge"))
+
+		// context.md should exist with starter content.
+		contextPath := filepath.Join(shellyDir, "context.md")
+		assert.FileExists(t, contextPath)
+		data, err := os.ReadFile(contextPath) //nolint:gosec // test code with controlled paths
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "Project Context")
+
+		// project-indexer skill should be embedded.
+		assert.NotEmpty(t, tmpl.EmbeddedSkills)
+		hasIndexer := false
+		for _, sk := range tmpl.EmbeddedSkills {
+			if sk.Name == "project-indexer" {
+				hasIndexer = true
+				break
+			}
+		}
+		assert.True(t, hasIndexer, "should include project-indexer skill")
 	})
 
 	t.Run("coding team with skills", func(t *testing.T) {

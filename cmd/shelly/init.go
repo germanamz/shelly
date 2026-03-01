@@ -40,6 +40,7 @@ func runInit(args []string) error {
 			return err
 		}
 		fmt.Printf("Initialized %q template in %s\n", *templateName, *shellyDir)
+		fmt.Println("Run 'shelly index' to build the project knowledge graph.")
 		return nil
 	}
 

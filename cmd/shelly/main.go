@@ -33,11 +33,17 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "index":
+			if err := runIndex(os.Args[2:]); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		}
 	}
 
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: shelly [command] [flags]\n\nCommands:\n  init      Initialize a new project from a template\n  config    Interactive configuration wizard\n\nFlags:\n")
+		fmt.Fprintf(os.Stderr, "Usage: shelly [command] [flags]\n\nCommands:\n  init      Initialize a new project from a template\n  config    Interactive configuration wizard\n  index     Build or update the project knowledge graph\n\nFlags:\n")
 		flag.PrintDefaults()
 	}
 

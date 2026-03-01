@@ -18,7 +18,7 @@ func TestDir_PathAccessors(t *testing.T) {
 	assert.Equal(t, "/project/.shelly/skills", d.SkillsDir())
 	assert.Equal(t, "/project/.shelly/local", d.LocalDir())
 	assert.Equal(t, "/project/.shelly/local/permissions.json", d.PermissionsPath())
-	assert.Equal(t, "/project/.shelly/local/context-cache.json", d.ContextCachePath())
+	assert.Equal(t, "/project/.shelly/knowledge", d.KnowledgeDir())
 	assert.Equal(t, "/project/.shelly/local/notes", d.NotesDir())
 	assert.Equal(t, "/project/.shelly/local/reflections", d.ReflectionsDir())
 	assert.Equal(t, "/project/.shelly/.gitignore", d.GitignorePath())
@@ -126,8 +126,18 @@ func TestBootstrap(t *testing.T) {
 	_, err = os.Stat(d.GitignorePath())
 	require.NoError(t, err)
 
+	// knowledge/ should exist.
+	info, err = os.Stat(d.KnowledgeDir())
+	require.NoError(t, err)
+	assert.True(t, info.IsDir())
+
+	// context.md should exist with starter content.
+	data, err := os.ReadFile(d.ContextPath())
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "Project Context")
+
 	// config.yaml should exist with skeleton content.
-	data, err := os.ReadFile(d.ConfigPath())
+	data, err = os.ReadFile(d.ConfigPath())
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "entry_agent:")
 }

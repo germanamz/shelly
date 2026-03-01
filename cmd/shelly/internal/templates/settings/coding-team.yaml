@@ -63,6 +63,7 @@ config:
         - notes
       skills:
         - explorer-workflow
+        - project-indexer
       effects:
         - kind: observation_mask
       options:
@@ -151,3 +152,4 @@ embedded_skills:
   - name: planner-workflow
   - name: coder-workflow
   - name: reviewer-workflow
+  - name: project-indexer

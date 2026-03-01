@@ -18,18 +18,8 @@ func TestContext_String(t *testing.T) {
 	}{
 		{
 			name: "all fields",
-			ctx:  Context{External: "external", Curated: "curated", Generated: "generated"},
-			want: "external\n\ncurated\n\ngenerated",
-		},
-		{
-			name: "external and curated",
 			ctx:  Context{External: "external", Curated: "curated"},
 			want: "external\n\ncurated",
-		},
-		{
-			name: "curated and generated",
-			ctx:  Context{Curated: "curated content", Generated: "generated content"},
-			want: "curated content\n\ngenerated content",
 		},
 		{
 			name: "external only",
@@ -40,11 +30,6 @@ func TestContext_String(t *testing.T) {
 			name: "curated only",
 			ctx:  Context{Curated: "curated content"},
 			want: "curated content",
-		},
-		{
-			name: "generated only",
-			ctx:  Context{Generated: "generated content"},
-			want: "generated content",
 		},
 		{
 			name: "empty",
@@ -99,16 +84,10 @@ func TestLoad(t *testing.T) {
 	// Create curated content.
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "context.md"), []byte("Project info"), 0o600))
 
-	// Create generated cache.
-	localDir := filepath.Join(tmp, "local")
-	require.NoError(t, os.MkdirAll(localDir, 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(localDir, "context-cache.json"), []byte("Generated index"), 0o600))
-
 	d := shellydir.New(tmp)
 	ctx := Load(d, filepath.Dir(tmp))
 
 	assert.Equal(t, "Project info", ctx.Curated)
-	assert.Equal(t, "Generated index", ctx.Generated)
 }
 
 func TestLoad_MissingDir(t *testing.T) {
@@ -116,23 +95,4 @@ func TestLoad_MissingDir(t *testing.T) {
 	ctx := Load(d, "/nonexistent")
 
 	assert.Empty(t, ctx.Curated)
-	assert.Empty(t, ctx.Generated)
-}
-
-func TestIsStale_NoCacheFile(t *testing.T) {
-	tmp := t.TempDir()
-	d := shellydir.New(filepath.Join(tmp, ".shelly"))
-
-	assert.True(t, IsStale(tmp, d))
-}
-
-func TestIsStale_NoGoMod(t *testing.T) {
-	tmp := t.TempDir()
-	shellyRoot := filepath.Join(tmp, ".shelly")
-	require.NoError(t, os.MkdirAll(filepath.Join(shellyRoot, "local"), 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(shellyRoot, "local", "context-cache.json"), []byte("cached"), 0o600))
-
-	d := shellydir.New(shellyRoot)
-	// No go.mod → not stale (can't determine).
-	assert.False(t, IsStale(tmp, d))
 }
