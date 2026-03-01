@@ -18,6 +18,12 @@ import (
 )
 
 func main() {
+	// Load .env before subcommand dispatch so all commands have access to API keys.
+	if err := loadDotEnv(".env"); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Subcommand dispatch: check os.Args before flag.Parse().
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -49,14 +55,8 @@ func main() {
 
 	configPath := flag.String("config", "", "path to configuration file (default: .shelly/config.yaml or shelly.yaml)")
 	shellyDir := flag.String("shelly-dir", ".shelly", "path to .shelly directory")
-	envFile := flag.String("env", ".env", "path to .env file (ignored if missing)")
 	agentName := flag.String("agent", "", "agent to start with (overrides entry_agent in config)")
 	flag.Parse()
-
-	if err := loadDotEnv(*envFile); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
 
 	if err := run(*configPath, *shellyDir, *agentName); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)

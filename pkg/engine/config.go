@@ -158,7 +158,7 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, fmt.Errorf("engine: parse config: %w", err)
 	}
 
-	expandConfigStrings(&cfg)
+	ExpandConfigStrings(&cfg)
 
 	return cfg, nil
 }
@@ -180,7 +180,11 @@ func LoadConfigRaw(path string) (Config, error) {
 	return cfg, nil
 }
 
-func expandConfigStrings(cfg *Config) {
+// ExpandConfigStrings expands ${VAR} environment variable references in all
+// string fields of cfg. This is called automatically by LoadConfig but must be
+// called manually when a Config is constructed programmatically (e.g. from an
+// embedded template).
+func ExpandConfigStrings(cfg *Config) {
 	cfg.EntryAgent = os.ExpandEnv(cfg.EntryAgent)
 	cfg.Filesystem.PermissionsFile = os.ExpandEnv(cfg.Filesystem.PermissionsFile)
 	cfg.Git.WorkDir = os.ExpandEnv(cfg.Git.WorkDir)

@@ -51,6 +51,7 @@ func runIndex(args []string) error {
 
 	// Build engine config from the indexer template.
 	cfg := tmpl.Config
+	engine.ExpandConfigStrings(&cfg)
 	cfg.ShellyDir = *shellyDirPath
 	cfg.StatusFunc = func(msg string) {
 		fmt.Fprintf(os.Stderr, "\r\033[K  %s", msg)
