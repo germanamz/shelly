@@ -191,7 +191,7 @@ Skip the full wizard by bootstrapping from a pre-built template:
 ```bash
 ./bin/shelly init --list                    # List available templates
 ./bin/shelly init --template simple-assistant  # Single agent setup
-./bin/shelly init --template dev-team          # Orchestrator + planner + coder
+./bin/shelly init --template dev-team          # Lead + explorer + planner + coder + reviewer
 ```
 
 Templates define provider **slots** (e.g. "primary", "fast") that you map to your providers during setup. Only provider configuration is interactive — agent structure comes from the template.

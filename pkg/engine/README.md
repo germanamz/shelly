@@ -315,7 +315,7 @@ agents:
 
 When `skills` is non-empty, the engine filters the loaded skills to only those matching the listed names. When empty or omitted, the agent receives all engine-level skills (backward compatible). This keeps each agent's system prompt focused on the workflow skills relevant to its role. Skills with descriptions are available on-demand via the `load_skill` tool; skills without descriptions are inlined into the system prompt.
 
-The `dev-team` config template pre-assigns workflow skills to each agent (orchestrator-workflow, planner-workflow, coder-workflow). See `pkg/skill/README.md` for skill authoring details.
+The `dev-team` config template pre-assigns workflow skills to each agent (lead-workflow, explorer-workflow, planner-workflow, coder-workflow, reviewer-workflow). See `pkg/skill/README.md` for skill authoring details.
 
 ### Toolbox Assignment and Inheritance
 

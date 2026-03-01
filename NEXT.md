@@ -22,7 +22,7 @@ A systematic comparison of the codebase against `FEATURE_SPEC.md` across all 21 
 | 2 | Template naming: `dev-team` → `coding-team` | Low | ~~Naming Mismatch~~ **Done** | §16.2 |
 | 3 | CLI `--template list` vs `--list` flag | Low | ~~Spec/Code Divergence~~ **Done** | §16.2 |
 | 4 | Grok constructor doesn't set Name/MaxTokens | Low | ~~API Inconsistency~~ **Done** | §2.2 |
-| 5 | Spec describes dev-team as 3 agents, code has 5 | Low | Spec Outdated | §16.2 |
+| 5 | Spec describes dev-team as 3 agents, code has 5 | Low | ~~Spec Outdated~~ **Done** | §16.2 |
 
 ---
 
@@ -490,7 +490,7 @@ The engine sets `Name` and `MaxTokens` post-construction (`pkg/engine/provider.g
 **Problem:** The spec describes the multi-agent template as:
 
 ```
-./bin/shelly init --template dev-team           # Orchestrator + planner + coder
+./bin/shelly init --template dev-team           # Lead + explorer + planner + coder + reviewer
 ```
 
 But the actual `coding-team.yaml` template has 5 agents: **lead, explorer, planner, coder, reviewer** — which is more than the 3 described.

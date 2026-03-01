@@ -1053,7 +1053,7 @@ Pre-built configurations for quick setup:
 ```bash
 ./bin/shelly init --list                       # List available templates
 ./bin/shelly init --template simple-assistant   # Single agent setup
-./bin/shelly init --template dev-team           # Orchestrator + planner + coder
+./bin/shelly init --template dev-team           # Lead + explorer + planner + coder + reviewer
 ```
 
 Templates define provider slots (e.g., "primary", "fast") mapped to actual providers during setup. Agent structure, embedded skills, and domain-specific knowledge graph skills come from the template.
