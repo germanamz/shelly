@@ -1051,7 +1051,7 @@ Stack-based screen navigation with main menu:
 Pre-built configurations for quick setup:
 
 ```bash
-./bin/shelly init --template list              # List available templates
+./bin/shelly init --list                       # List available templates
 ./bin/shelly init --template simple-assistant   # Single agent setup
 ./bin/shelly init --template dev-team           # Orchestrator + planner + coder
 ```

@@ -189,7 +189,7 @@ task build              # Build binary to ./bin/shelly
 Skip the full wizard by bootstrapping from a pre-built template:
 
 ```bash
-./bin/shelly init --template list           # List available templates
+./bin/shelly init --list                    # List available templates
 ./bin/shelly init --template simple-assistant  # Single agent setup
 ./bin/shelly init --template dev-team          # Orchestrator + planner + coder
 ```
