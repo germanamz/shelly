@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/chats/role"
 	"github.com/germanamz/shelly/pkg/modeladapter"
+	"github.com/germanamz/shelly/pkg/shellydir"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -306,4 +308,40 @@ func TestSession_ConcurrentSendBlocked(t *testing.T) {
 	sess.mu.Lock()
 	sess.active = false
 	sess.mu.Unlock()
+}
+
+func TestEngine_GeneratesContextCacheWhenStale(t *testing.T) {
+	RegisterProvider("mock", func(_ ProviderConfig) (modeladapter.Completer, error) {
+		return &mockCompleter{reply: "ok"}, nil
+	})
+
+	// Set up a project dir with go.mod and .shelly dir.
+	projectDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, "go.mod"), []byte("module example.com/test\n\ngo 1.25\n"), 0o600))
+
+	shellyPath := filepath.Join(projectDir, ".shelly")
+	require.NoError(t, os.MkdirAll(shellyPath, 0o750))
+
+	dir := shellydir.New(shellyPath)
+
+	// Cache file should not exist yet.
+	_, err := os.Stat(dir.ContextCachePath())
+	require.True(t, os.IsNotExist(err))
+
+	cfg := Config{
+		ShellyDir: shellyPath,
+		Providers: []ProviderConfig{{Name: "p1", Kind: "mock"}},
+		Agents:    []AgentConfig{{Name: "a1", Provider: "p1"}},
+	}
+
+	eng, err := New(context.Background(), cfg)
+	require.NoError(t, err)
+	defer func() { _ = eng.Close() }()
+
+	// After engine init, the cache file should exist.
+	_, err = os.Stat(dir.ContextCachePath())
+	require.NoError(t, err, "context cache file should be created during engine init")
+
+	// The project context generated field should contain module info.
+	assert.Contains(t, eng.projectCtx.Generated, "example.com/test")
 }

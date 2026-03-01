@@ -342,7 +342,13 @@ func (e *Engine) parallelInit(ctx context.Context, cfg Config, dir shellydir.Dir
 	wg.Go(func() {
 		status("Loading project context...")
 		start := time.Now()
-		loadedCtx = projectctx.Load(dir, filepath.Dir(dir.Root()))
+		projectRoot := filepath.Dir(dir.Root())
+		if projectctx.IsStale(projectRoot, dir) {
+			if _, err := projectctx.Generate(projectRoot, dir); err != nil {
+				status(fmt.Sprintf("Context generation failed: %s", err))
+			}
+		}
+		loadedCtx = projectctx.Load(dir, projectRoot)
 		status(fmt.Sprintf("Project context ready (%s)", time.Since(start).Round(time.Millisecond)))
 	})
 
