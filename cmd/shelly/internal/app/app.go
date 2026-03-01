@@ -129,14 +129,19 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.chatView.SetProcessing(false)
 		m.updateTokenCounter()
 
+		// Flush any agents still in the live view. Send() has returned so
+		// all agents are done; their AgentEndMsg may not have arrived yet
+		// due to the event-bus goroutine hop.
+		flushCmd := m.chatView.FlushAll()
+
 		if msg.Err != nil && m.ctx.Err() == nil {
 			errLine := styles.ErrorBlockStyle.Width(m.width).Render(
 				lipgloss.NewStyle().Foreground(styles.ColorError).Render("error: " + msg.Err.Error()),
 			)
-			return m, tea.Println("\n" + errLine + "\n")
+			return m, tea.Batch(flushCmd, tea.Println("\n"+errLine+"\n"))
 		}
 
-		return m, nil
+		return m, flushCmd
 
 	case msgs.AskUserMsg:
 		return m.handleAskUser(msg)

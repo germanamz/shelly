@@ -303,6 +303,46 @@ func (m *ChatViewModel) EndAgent(agentName, _ string) tea.Cmd {
 	return nil
 }
 
+// FlushAll ends all remaining agents and emits their collapsed summaries via
+// tea.Println. Call this when the send completes to avoid stale live-view
+// content caused by AgentEndMsg arriving after SendCompleteMsg.
+func (m *ChatViewModel) FlushAll() tea.Cmd {
+	var cmds []tea.Cmd
+
+	// End sub-agents first so their containers are marked Done.
+	for name, sa := range m.subAgents {
+		sa.Container.Done = true
+		if sa.Container.EndTime.IsZero() {
+			sa.Container.EndTime = time.Now()
+		}
+		delete(m.subAgents, name)
+	}
+
+	// End all top-level agents and emit summaries.
+	for _, name := range m.agentOrder {
+		ac, ok := m.agents[name]
+		if !ok {
+			continue
+		}
+		ac.Done = true
+		if ac.EndTime.IsZero() {
+			ac.EndTime = time.Now()
+		}
+		summary := ac.CollapsedSummary()
+		if summary != "" {
+			cmds = append(cmds, tea.Println("\n"+summary+"\n"))
+		}
+	}
+
+	m.agents = make(map[string]*AgentContainer)
+	m.agentOrder = nil
+
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
+}
+
 // SetProcessing sets the processing state and picks a random spinner message.
 func (m *ChatViewModel) SetProcessing(on bool) {
 	m.Processing = on
