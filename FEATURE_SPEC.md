@@ -24,12 +24,14 @@ Each provider translates between Shelly's internal chat/message types and the pr
 
 ### 2.2 Supported Providers
 
-| Provider | Kind | Default Context Window | Auth Scheme | Notes |
-|----------|------|----------------------|-------------|-------|
-| Anthropic | `anthropic` | 200,000 | `x-api-key` header | System prompt as top-level `system` field; `anthropic-version: 2023-06-01` header |
-| OpenAI | `openai` | 128,000 | Bearer token | System prompt as `"system"` role message; tool results as separate `"tool"` role messages |
-| Grok (xAI) | `grok` | 131,000 | Bearer token | OpenAI-compatible wire format; default base URL `https://api.x.ai` |
-| Gemini (Google) | `gemini` | 1,000,000 | `x-goog-api-key` header | Strict user/model role alternation; `thoughtSignature` round-tripping via metadata |
+
+| Provider        | Kind        | Default Context Window | Auth Scheme             | Notes                                                                                     |
+| --------------- | ----------- | ---------------------- | ----------------------- | ----------------------------------------------------------------------------------------- |
+| Anthropic       | `anthropic` | 200,000                | `x-api-key` header      | System prompt as top-level `system` field; `anthropic-version: 2023-06-01` header         |
+| OpenAI          | `openai`    | 128,000                | Bearer token            | System prompt as `"system"` role message; tool results as separate `"tool"` role messages |
+| Grok (xAI)      | `grok`      | 131,000                | Bearer token            | OpenAI-compatible wire format; default base URL `https://api.x.ai`                        |
+| Gemini (Google) | `gemini`    | 1,000,000              | `x-goog-api-key` header | Strict user/model role alternation; `thoughtSignature` round-tripping via metadata        |
+
 
 ### 2.3 Provider Configuration
 
@@ -107,16 +109,19 @@ Four conversation roles: `System`, `User`, `Assistant`, `Tool`.
 
 Messages contain one or more typed content parts:
 
-| Part | Purpose |
-|------|---------|
-| `Text` | Plain text content |
-| `Image` | URL or embedded bytes with media type |
-| `ToolCall` | Assistant's tool invocation (ID, name, JSON arguments, optional metadata) |
-| `ToolResult` | Tool output with error flag |
+
+| Part         | Purpose                                                                   |
+| ------------ | ------------------------------------------------------------------------- |
+| `Text`       | Plain text content                                                        |
+| `Image`      | URL or embedded bytes with media type                                     |
+| `ToolCall`   | Assistant's tool invocation (ID, name, JSON arguments, optional metadata) |
+| `ToolResult` | Tool output with error flag                                               |
+
 
 ### 4.3 Messages
 
 Each message combines:
+
 - **Sender**: Agent identity string (enables multi-agent tracking via `BySender`)
 - **Role**: One of the four conversation roles
 - **Parts**: Ordered list of content parts
@@ -125,6 +130,7 @@ Each message combines:
 ### 4.4 Chat Container
 
 Thread-safe mutable message container (`sync.RWMutex`) supporting:
+
 - Append and Replace operations
 - Signal-based `Wait()` / `Since()` for streaming observers
 - `BySender()` filtering for multi-agent tracking
@@ -204,12 +210,14 @@ Ordered for prompt-cache friendliness (static sections first):
 
 Wraps the `Run()` method for cross-cutting concerns. Applied in order (first = outermost):
 
-| Middleware | Purpose |
-|-----------|---------|
-| `Timeout(duration)` | Cancels agent after deadline |
-| `Recovery()` | Catches panics and returns error |
-| `Logger(log, name)` | Logs agent lifecycle |
-| `OutputGuardrail(check)` | Post-run validation of output |
+
+| Middleware               | Purpose                          |
+| ------------------------ | -------------------------------- |
+| `Timeout(duration)`      | Cancels agent after deadline     |
+| `Recovery()`             | Catches panics and returns error |
+| `Logger(log, name)`      | Logs agent lifecycle             |
+| `OutputGuardrail(check)` | Post-run validation of output    |
+
 
 ### 5.5 Entry Agent
 
@@ -222,28 +230,55 @@ One agent is designated `entry_agent` in config. This is the agent that handles 
 ### 6.1 Registry
 
 A thread-safe directory of agent factories:
+
 - `Register(name, description, factory)` — adds agent blueprint
 - `Spawn(name, depth)` — creates fresh instance with incremented delegation depth
 - `NextID(configName)` — monotonically increasing counter for unique instance names
 
 Instance names follow the format `<configName>-<taskSlug>-<counter>` for traceability.
 
-### 6.2 Delegation Tool
+### 6.2 Delegation Depth
+
+Each agent has two depth-related values:
+
+- **`depth`** — The agent's position in the delegation tree. The entry agent starts at `depth = 0`. Each delegation increments depth by 1.
+- **`MaxDelegationDepth`** — Per-agent config value defining how deep that agent's subtree can go. `0` means the agent cannot delegate at all.
+
+**Tool injection by depth:**
+
+The `delegate` and `task_complete` tools are not configured in toolboxes — they are automatically injected (or withheld) based on the agent's depth:
+
+| Condition | `delegate` tool | `task_complete` tool | Completion protocol in prompt |
+|-----------|----------------|---------------------|-------------------------------|
+| `depth = 0, MaxDelegationDepth > 0` | Injected | Not injected | No |
+| `depth = 0, MaxDelegationDepth = 0` | Not injected | Not injected | No |
+| `0 < depth < MaxDelegationDepth` | Injected | Injected | Yes |
+| `depth >= MaxDelegationDepth` | Not injected | Injected | Yes |
+
+The LLM never sees tools that are not injected — there is no "hidden" or "blocked" state.
+
+**Key details:**
+
+- `MaxDelegationDepth` comes from each agent's own factory config, not from the parent. An orchestrator with `max_delegation_depth: 5` can delegate to a worker with `max_delegation_depth: 0` — the worker cannot delegate further regardless of remaining parent depth.
+- Self-delegation is rejected (case-insensitive match against `configName`).
+- When a sub-agent exhausts its iteration limit without calling `task_complete`, a synthetic failed result is generated and a reflection note is written.
+
+### 6.3 Delegation Tool
 
 The `delegate` tool enables agent-to-agent task assignment:
 
-1. Validates: no self-delegation, depth within `MaxDelegationDepth`
-2. Spawns child agents from registry
+1. Validates: no self-delegation, `depth < MaxDelegationDepth`
+2. Spawns child agents from registry with `depth + 1`
 3. Propagates parent's registry, EventNotifier, EventFunc, ReflectionDir, TaskBoard
-4. Inherits parent's toolboxes (deduplication by pointer equality; child's own tools take precedence)
+4. Child uses only its own configured toolboxes (no inheritance from parent)
 5. Searches for prior reflection notes and prepends as `<prior_reflections>`
 6. Prepends `<delegation_context>` message with parent context
 7. Appends task description as user message
 8. Runs all child agents **concurrently**
 
-### 6.3 Completion Protocol
+### 6.4 Completion Protocol
 
-Sub-agents (depth > 0) receive a `task_complete` tool and must call it to signal completion:
+Sub-agents (depth > 0) receive a `task_complete` tool and a `<completion_protocol>` section in their system prompt instructing them to always call it:
 
 ```go
 type CompletionResult struct {
@@ -257,9 +292,10 @@ type CompletionResult struct {
 
 If a sub-agent exhausts its iteration limit without calling `task_complete`, a synthetic failed result is generated and a reflection note is written.
 
-### 6.4 Task Board Integration
+### 6.5 Task Board Integration
 
 When the `tasks` toolbox is enabled:
+
 - `delegate` auto-claims tasks before running child agents
 - Task status is auto-updated when child completes
 - Other agents can watch for task completion via blocking `watch` tool
@@ -300,10 +336,12 @@ type IterationContext struct {
 
 Two phases exist within each ReAct iteration:
 
-| Phase | Constant | Timing | Purpose |
-|-------|----------|--------|---------|
-| **Before Complete** | `PhaseBeforeComplete` (0) | Before the LLM call | Context management: compaction, summarization, message injection |
-| **After Complete** | `PhaseAfterComplete` (1) | After the LLM reply, before tool dispatch | Lightweight cleanup: trimming tool results |
+
+| Phase               | Constant                  | Timing                                    | Purpose                                                          |
+| ------------------- | ------------------------- | ----------------------------------------- | ---------------------------------------------------------------- |
+| **Before Complete** | `PhaseBeforeComplete` (0) | Before the LLM call                       | Context management: compaction, summarization, message injection |
+| **After Complete**  | `PhaseAfterComplete` (1)  | After the LLM reply, before tool dispatch | Lightweight cleanup: trimming tool results                       |
+
 
 ### 7.3 Phase Execution in the Agent Lifecycle
 
@@ -367,24 +405,28 @@ Effects execute at two precise points within each iteration of the ReAct loop. T
 
 When the engine builds effects from YAML config, they are sorted by priority class before being passed to the agent:
 
-| Priority | Class | Effects | Rationale |
-|----------|-------|---------|-----------|
-| 0 | Compaction | `CompactEffect`, `SlidingWindowEffect` | Must run first so that message-injecting effects don't have their injections immediately summarized away |
-| 1 | All others | `TrimToolResultsEffect`, `ObservationMaskEffect`, `LoopDetectEffect`, `ReflectionEffect`, `ProgressEffect` | Run after compaction is settled |
+
+| Priority | Class      | Effects                                                                                                    | Rationale                                                                                                |
+| -------- | ---------- | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| 0        | Compaction | `CompactEffect`, `SlidingWindowEffect`                                                                     | Must run first so that message-injecting effects don't have their injections immediately summarized away |
+| 1        | All others | `TrimToolResultsEffect`, `ObservationMaskEffect`, `LoopDetectEffect`, `ReflectionEffect`, `ProgressEffect` | Run after compaction is settled                                                                          |
+
 
 Sorting is stable (`sort.SliceStable`) so effects within the same priority class preserve their config declaration order.
 
 ### 7.5 Available Effects
 
-| Effect | Kind | Phase | Purpose |
-|--------|------|-------|---------|
-| **CompactEffect** | `compact` | Before | Full conversation summarization when token usage exceeds threshold |
-| **TrimToolResultsEffect** | `trim_tool_results` | After | Truncate old tool results to save tokens |
-| **SlidingWindowEffect** | `sliding_window` | Before | Three-zone context management (recent full, medium trimmed, old summarized) |
-| **ObservationMaskEffect** | `observation_mask` | Before | Replace old observations with brief placeholders |
-| **LoopDetectEffect** | `loop_detect` | Before | Detect repeated identical tool calls and inject intervention |
-| **ReflectionEffect** | `reflection` | Before | Detect consecutive failures and inject reflection prompt |
-| **ProgressEffect** | `progress` | Before | Periodic progress note prompts |
+
+| Effect                    | Kind                | Phase  | Purpose                                                                     |
+| ------------------------- | ------------------- | ------ | --------------------------------------------------------------------------- |
+| **CompactEffect**         | `compact`           | Before | Full conversation summarization when token usage exceeds threshold          |
+| **TrimToolResultsEffect** | `trim_tool_results` | After  | Truncate old tool results to save tokens                                    |
+| **SlidingWindowEffect**   | `sliding_window`    | Before | Three-zone context management (recent full, medium trimmed, old summarized) |
+| **ObservationMaskEffect** | `observation_mask`  | Before | Replace old observations with brief placeholders                            |
+| **LoopDetectEffect**      | `loop_detect`       | Before | Detect repeated identical tool calls and inject intervention                |
+| **ReflectionEffect**      | `reflection`        | Before | Detect consecutive failures and inject reflection prompt                    |
+| **ProgressEffect**        | `progress`          | Before | Periodic progress note prompts                                              |
+
 
 ### 7.6 CompactEffect
 
@@ -430,7 +472,7 @@ Sorting is stable (`sort.SliceStable`) so effects within the same priority class
 
 - **Phase:** `PhaseBeforeComplete` (skips iteration 0)
 - **Detection:** Scans the last `WindowSize` (default 10) tool calls from assistant messages, comparing `toolName + "\x00" + arguments` keys. Counts consecutive identical entries from the most recent call backward.
-- **Intervention:** When the count reaches `Threshold` (default 3), injects a user-role message: _"You have called {tool} with the same arguments {N} times. This is not making progress. Try a different approach or tool."_
+- **Intervention:** When the count reaches `Threshold` (default 3), injects a user-role message: *"You have called {tool} with the same arguments {N} times. This is not making progress. Try a different approach or tool."*
 - **Re-injection guard:** Tracks `lastInjectedCount`. Only injects when the current count exceeds the last injected count, preventing duplicate interventions at the same repetition level.
 - **Implements `Resetter`:** Clears `lastInjectedCount` between `Run()` calls.
 
@@ -462,14 +504,16 @@ The default `context_threshold` of 0.8 is applied when `context_window > 0` and 
 
 ### 7.14 Effect Lifecycle Summary
 
-| Lifecycle Event | What Happens |
-|-----------------|-------------|
-| **Engine builds agent** | Effect instances created from YAML config (or auto-generated). Priority-sorted. |
-| **`Run()` starts** | All `Resetter` effects have `Reset()` called to clear per-run state. |
+
+| Lifecycle Event                | What Happens                                                                                                                            |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **Engine builds agent**        | Effect instances created from YAML config (or auto-generated). Priority-sorted.                                                         |
+| `**Run()` starts**             | All `Resetter` effects have `Reset()` called to clear per-run state.                                                                    |
 | **Each iteration, before LLM** | All effects evaluated with `PhaseBeforeComplete`. Compaction-class effects run first (priority 0), then injection effects (priority 1). |
-| **Each iteration, after LLM** | All effects evaluated with `PhaseAfterComplete`. Effects that don't match this phase return nil immediately. |
-| **Effect returns error** | ReAct loop aborts. Only context cancellation errors are typically propagated; other failures are handled internally. |
-| **`Run()` ends** | No cleanup hook. State persists for next `Run()` call until `Reset()` is called. |
+| **Each iteration, after LLM**  | All effects evaluated with `PhaseAfterComplete`. Effects that don't match this phase return nil immediately.                            |
+| **Effect returns error**       | ReAct loop aborts. Only context cancellation errors are typically propagated; other failures are handled internally.                    |
+| `**Run()` ends**               | No cleanup hook. State persists for next `Run()` call until `Reset()` is called.                                                        |
+
 
 ---
 
@@ -498,6 +542,7 @@ Thread-safe `usage.Tracker` accumulates token counts across multiple API calls w
 ### 9.1 Tool Architecture
 
 All tools are registered in a flat `ToolBox` collection. Each tool has:
+
 - **Name**: Unique identifier
 - **Description**: For LLM consumption
 - **InputSchema**: JSON Schema for arguments
@@ -508,6 +553,7 @@ Tool calls never return Go errors; failures are reported as `ToolResult` with `I
 ### 9.2 Permission Model
 
 Tools that interact with the local environment use a shared `permissions.Store`:
+
 - **Filesystem:** Directory-level approval (parent approval covers children); symlink resolution checks both logical and real paths
 - **Exec:** Command-level trust (trusting `git` allows all `git` invocations)
 - **HTTP:** Domain-level trust
@@ -519,27 +565,31 @@ Permissions are persisted atomically to `.shelly/local/permissions.json` via tem
 
 ### 9.3 Filesystem Tools
 
-| Tool | Description |
-|------|-------------|
-| `fs_read` | Read file contents (10MB cap; supports offset+limit for large files) |
-| `fs_write` | Write file (shows unified diff for confirmation) |
-| `fs_edit` | Edit file (old_text must appear exactly once) |
-| `fs_list` | List directory contents |
-| `fs_delete` | Delete file or directory |
-| `fs_move` | Move/rename file |
-| `fs_copy` | Copy file |
-| `fs_stat` | File metadata |
-| `fs_diff` | Unified diff between files |
-| `fs_patch` | Apply multiple hunks atomically |
-| `fs_mkdir` | Create directory |
+
+| Tool        | Description                                                          |
+| ----------- | -------------------------------------------------------------------- |
+| `fs_read`   | Read file contents (10MB cap; supports offset+limit for large files) |
+| `fs_write`  | Write file (shows unified diff for confirmation)                     |
+| `fs_edit`   | Edit file (old_text must appear exactly once)                        |
+| `fs_list`   | List directory contents                                              |
+| `fs_delete` | Delete file or directory                                             |
+| `fs_move`   | Move/rename file                                                     |
+| `fs_copy`   | Copy file                                                            |
+| `fs_stat`   | File metadata                                                        |
+| `fs_diff`   | Unified diff between files                                           |
+| `fs_patch`  | Apply multiple hunks atomically                                      |
+| `fs_mkdir`  | Create directory                                                     |
+
 
 Concurrent writes are serialized via per-path mutex. Two-path operations (move, copy) lock in sorted order to avoid deadlocks.
 
 ### 9.4 Exec Tool
 
-| Tool | Description |
-|------|-------------|
+
+| Tool       | Description      |
+| ---------- | ---------------- |
 | `exec_run` | Run CLI commands |
+
 
 - Direct subprocess execution (no shell interpretation)
 - 1MB output cap
@@ -548,29 +598,35 @@ Concurrent writes are serialized via per-path mutex. Two-path operations (move, 
 
 ### 9.5 Search Tools
 
-| Tool | Description |
-|------|-------------|
+
+| Tool             | Description                                           |
+| ---------------- | ----------------------------------------------------- |
 | `search_content` | Regex search in files (skips binaries, 1MB total cap) |
-| `search_files` | Glob pattern matching (supports `**` for recursive) |
+| `search_files`   | Glob pattern matching (supports `*`* for recursive)   |
+
 
 100 results max (configurable). Optional `context_lines` for search_content.
 
 ### 9.6 Git Tools
 
-| Tool | Description |
-|------|-------------|
-| `git_status` | Working tree status |
-| `git_diff` | Show diff for path |
-| `git_log` | Show commit history (restricted to built-in formats to prevent metadata exfiltration) |
-| `git_commit` | Create commit (path traversal protection, no `.` args) |
+
+| Tool         | Description                                                                           |
+| ------------ | ------------------------------------------------------------------------------------- |
+| `git_status` | Working tree status                                                                   |
+| `git_diff`   | Show diff for path                                                                    |
+| `git_log`    | Show commit history (restricted to built-in formats to prevent metadata exfiltration) |
+| `git_commit` | Create commit (path traversal protection, no `.` args)                                |
+
 
 1MB stdout/stderr cap.
 
 ### 9.7 HTTP Tool
 
-| Tool | Description |
-|------|-------------|
+
+| Tool         | Description                                                  |
+| ------------ | ------------------------------------------------------------ |
 | `http_fetch` | HTTP requests (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS) |
+
 
 - SSRF protection: private IP ranges blocked at DNS + connection time
 - Redirect validation rejects untrusted domains and private IPs
@@ -578,55 +634,65 @@ Concurrent writes are serialized via per-path mutex. Two-path operations (move, 
 
 ### 9.8 Browser Tools
 
-| Tool | Description |
-|------|-------------|
-| `browser_search` | DuckDuckGo search (no domain trust required) |
-| `browser_navigate` | Navigate to URL (domain trust check) |
-| `browser_click` | Click element on page |
-| `browser_type` | Type text into element |
-| `browser_extract` | Extract text content (strips scripts/styles, 100KB cap) |
+
+| Tool                 | Description                                                   |
+| -------------------- | ------------------------------------------------------------- |
+| `browser_search`     | DuckDuckGo search (no domain trust required)                  |
+| `browser_navigate`   | Navigate to URL (domain trust check)                          |
+| `browser_click`      | Click element on page                                         |
+| `browser_type`       | Type text into element                                        |
+| `browser_extract`    | Extract text content (strips scripts/styles, 100KB cap)       |
 | `browser_screenshot` | Take screenshot (viewport, full_page, or element; base64 PNG) |
+
 
 Headless Chrome via chromedp. Incognito mode, GPU disabled. Lazy startup with auto-restart on context cancel. 30-second timeout per operation.
 
 ### 9.9 Notes Tools
 
-| Tool | Description |
-|------|-------------|
-| `write_note` | Write a markdown note |
-| `read_note` | Read a note by name |
+
+| Tool         | Description                                       |
+| ------------ | ------------------------------------------------- |
+| `write_note` | Write a markdown note                             |
+| `read_note`  | Read a note by name                               |
 | `list_notes` | List all notes with first-line preview (80 chars) |
+
 
 Notes are stored in `.shelly/local/notes/`. Name validation (`^[a-zA-Z0-9_-]+$`) prevents path traversal. Notes survive context compaction for persistent cross-agent communication.
 
 ### 9.10 Ask Tool
 
-| Tool | Description |
-|------|-------------|
+
+| Tool       | Description                                            |
+| ---------- | ------------------------------------------------------ |
 | `ask_user` | Ask the user a question (free-form or multiple-choice) |
+
 
 Questions are auto-incremented (`q-1`, `q-2`, ...). `OnAskFunc` callback notifies the frontend. Supports blocking programmatic questions via `Ask(ctx, text, options[])`.
 
 ### 9.11 State Tools
 
-| Tool | Description |
-|------|-------------|
-| `{ns}_state_get` | Read a key from shared state |
-| `{ns}_state_set` | Write a key to shared state |
+
+| Tool              | Description                   |
+| ----------------- | ----------------------------- |
+| `{ns}_state_get`  | Read a key from shared state  |
+| `{ns}_state_set`  | Write a key to shared state   |
 | `{ns}_state_list` | List all keys in shared state |
+
 
 Thread-safe key-value store (blackboard pattern). Values stored as `json.RawMessage`. Supports blocking `Watch(ctx, key)` for inter-agent coordination.
 
 ### 9.12 Task Tools
 
-| Tool | Description |
-|------|-------------|
+
+| Tool                | Description                                                 |
+| ------------------- | ----------------------------------------------------------- |
 | `{ns}_tasks_create` | Create a task with title, description, blocked_by, metadata |
-| `{ns}_tasks_list` | List tasks (filter by status, assignee, blocked state) |
-| `{ns}_tasks_get` | Get task details |
-| `{ns}_tasks_claim` | Atomically claim and start a task |
-| `{ns}_tasks_update` | Update task fields |
-| `{ns}_tasks_watch` | Block until task completes or fails |
+| `{ns}_tasks_list`   | List tasks (filter by status, assignee, blocked state)      |
+| `{ns}_tasks_get`    | Get task details                                            |
+| `{ns}_tasks_claim`  | Atomically claim and start a task                           |
+| `{ns}_tasks_update` | Update task fields                                          |
+| `{ns}_tasks_watch`  | Block until task completes or fails                         |
+
 
 Status flow: `pending` → `in_progress` → `completed` / `failed`. Blocking dependencies prevent claiming/reassigning until all deps complete. Task changes broadcast via notification channel.
 
@@ -635,7 +701,7 @@ Status flow: `pending` → `in_progress` → `completed` / `failed`. Blocking de
 - Each agent declares its `toolboxes` list in YAML config
 - Toolbox entries can be plain strings (all tools) or objects with `tools` whitelist
 - `ask` toolbox is always implicitly included
-- At delegation, parent's toolboxes are merged into child (child's own tools take precedence)
+- At delegation, child agents use only their own configured toolboxes (no inheritance from parent)
 
 **Built-in toolbox names:** `ask`, `filesystem`, `exec`, `search`, `git`, `http`, `browser`, `state`, `tasks`, `notes`
 
@@ -658,10 +724,12 @@ YAML frontmatter is optional and supports `name` and `description` fields.
 
 ### 10.2 Two Modes
 
-| Mode | Condition | Behavior |
-|------|-----------|----------|
-| **Inline** | No description | Full content embedded in system prompt |
+
+| Mode          | Condition       | Behavior                                                           |
+| ------------- | --------------- | ------------------------------------------------------------------ |
+| **Inline**    | No description  | Full content embedded in system prompt                             |
 | **On-demand** | Has description | Description listed in prompt; content loaded via `load_skill` tool |
+
 
 ### 10.3 Per-Agent Filtering
 
@@ -683,10 +751,12 @@ Empty/omitted means the agent receives all skills loaded by the engine.
 
 Connects to external MCP servers via two transports:
 
-| Transport | Config | Notes |
-|-----------|--------|-------|
-| **Stdio** | `command: mcp-search` | Subprocess lifecycle managed (SIGTERM/SIGKILL cleanup) |
-| **HTTP Streamable** | `url: https://...` | HTTP-based transport |
+
+| Transport           | Config                | Notes                                                  |
+| ------------------- | --------------------- | ------------------------------------------------------ |
+| **Stdio**           | `command: mcp-search` | Subprocess lifecycle managed (SIGTERM/SIGKILL cleanup) |
+| **HTTP Streamable** | `url: https://...`    | HTTP-based transport                                   |
+
 
 `ListTools()` discovers available tools and creates handler closures that dispatch calls through the MCP client.
 
@@ -720,17 +790,26 @@ MCP tools are registered as regular toolbox tools and available for assignment t
 ### 12.1 Context Sources (loaded in order)
 
 1. **External:** `CLAUDE.md`, `.cursorrules`, `.cursor/rules/*.mdc` (YAML frontmatter stripped)
-2. **Curated:** `*.md` files in `.shelly/` root
-3. **Generated:** Auto-generated structural index cached at `.shelly/local/context-cache.json`
+2. **Curated:** `*.md` files in `.shelly/` root (the knowledge graph entry points)
 
-### 12.2 Generated Index
+### 12.2 Knowledge Graph
 
-Includes:
-- Go module path (from `go.mod`)
-- Entry points (`cmd/*/main.go` patterns)
-- Package listing (`pkg/` subdirs with `.go` files, depth limit 4)
+Rather than a hardcoded project indexer, Shelly uses a filesystem-based knowledge graph built from markdown files. Agents build and maintain this graph using their existing tools (filesystem, search, notes), guided by template-provided skills.
 
-Cache is invalidated when `go.mod` is newer than the cache file.
+**Structure:**
+
+- **Entry points:** Top-level `*.md` files in `.shelly/` are loaded into agent context automatically. These act as indexes that reference deeper files.
+- **Deep nodes:** Detailed topic files stored in organized subdirectories (e.g., `.shelly/knowledge/architecture.md`, `.shelly/knowledge/api-contracts.md`). Agents navigate to these on-demand based on task relevance.
+- **Notes:** Runtime observations written by agents to `.shelly/local/notes/` for cross-agent communication and session continuity.
+
+**Lifecycle:**
+
+1. Templates ship a skill (e.g., `project-indexer`) that instructs the agent how to explore and index the project.
+2. On first run (or when context is stale), the agent uses its tools to explore the project structure, understand its domain, and write the knowledge graph files.
+3. On subsequent runs, the top-level indexes are loaded into context. The agent reads deeper files only when the current task requires it.
+4. Agents update the graph as the project evolves — no cache invalidation logic needed.
+
+This approach is domain-agnostic: a coding template produces code-relevant indexes, a legal template produces document-relevant indexes, all driven by the agent's reasoning rather than hardcoded heuristics.
 
 ---
 
@@ -743,13 +822,15 @@ Cache is invalidated when `go.mod` is newer than the cache file.
   .gitignore              # Ignores local/
   config.yaml             # Main config (committed)
   context.md              # Curated context (committed)
-  *.md                    # Additional context files (committed)
+  *.md                    # Additional context / knowledge graph indexes (committed)
+  knowledge/              # Deep knowledge graph nodes (committed)
+    architecture.md
+    ...
   skills/                 # Skill folders (committed)
     code-review/
       SKILL.md
   local/                  # Gitignored runtime state
     permissions.json      # File/command/domain ACL
-    context-cache.json    # Auto-generated project index
     notes/                # Cross-agent notes
     reflections/          # Sub-agent failure reflection notes
 ```
@@ -772,7 +853,7 @@ The composition root that wires all components from YAML config:
 - Creates provider adapters (completers)
 - Connects MCP clients (parallel initialization)
 - Loads skills from `.shelly/skills/`
-- Loads project context
+- Loads project context (curated knowledge graph files)
 - Registers agent factories in registry
 - Creates shared state/task stores (when referenced by agents)
 - Manages session lifecycle
@@ -792,17 +873,19 @@ Thread-safe: only one `Send` active per session at a time (mutual exclusion lock
 
 Channel-based pub/sub for observing engine activity:
 
-| Event Kind | Data | Description |
-|------------|------|-------------|
-| `message_added` | `{role, message}` | Message appended to chat |
-| `tool_call_start` | `{tool_name, call_id}` | Tool execution begins |
-| `tool_call_end` | `{tool_name, call_id}` | Tool execution completes |
-| `agent_start` | `{prefix, parent}` | Sub-agent spawned |
-| `agent_end` | `{prefix, parent}` | Sub-agent finished |
-| `ask_user` | `ask.Question` | Question for user |
-| `file_change` | `string` | File modified |
-| `compaction` | `string` | Context compacted |
-| `error` | `error` | Error occurred |
+
+| Event Kind        | Data                   | Description              |
+| ----------------- | ---------------------- | ------------------------ |
+| `message_added`   | `{role, message}`      | Message appended to chat |
+| `tool_call_start` | `{tool_name, call_id}` | Tool execution begins    |
+| `tool_call_end`   | `{tool_name, call_id}` | Tool execution completes |
+| `agent_start`     | `{prefix, parent}`     | Sub-agent spawned        |
+| `agent_end`       | `{prefix, parent}`     | Sub-agent finished       |
+| `ask_user`        | `ask.Question`         | Question for user        |
+| `file_change`     | `string`               | File modified            |
+| `compaction`      | `string`               | Context compacted        |
+| `error`           | `error`                | Error occurred           |
+
 
 Subscribe with configurable buffer size. Non-blocking publish (drops events to full subscribers to prevent loop stalls).
 
@@ -814,11 +897,13 @@ Subscribe with configurable buffer size. Non-blocking publish (drops events to f
 
 Built on Bubbletea v2 with a state-machine model:
 
-| State | Description |
-|-------|-------------|
-| `Idle` | Waiting for user input |
+
+| State        | Description               |
+| ------------ | ------------------------- |
+| `Idle`       | Waiting for user input    |
 | `Processing` | Agent is thinking/running |
-| `AskUser` | User interaction needed |
+| `AskUser`    | User interaction needed   |
+
 
 ### 15.2 Layout
 
@@ -835,15 +920,17 @@ GitHub terminal light theme with dark-mode detection at startup (via OSC 11).
 
 **Color palette:**
 
-| Name | Hex | Usage |
-|------|-----|-------|
-| Foreground | #24292f | Primary text |
-| Muted | #656d76 | Secondary text, completed tasks |
-| Accent | #0969da | Interactive elements |
-| Error | #cf222e | Error text |
-| Success | #1a7f37 | Completed items |
-| Warning | #9a6700 | Questions, ask UI |
-| Magenta | #8250df | Spinners, sub-agents |
+
+| Name       | Hex     | Usage                           |
+| ---------- | ------- | ------------------------------- |
+| Foreground | #24292f | Primary text                    |
+| Muted      | #656d76 | Secondary text, completed tasks |
+| Accent     | #0969da | Interactive elements            |
+| Error      | #cf222e | Error text                      |
+| Success    | #1a7f37 | Completed items                 |
+| Warning    | #9a6700 | Questions, ask UI               |
+| Magenta    | #8250df | Spinners, sub-agents            |
+
 
 **Sub-agent color palette** (round-robin assignment):
 Blue (#0969da), Green (#1a7f37), Orange (#bc4c00), Pink (#bf3989), Teal (#0a7480), Purple (#8250df)
@@ -864,6 +951,7 @@ Token counter displayed below input (formatted with k/M suffixes). Hidden when a
 ### 15.5 File Picker
 
 Triggered by `@` in input:
+
 - Discovers files via `WalkDir()` (skips `.git`, `node_modules`, `vendor`, `.shelly`; max 1000 entries)
 - Filters by basename prefix match (weighted) then full path contains match
 - Max 4 visible items; scroll with ↑/↓
@@ -873,6 +961,7 @@ Triggered by `@` in input:
 ### 15.6 Command Picker
 
 Triggered by `/` in input:
+
 - Static commands: `/help`, `/clear`, `/exit`
 - Substring filter as user types
 - Enter executes immediately (no second Enter needed)
@@ -883,6 +972,7 @@ Triggered by `/` in input:
 Renders only in-progress agent activity. Committed content is printed via `tea.Println` and scrolls natively.
 
 **Agent Containers:**
+
 - Each agent gets an `AgentContainer` with display items
 - Sub-agents shown as nested containers with 4-line windowing
 - Tool calls show name, args, elapsed time, and result
@@ -890,19 +980,23 @@ Renders only in-progress agent activity. Committed content is printed via `tea.P
 - Final answers stored on container, emitted as summary when agent ends
 
 **Display Items:**
-| Item | Description |
-|------|-------------|
-| `ThinkingItem` | Agent reasoning text |
-| `PlanItem` | Agent planning with 📝 prefix |
-| `ToolCallItem` | Single tool invocation (running spinner → done with result) |
-| `ToolGroupItem` | Parallel tool execution group |
-| `SubAgentItem` | Nested agent container |
+
+
+| Item            | Description                                                 |
+| --------------- | ----------------------------------------------------------- |
+| `ThinkingItem`  | Agent reasoning text                                        |
+| `PlanItem`      | Agent planning with 📝 prefix                               |
+| `ToolCallItem`  | Single tool invocation (running spinner → done with result) |
+| `ToolGroupItem` | Parallel tool execution group                               |
+| `SubAgentItem`  | Nested agent container                                      |
+
 
 **Spinner:** Braille progression frames (⣾→⣽→⣻→⢿→⡿→⣟→⣯→⣷) with 16 random thinking messages.
 
 ### 15.8 Task Panel
 
 Displayed above input when tasks are active:
+
 - Title line: "Tasks" + status counts (N pending, N in progress, N completed)
 - Tasks sorted by status: pending → in progress → completed
 - Icons: `○` pending, `⣾` in progress (magenta spinner), `✓` completed (light gray)
@@ -913,6 +1007,7 @@ Displayed above input when tasks are active:
 ### 15.9 Ask User UI
 
 When agents ask questions:
+
 - Questions batch with 200ms debounce window
 - Tabbed interface: `[Q1] [Q2] ... [Confirm]`
 - Question types: free-form, single-select, multi-select, custom override
@@ -961,16 +1056,18 @@ Pre-built configurations for quick setup:
 ./bin/shelly init --template dev-team           # Orchestrator + planner + coder
 ```
 
-Templates define provider slots (e.g., "primary", "fast") mapped to actual providers during setup. Agent structure and embedded skills come from the template.
+Templates define provider slots (e.g., "primary", "fast") mapped to actual providers during setup. Agent structure, embedded skills, and domain-specific knowledge graph skills come from the template.
 
 ### 16.3 CLI Flags
 
-| Flag | Description |
-|------|-------------|
-| `--config` | Explicit config path |
+
+| Flag           | Description                   |
+| -------------- | ----------------------------- |
+| `--config`     | Explicit config path          |
 | `--shelly-dir` | Override `.shelly/` directory |
-| `--env` | Override `.env` path |
-| `--agent` | Override entry agent |
+| `--env`        | Override `.env` path          |
+| `--agent`      | Override entry agent          |
+
 
 Config resolution: explicit flag → `.shelly/config.yaml` → `shelly.yaml` (legacy).
 
@@ -980,18 +1077,20 @@ Config resolution: explicit flag → `.shelly/config.yaml` → `shelly.yaml` (le
 
 ### 17.1 Core Guarantees
 
-| Component | Mechanism |
-|-----------|-----------|
-| `chat.Chat` | `sync.RWMutex`; signal-based streaming |
-| `state.Store` | `sync.RWMutex`; deep-copy on read; close+recreate signal for Watch |
-| `tasks.Store` | `sync.RWMutex`; atomic Claim/Reassign; signal-based WatchCompleted |
-| `permissions.Store` | `sync.RWMutex`; atomic persistence via temp-file-then-rename |
-| Filesystem tools | Per-path `FileLocker`; sorted lock order for two-path ops |
-| Exec tools | Concurrent prompt coalescing per command |
-| Session | Mutual exclusion on Send |
-| Registry | `sync.RWMutex` for factory access |
-| EventBus | `sync.RWMutex` for subscription management |
-| RateLimitedCompleter | Two mutexes: window tracking + call sequencing |
+
+| Component            | Mechanism                                                          |
+| -------------------- | ------------------------------------------------------------------ |
+| `chat.Chat`          | `sync.RWMutex`; signal-based streaming                             |
+| `state.Store`        | `sync.RWMutex`; deep-copy on read; close+recreate signal for Watch |
+| `tasks.Store`        | `sync.RWMutex`; atomic Claim/Reassign; signal-based WatchCompleted |
+| `permissions.Store`  | `sync.RWMutex`; atomic persistence via temp-file-then-rename       |
+| Filesystem tools     | Per-path `FileLocker`; sorted lock order for two-path ops          |
+| Exec tools           | Concurrent prompt coalescing per command                           |
+| Session              | Mutual exclusion on Send                                           |
+| Registry             | `sync.RWMutex` for factory access                                  |
+| EventBus             | `sync.RWMutex` for subscription management                         |
+| RateLimitedCompleter | Two mutexes: window tracking + call sequencing                     |
+
 
 ### 17.2 Tool Execution
 
@@ -1004,6 +1103,7 @@ Tool calls within a single ReAct iteration execute concurrently via `sync.WaitGr
 ### 18.1 Permission Gating
 
 All tools that interact with the local environment require explicit user approval:
+
 - Filesystem: directory-level (parent covers children)
 - Exec: command-level
 - HTTP/Browser: domain-level
@@ -1014,14 +1114,16 @@ HTTP tool blocks private IP ranges at both DNS resolution and connection time. R
 
 ### 18.3 Output Caps
 
-| Resource | Limit |
-|----------|-------|
-| File read | 10MB |
-| Command output | 1MB |
-| HTTP response body | 1MB |
-| Browser text extraction | 100KB |
-| Search results | 100 entries |
-| File picker entries | 1000 |
+
+| Resource                | Limit       |
+| ----------------------- | ----------- |
+| File read               | 10MB        |
+| Command output          | 1MB         |
+| HTTP response body      | 1MB         |
+| Browser text extraction | 100KB       |
+| Search results          | 100 entries |
+| File picker entries     | 1000        |
+
 
 ### 18.4 Path Traversal Protection
 
@@ -1037,6 +1139,7 @@ HTTP tool blocks private IP ranges at both DNS resolution and connection time. R
 ### 19.1 Failure Reflections
 
 When sub-agents fail (exhaust iteration limit without calling `task_complete`):
+
 - A reflection note is written to `.shelly/local/reflections/`
 - Filename: `<agent-name>-<timestamp>.md`
 - Content includes: task, approach taken, reason for failure
@@ -1052,6 +1155,7 @@ When delegating, the parent agent searches for prior reflections relevant to the
 ### 20.1 Context Keys
 
 The `agentctx` package provides zero-dependency context key helpers:
+
 - `WithAgentName(ctx, name)` — Inject agent identity
 - `AgentNameFromContext(ctx)` — Extract agent identity
 
@@ -1061,25 +1165,29 @@ Used by: agent (at `Run` start), engine (session start), tasks (task attribution
 
 ## 21. Development Tooling
 
-| Tool | Purpose | Config |
-|------|---------|--------|
-| [gofumpt](https://github.com/mvdan/gofumpt) | Code formatting (strict superset of gofmt) | — |
-| [golangci-lint v2](https://golangci-lint.run/) | Linting (50+ linters) | `.golangci.yml` |
-| [testify](https://github.com/stretchr/testify) | Test assertions (`assert`, `require`) | — |
-| [gotestsum](https://github.com/gotestyourself/gotestsum) | Formatted test output | — |
-| [go-task](https://taskfile.dev/) | Task runner | `Taskfile.yml` |
+
+| Tool                                                     | Purpose                                    | Config          |
+| -------------------------------------------------------- | ------------------------------------------ | --------------- |
+| [gofumpt](https://github.com/mvdan/gofumpt)              | Code formatting (strict superset of gofmt) | —               |
+| [golangci-lint v2](https://golangci-lint.run/)           | Linting (50+ linters)                      | `.golangci.yml` |
+| [testify](https://github.com/stretchr/testify)           | Test assertions (`assert`, `require`)      | —               |
+| [gotestsum](https://github.com/gotestyourself/gotestsum) | Formatted test output                      | —               |
+| [go-task](https://taskfile.dev/)                         | Task runner                                | `Taskfile.yml`  |
+
 
 ### 21.1 Build Tasks
 
-| Task | Description |
-|------|-------------|
-| `task build` | Build to `./bin/shelly` |
-| `task run` | Run the application |
-| `task fmt` / `task fmt:check` | Format / check formatting |
-| `task lint` / `task lint:fix` | Lint / auto-fix |
-| `task test` | Run tests |
-| `task test:coverage` | Tests with coverage |
-| `task check` | All checks (fmt + lint + test) |
+
+| Task                          | Description                    |
+| ----------------------------- | ------------------------------ |
+| `task build`                  | Build to `./bin/shelly`        |
+| `task run`                    | Run the application            |
+| `task fmt` / `task fmt:check` | Format / check formatting      |
+| `task lint` / `task lint:fix` | Lint / auto-fix                |
+| `task test`                   | Run tests                      |
+| `task test:coverage`          | Tests with coverage            |
+| `task check`                  | All checks (fmt + lint + test) |
+
 
 ### 21.2 Linter Extras
 
