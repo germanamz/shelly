@@ -4,12 +4,41 @@ The UI resizes dynamically with the terminal. Minimum supported terminal width i
 Color theme follows the GitHub terminal light theme.
 ## Layout
 
-The screen is split into two vertically stacked regions:
+The screen is split into three vertically stacked regions:
 
-1. **Messages region** (top) — a grow-only block that holds all user messages, agent messages, tool calls, and sub-agent containers. New items are appended at the bottom of this block, increasing its height. This region is never re-rendered in place; it only grows downward. The terminal's native scroll is used for browsing history.
-2. **Input region** (bottom) — a fixed-height area rendered immediately below the messages region. It contains, in order from top to bottom: the task panel (when active), the user input field, and the token counter. When the questions UI is active it replaces the entire input region. This region is re-rendered in place as its contents change (e.g., task status updates, spinner animation) without affecting the messages region above.
+1. **Header region** (top) — a fixed-height area displaying the Shelly logo and session status. This region is re-rendered in place as status changes (e.g., connection state). See **Header Region** for details.
+2. **Messages region** (middle) — a grow-only block that holds all user messages, agent messages, tool calls, and sub-agent containers. New items are appended at the bottom of this block, increasing its height. This region is never re-rendered in place; it only grows downward. The terminal's native scroll is used for browsing history.
+3. **Input region** (bottom) — a fixed-height area rendered immediately below the messages region. It contains, in order from top to bottom: the task panel (when active), the user input field, and the token counter. When the questions UI is active it replaces the entire input region. This region is re-rendered in place as its contents change (e.g., task status updates, spinner animation) without affecting the messages region above.
 
-Because the messages region only appends and never re-renders, and the input region re-renders independently below it, there are no race conditions between agent output and input display. The terminal auto-scrolls as new content arrives in either region.
+Because the messages region only appends and never re-renders, and the header/input regions re-render independently, there are no race conditions between agent output and the surrounding UI. The terminal auto-scrolls as new content arrives in the messages region.
+
+## Header Region
+
+The header region is a persistent status bar displayed at the top of the screen. It contains the Shelly logo and session metadata arranged on two lines.
+
+The first line shows `shelly` in **bold accent** (#8250df). The second line shows status items separated by ` · ` (space-dot-space) in **dim** (#656d76):
+
+- **Agent**: the name of the entry agent (e.g., `coder`)
+- **Model**: the model identifier (e.g., `claude-opus-4-6`)
+- **Provider**: the provider name (e.g., `my-anthropic`)
+- **Connection status**: `● Connected` in **green** (#1a7f37) or `● Disconnected` in **red** (#cf222e)
+- **Config**: the path to the loaded config file (e.g., `~/.shelly/config.yaml`), or `No config` if none is loaded
+
+|                                                                                                                |
+|                                                                                                                |
+| shelly                                                                                                         |
+| coder · claude-opus-4-6 · my-anthropic · ● Connected · ~/.shelly/config.yaml                                  |
+|                                                                                                                |
+|                                                                                                                |
+
+When the config has no agents configured, the agent field is omitted. When no config is loaded, the line reads `No config · ● Disconnected`.
+
+|                                                                                                                |
+|                                                                                                                |
+| shelly                                                                                                         |
+| No config · ● Disconnected                                                                                    |
+|                                                                                                                |
+|                                                                                                                |
 
 ## Agent Name Colors
 Each sub-agent is assigned a distinct color for its name, determined by the order in which it first appears in the session. The same color is applied consistently everywhere the agent name is rendered: container headers, task list parentheticals, delegation descriptions, and finished summaries. This allows quick visual identification across concurrent activity.
@@ -691,13 +720,17 @@ When no templates are available, displays "No templates available" in **dim**.
 A complete session walkthrough showing how all UI elements combine. The user asks Shelly to add JWT authentication to an API. The session progresses through input, processing, delegation, concurrent sub-agent work, task tracking, and the final answer.
 
 ## 1. Empty state — session start
+The header region is always visible. The messages area shows the ASCII art until the first message.
 ```
-       __       ____    
+shelly
+coder · claude-opus-4-6 · my-anthropic · ● Connected · ~/.shelly/config.yaml
+
+       __       ____
   ___ / /  ___ / / /_ __
  (_-</ _ \/ -_) / / // /
-/___/_//_/\__/_/_/\_, / 
-                 /___/  
-                        
+/___/_//_/\__/_/_/\_, /
+                 /___/
+
 
 ```
 
