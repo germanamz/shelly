@@ -86,7 +86,7 @@ func (m ChatViewModel) Update(msg tea.Msg) (ChatViewModel, tea.Cmd) {
 		m.startAgent(msg.Agent, msg.Prefix, msg.Parent)
 		return m, nil
 	case msgs.AgentEndMsg:
-		m.endAgent(msg.Agent, msg.Parent)
+		m.endAgent(msg.Agent, msg.Summary)
 		m.rebuildContent()
 		return m, nil
 	case msgs.ChatViewSetWidthMsg:
@@ -386,12 +386,17 @@ func (m *ChatViewModel) startAgent(agentName, prefix, parent string) {
 }
 
 // endAgent collapses the named agent's container into a summary and appends
-// it to the committed buffer.
-func (m *ChatViewModel) endAgent(agentName, _ string) {
+// it to the committed buffer. completionSummary is the agent's completion
+// summary (from CompletionResult or final text); it is used as FinalAnswer
+// when the container has none.
+func (m *ChatViewModel) endAgent(agentName, completionSummary string) {
 	// Check if this is a nested sub-agent.
 	if sa, ok := m.subAgents[agentName]; ok {
 		sa.Container.Done = true
 		sa.Container.EndTime = time.Now()
+		if sa.Container.FinalAnswer == "" && completionSummary != "" {
+			sa.Container.FinalAnswer = completionSummary
+		}
 		delete(m.subAgents, agentName)
 		return
 	}
@@ -404,6 +409,9 @@ func (m *ChatViewModel) endAgent(agentName, _ string) {
 
 	ac.Done = true
 	ac.EndTime = time.Now()
+	if ac.FinalAnswer == "" && completionSummary != "" {
+		ac.FinalAnswer = completionSummary
+	}
 	summary := ac.CollapsedSummary()
 
 	delete(m.agents, agentName)

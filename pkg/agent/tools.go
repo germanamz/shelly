@@ -20,8 +20,9 @@ import (
 
 // AgentEventData carries metadata about an agent lifecycle event.
 type AgentEventData struct {
-	Prefix string // Display prefix (e.g. "🤖", "📝").
-	Parent string // Name of the parent agent (empty for top-level).
+	Prefix  string // Display prefix (e.g. "🤖", "📝").
+	Parent  string // Name of the parent agent (empty for top-level).
+	Summary string // Completion summary (populated on agent_end events).
 }
 
 // taskSlug extracts a short keyword from a task description for use in instance
@@ -195,7 +196,13 @@ func delegateTool(a *Agent) toolbox.Tool {
 					reply, err := child.Run(ctx)
 
 					if eventNotifier != nil {
-						eventNotifier(ctx, "agent_end", child.name, AgentEventData{Prefix: child.Prefix(), Parent: a.name})
+						endData := AgentEventData{Prefix: child.Prefix(), Parent: a.name}
+						if cr := child.CompletionResult(); cr != nil && cr.Summary != "" {
+							endData.Summary = cr.Summary
+						} else {
+							endData.Summary = reply.TextContent()
+						}
+						eventNotifier(ctx, "agent_end", child.name, endData)
 					}
 
 					if err != nil {

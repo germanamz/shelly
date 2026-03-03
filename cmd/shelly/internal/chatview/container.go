@@ -221,6 +221,20 @@ func (ac *AgentContainer) CollapsedSummary() string {
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "%s\n", headerStyle.Render(fmt.Sprintf("%s %s", prefix, ac.Agent)))
+
+	// Include collapsed subagent summaries so the last message from each
+	// subagent remains visible after the parent collapses.
+	for _, item := range ac.Items {
+		sa, ok := item.(*SubAgentItem)
+		if !ok {
+			continue
+		}
+		saView := sa.View(0)
+		for line := range strings.SplitSeq(saView, "\n") {
+			fmt.Fprintf(&sb, " %s%s\n", styles.TreePipe, line)
+		}
+	}
+
 	if ac.FinalAnswer != "" {
 		rendered := format.RenderMarkdown(ac.FinalAnswer)
 		lines := strings.Split(rendered, "\n")

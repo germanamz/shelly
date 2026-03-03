@@ -25,8 +25,9 @@ type AgentStartMsg struct {
 
 // AgentEndMsg signals that the named agent finished its ReAct loop.
 type AgentEndMsg struct {
-	Agent  string
-	Parent string // parent agent name (empty for top-level)
+	Agent   string
+	Parent  string // parent agent name (empty for top-level)
+	Summary string // completion summary (from CompletionResult or final text)
 }
 
 // AskUserMsg delivers a pending question from the ask responder.

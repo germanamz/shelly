@@ -53,11 +53,12 @@ func Start(ctx context.Context, p *tea.Program, c *chat.Chat, events *engine.Eve
 					p.Send(msgs.AgentStartMsg{Agent: ev.Agent, Prefix: prefix, Parent: parent})
 
 				case engine.EventAgentEnd:
-					var parent string
+					var parent, summary string
 					if d, ok := ev.Data.(agent.AgentEventData); ok {
 						parent = d.Parent
+						summary = d.Summary
 					}
-					p.Send(msgs.AgentEndMsg{Agent: ev.Agent, Parent: parent})
+					p.Send(msgs.AgentEndMsg{Agent: ev.Agent, Parent: parent, Summary: summary})
 
 				case engine.EventMessageAdded:
 					// Forward sub-agent messages via events. Top-level agent
