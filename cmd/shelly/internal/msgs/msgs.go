@@ -152,9 +152,19 @@ type ChatViewFlushAllMsg struct{}
 // ChatViewMarkSentMsg records that content has been displayed.
 type ChatViewMarkSentMsg struct{}
 
-// ChatViewCommitUserMsg renders a user message and emits it via tea.Println.
+// ChatViewCommitUserMsg renders a user message into the viewport.
 type ChatViewCommitUserMsg struct {
 	Text string
+}
+
+// ChatViewAppendMsg appends arbitrary text (logo, help, errors) to the viewport.
+type ChatViewAppendMsg struct {
+	Content string
+}
+
+// ChatViewSetHeightMsg sets the viewport height.
+type ChatViewSetHeightMsg struct {
+	Height int
 }
 
 // --- TaskPanel messages ---

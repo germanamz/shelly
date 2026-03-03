@@ -1,6 +1,7 @@
 package chatview
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/germanamz/shelly/cmd/shelly/internal/msgs"
@@ -10,38 +11,44 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestChatViewEmpty(t *testing.T) {
+// newTestChatView creates a ChatViewModel with a sensible size for testing.
+func newTestChatView() ChatViewModel {
 	cv := New()
 	cv, _ = cv.Update(msgs.ChatViewSetWidthMsg{Width: 80})
+	cv, _ = cv.Update(msgs.ChatViewSetHeightMsg{Height: 40})
+	return cv
+}
+
+func TestChatViewEmpty(t *testing.T) {
+	cv := newTestChatView()
 	view := cv.View()
-	// No live content — managed area is empty; logo is printed via tea.Println at startup.
-	assert.Empty(t, view)
+	// No committed or live content — viewport should be empty.
+	assert.Empty(t, strings.TrimSpace(view))
 }
 
 func TestChatViewUserMessage(t *testing.T) {
-	cv := New()
-	cv, _ = cv.Update(msgs.ChatViewSetWidthMsg{Width: 80})
-	cv, cmd := cv.Update(msgs.ChatViewCommitUserMsg{Text: "hello world"})
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.ChatViewCommitUserMsg{Text: "hello world"})
 
 	assert.True(t, cv.HasMessages)
-	assert.NotNil(t, cmd) // content emitted as tea.Println cmd
+	assert.Len(t, cv.committed, 1)
+	assert.Contains(t, cv.committed[0], "hello world")
 }
 
 func TestChatViewAssistantFinalAnswer(t *testing.T) {
-	cv := New()
-	cv, _ = cv.Update(msgs.ChatViewSetWidthMsg{Width: 80})
+	cv := newTestChatView()
 
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "assistant", Prefix: "🤖"})
 	msg := message.NewText("assistant", role.Assistant, "Here is my answer")
 	cv, _ = cv.Update(msgs.ChatMessageMsg{Msg: msg})
-	_, cmd := cv.Update(msgs.AgentEndMsg{Agent: "assistant"})
+	cv, _ = cv.Update(msgs.AgentEndMsg{Agent: "assistant"})
 
-	assert.NotNil(t, cmd) // collapsed summary emitted as tea.Println cmd
+	// Summary should be in the committed buffer.
+	assert.NotEmpty(t, cv.committed)
 }
 
 func TestChatViewAssistantToolCalls(t *testing.T) {
-	cv := New()
-	cv, _ = cv.Update(msgs.ChatViewSetWidthMsg{Width: 80})
+	cv := newTestChatView()
 
 	msg := message.New("assistant", role.Assistant,
 		content.ToolCall{ID: "tc-1", Name: "fs_read", Arguments: `{"path":"test.txt"}`},
@@ -54,8 +61,7 @@ func TestChatViewAssistantToolCalls(t *testing.T) {
 }
 
 func TestChatViewToolResult(t *testing.T) {
-	cv := New()
-	cv, _ = cv.Update(msgs.ChatViewSetWidthMsg{Width: 80})
+	cv := newTestChatView()
 
 	// Agent makes a tool call.
 	callMsg := message.New("assistant", role.Assistant,
@@ -77,8 +83,7 @@ func TestChatViewToolResult(t *testing.T) {
 }
 
 func TestChatViewParallelToolCalls(t *testing.T) {
-	cv := New()
-	cv, _ = cv.Update(msgs.ChatViewSetWidthMsg{Width: 80})
+	cv := newTestChatView()
 
 	// Multiple calls of the same tool → grouped.
 	msg := message.New("assistant", role.Assistant,
@@ -95,21 +100,20 @@ func TestChatViewParallelToolCalls(t *testing.T) {
 }
 
 func TestChatViewStartEndAgent(t *testing.T) {
-	cv := New()
-	cv, _ = cv.Update(msgs.ChatViewSetWidthMsg{Width: 80})
+	cv := newTestChatView()
 
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "myAgent", Prefix: "🤖"})
 	assert.Contains(t, cv.agents, "myAgent")
 	assert.Len(t, cv.agentOrder, 1)
 
-	cv, cmd := cv.Update(msgs.AgentEndMsg{Agent: "myAgent"})
+	cv, _ = cv.Update(msgs.AgentEndMsg{Agent: "myAgent"})
 	assert.NotContains(t, cv.agents, "myAgent")
-	assert.NotNil(t, cmd) // summary emitted as tea.Println cmd
+	// Summary should be committed to the buffer.
+	assert.NotEmpty(t, cv.committed)
 }
 
 func TestChatViewSubAgent(t *testing.T) {
-	cv := New()
-	cv, _ = cv.Update(msgs.ChatViewSetWidthMsg{Width: 80})
+	cv := newTestChatView()
 
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "parent", Prefix: "🤖"})
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "parent"})
@@ -130,8 +134,7 @@ func TestChatViewSubAgent(t *testing.T) {
 }
 
 func TestChatViewIgnoreSystemAndUser(t *testing.T) {
-	cv := New()
-	cv, _ = cv.Update(msgs.ChatViewSetWidthMsg{Width: 80})
+	cv := newTestChatView()
 
 	cv, cmd := cv.Update(msgs.ChatMessageMsg{Msg: message.NewText("sys", role.System, "system prompt")})
 	assert.Nil(t, cmd)
@@ -141,17 +144,17 @@ func TestChatViewIgnoreSystemAndUser(t *testing.T) {
 }
 
 func TestChatViewProcessingSpinner(t *testing.T) {
-	cv := New()
-	cv, _ = cv.Update(msgs.ChatViewSetWidthMsg{Width: 80})
+	cv := newTestChatView()
 	cv, _ = cv.Update(msgs.ChatViewSetProcessingMsg{Processing: true})
 
+	// Advance spinners + rebuild to get content into viewport.
+	cv, _ = cv.Update(msgs.ChatViewAdvanceSpinnersMsg{})
 	view := cv.View()
 	assert.Contains(t, view, cv.ProcessingMsg)
 }
 
 func TestChatViewClear(t *testing.T) {
-	cv := New()
-	cv, _ = cv.Update(msgs.ChatViewSetWidthMsg{Width: 80})
+	cv := newTestChatView()
 	cv, _ = cv.Update(msgs.ChatViewCommitUserMsg{Text: "hello"})
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "agent", Prefix: "🤖"})
 
@@ -160,4 +163,27 @@ func TestChatViewClear(t *testing.T) {
 	assert.Empty(t, cv.agents)
 	assert.Empty(t, cv.subAgents)
 	assert.False(t, cv.HasMessages)
+	assert.Empty(t, cv.committed)
+}
+
+func TestChatViewAppendMsg(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.ChatViewAppendMsg{Content: "hello from append"})
+
+	assert.Len(t, cv.committed, 1)
+	assert.Equal(t, "hello from append", cv.committed[0])
+	assert.Contains(t, cv.View(), "hello from append")
+}
+
+func TestChatViewFlushAll(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "a1", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "a2", Prefix: "🤖"})
+
+	cv, _ = cv.Update(msgs.ChatViewFlushAllMsg{})
+
+	assert.Empty(t, cv.agents)
+	assert.Empty(t, cv.agentOrder)
+	// Summaries should be in committed buffer.
+	assert.NotEmpty(t, cv.committed)
 }

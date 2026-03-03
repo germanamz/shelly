@@ -1,7 +1,6 @@
 package input
 
 import (
-	"fmt"
 	"strings"
 	"unicode"
 
@@ -26,7 +25,6 @@ type InputModel struct {
 	CmdPicker  CmdPickerModel
 	Enabled    bool
 	width      int
-	TokenCount string // formatted total session tokens, updated externally
 }
 
 // New creates a new InputModel.
@@ -70,9 +68,6 @@ func (m InputModel) Update(msg tea.Msg) (InputModel, tea.Cmd) {
 		m.width = msg.Width
 		innerWidth := max(msg.Width-4, 10)
 		m.textarea.SetWidth(innerWidth)
-		return m, nil
-	case msgs.InputSetTokenCountMsg:
-		m.TokenCount = msg.TokenCount
 		return m, nil
 	}
 
@@ -267,11 +262,6 @@ func (m InputModel) View() string {
 
 	parts = append(parts, inputView)
 
-	// Token counter below input (hidden when any picker is open).
-	if !m.PickerActive() && m.TokenCount != "" {
-		parts = append(parts, styles.StatusStyle.Render(fmt.Sprintf(" %s tokens", m.TokenCount)))
-	}
-
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
@@ -365,8 +355,8 @@ func wordWrapLineCount(text string, width int) int {
 
 // ViewHeight returns the height of the input box area.
 func (m InputModel) ViewHeight() int {
-	// Border (2) + textarea lines + token counter (1).
+	// Border (2) + textarea lines.
 	lines := m.visualLineCount()
 	h := min(max(lines, InputMinHeight), InputMaxHeight)
-	return h + 2 + 1
+	return h + 2
 }

@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -43,6 +45,7 @@ type AppModel struct {
 	cancelBridge   context.CancelFunc
 	cancelSend     context.CancelFunc // cancels the current Send when Escape is pressed
 	sendGeneration uint64
+	tokenCount     string // formatted total session tokens for status bar
 	width          int
 	height         int
 
@@ -52,11 +55,14 @@ type AppModel struct {
 
 // NewAppModel creates a new AppModel.
 func NewAppModel(ctx context.Context, sess *engine.Session, eng *engine.Engine) AppModel {
+	cv := chatview.New()
+	// Append logo to viewport as initial content.
+	cv, _ = cv.Update(msgs.ChatViewAppendMsg{Content: styles.DimStyle.Render(chatview.LogoArt)})
 	return AppModel{
 		ctx:       ctx,
 		sess:      sess,
 		eng:       eng,
-		chatView:  chatview.New(),
+		chatView:  cv,
 		inputBox:  input.New(),
 		taskPanel: taskpanel.New(),
 		state:     StateIdle,
@@ -70,11 +76,9 @@ func (m AppModel) InputEnabled() bool {
 }
 
 func (m AppModel) Init() tea.Cmd {
-	logoPrint := tea.Println(styles.DimStyle.Render(chatview.LogoArt))
-	drainTick := tea.Tick(200*time.Millisecond, func(time.Time) tea.Msg {
+	return tea.Tick(200*time.Millisecond, func(time.Time) tea.Msg {
 		return msgs.InitDrainMsg{}
 	})
-	return tea.Batch(logoPrint, drainTick)
 }
 
 func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -133,7 +137,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		errLine := styles.ErrorBlockStyle.Width(m.width).Render(
 			lipgloss.NewStyle().Foreground(styles.ColorError).Render("error responding: " + msg.Err.Error()),
 		)
-		return m, tea.Println("\n" + errLine + "\n")
+		m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: "\n" + errLine + "\n"})
+		return m, nil
 
 	// --- Task panel ---
 	case msgs.TasksChangedMsg:
@@ -148,6 +153,11 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updateTokenCounter()
 			return m, tickCmd()
 		}
+		return m, nil
+
+	// --- Forward mouse wheel to viewport ---
+	case tea.MouseWheelMsg:
+		m.chatView, _ = m.chatView.Update(msg)
 		return m, nil
 	}
 
@@ -170,14 +180,8 @@ func (m AppModel) View() tea.View {
 		return tea.NewView("Loading...")
 	}
 
-	var parts []string
-
-	if chatContent := m.chatView.View(); chatContent != "" {
-		parts = append(parts, chatContent)
-	}
-
-	if panel := m.taskPanel.View(); panel != "" {
-		parts = append(parts, panel)
+	parts := []string{
+		m.chatView.View(),
 	}
 
 	if m.askActive != nil {
@@ -186,7 +190,11 @@ func (m AppModel) View() tea.View {
 		parts = append(parts, m.inputBox.View())
 	}
 
-	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, parts...))
+	parts = append(parts, m.statusBar())
+
+	v := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, parts...))
+	v.MouseMode = tea.MouseModeCellMotion
+	return v
 }
 
 // --- Private helpers ---
@@ -197,6 +205,7 @@ func (m *AppModel) handleResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	format.InitMarkdownRenderer(m.width - 4)
 	m.inputBox, _ = m.inputBox.Update(msgs.InputSetWidthMsg{Width: m.width})
 	m.chatView, _ = m.chatView.Update(msgs.ChatViewSetWidthMsg{Width: m.width})
+	m.recalcViewportHeight()
 	return m, nil
 }
 
@@ -209,6 +218,11 @@ func (m *AppModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.cancelBridge()
 		}
 		return m, func() tea.Msg { return tea.QuitMsg{} }
+	}
+
+	// Page Up / Page Down always scroll the viewport.
+	if m.chatView.HandleScrollKey(msg) {
+		return m, nil
 	}
 
 	// Forward to ask prompt if active.
@@ -245,9 +259,8 @@ func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
 		return m, result.cmd
 	}
 
-	// Commit user message to terminal output.
-	var printCmd tea.Cmd
-	m.chatView, printCmd = m.chatView.Update(msgs.ChatViewCommitUserMsg{Text: text})
+	// Commit user message to viewport.
+	m.chatView, _ = m.chatView.Update(msgs.ChatViewCommitUserMsg{Text: text})
 	m.chatView, _ = m.chatView.Update(msgs.ChatViewMarkSentMsg{})
 
 	if m.state == StateProcessing {
@@ -260,10 +273,10 @@ func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
 		m.cancelSend = cancelSend
 		sess := m.sess
 		sendStart := time.Now()
-		return m, tea.Batch(printCmd, func() tea.Msg {
+		return m, func() tea.Msg {
 			_, err := sess.Send(sendCtx, text)
 			return msgs.SendCompleteMsg{Err: err, Duration: time.Since(sendStart), Generation: gen}
-		})
+		}
 	}
 
 	m.state = StateProcessing
@@ -281,7 +294,7 @@ func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
 		return msgs.SendCompleteMsg{Err: err, Duration: time.Since(sendStart), Generation: gen}
 	}
 
-	return m, tea.Batch(printCmd, sendCmd, tickCmd())
+	return m, tea.Batch(sendCmd, tickCmd())
 }
 
 func (m *AppModel) handleSendComplete(msg msgs.SendCompleteMsg) (tea.Model, tea.Cmd) {
@@ -293,17 +306,16 @@ func (m *AppModel) handleSendComplete(msg msgs.SendCompleteMsg) (tea.Model, tea.
 	m.chatView, _ = m.chatView.Update(msgs.ChatViewSetProcessingMsg{Processing: false})
 	m.updateTokenCounter()
 
-	var flushCmd tea.Cmd
-	m.chatView, flushCmd = m.chatView.Update(msgs.ChatViewFlushAllMsg{})
+	m.chatView, _ = m.chatView.Update(msgs.ChatViewFlushAllMsg{})
 
 	if msg.Err != nil && m.ctx.Err() == nil {
 		errLine := styles.ErrorBlockStyle.Width(m.width).Render(
 			lipgloss.NewStyle().Foreground(styles.ColorError).Render("error: " + msg.Err.Error()),
 		)
-		return m, tea.Batch(flushCmd, tea.Println("\n"+errLine+"\n"))
+		m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: "\n" + errLine + "\n"})
 	}
 
-	return m, flushCmd
+	return m, nil
 }
 
 func (m *AppModel) updateTokenCounter() {
@@ -314,8 +326,35 @@ func (m *AppModel) updateTokenCounter() {
 	total := ur.UsageTracker().Total()
 	totalTok := total.InputTokens + total.OutputTokens
 	if totalTok > 0 {
-		m.inputBox, _ = m.inputBox.Update(msgs.InputSetTokenCountMsg{TokenCount: format.FmtTokens(totalTok)})
+		m.tokenCount = format.FmtTokens(totalTok)
 	}
+}
+
+// statusBar renders the task panel and token counter below the input.
+func (m AppModel) statusBar() string {
+	var parts []string
+	if panel := m.taskPanel.View(); panel != "" {
+		parts = append(parts, panel)
+	}
+	if m.tokenCount != "" {
+		parts = append(parts, styles.StatusStyle.Render(fmt.Sprintf(" %s tokens", m.tokenCount)))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, "\n")
+}
+
+// recalcViewportHeight computes the available viewport height and sends it
+// to the chatview. Call after resize or when the input height changes.
+func (m *AppModel) recalcViewportHeight() {
+	// Status bar: 1 line for token counter (always reserve), plus task panel lines.
+	statusLines := 1
+	if panel := m.taskPanel.View(); panel != "" {
+		statusLines += strings.Count(panel, "\n") + 1
+	}
+	vpHeight := max(m.height-m.inputBox.ViewHeight()-statusLines, 3)
+	m.chatView, _ = m.chatView.Update(msgs.ChatViewSetHeightMsg{Height: vpHeight})
 }
 
 func (m *AppModel) handleAskUser(msg msgs.AskUserMsg) (tea.Model, tea.Cmd) {
