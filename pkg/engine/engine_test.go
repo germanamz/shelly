@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/germanamz/shelly/pkg/agent/effects"
 	"github.com/germanamz/shelly/pkg/chats/chat"
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/chats/message"
@@ -331,4 +332,42 @@ func TestEngine_LoadsProjectContext(t *testing.T) {
 	defer func() { _ = eng.Close() }()
 
 	assert.Contains(t, eng.projectCtx.Curated, "# My Project")
+}
+
+func TestDefaultPipelineIncludesObservationMask(t *testing.T) {
+	// When no explicit effects are configured the auto-generated default
+	// pipeline should include observation_mask between trim_tool_results
+	// and compact.
+	defaultConfigs := []EffectConfig{
+		{Kind: "trim_tool_results"},
+		{Kind: "observation_mask", Params: map[string]any{"threshold": 0.5}},
+		{Kind: "compact", Params: map[string]any{"threshold": 0.8}},
+	}
+
+	wctx := EffectWiringContext{
+		ContextWindow: 200000,
+		AgentName:     "test",
+	}
+
+	effs, err := buildEffects(defaultConfigs, wctx)
+	require.NoError(t, err)
+	require.Len(t, effs, 3)
+
+	// Verify that an ObservationMaskEffect is present among the built effects.
+	var hasObsMask bool
+	for _, e := range effs {
+		if _, ok := e.(*effects.ObservationMaskEffect); ok {
+			hasObsMask = true
+			break
+		}
+	}
+	assert.True(t, hasObsMask, "default pipeline should include ObservationMaskEffect")
+}
+
+func TestEffectPriority_ObservationMask(t *testing.T) {
+	eff := effects.NewObservationMaskEffect(effects.ObservationMaskConfig{
+		ContextWindow: 200000,
+		Threshold:     0.5,
+	})
+	assert.Equal(t, 0, effectPriority(eff), "ObservationMaskEffect should have compaction-class priority (0)")
 }

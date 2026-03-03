@@ -46,6 +46,7 @@ type AppModel struct {
 	cancelSend     context.CancelFunc // cancels the current Send when Escape is pressed
 	sendGeneration uint64
 	tokenCount     string // formatted total session tokens for status bar
+	cacheInfo      string // formatted cache hit ratio for status bar
 	width          int
 	height         int
 
@@ -328,6 +329,9 @@ func (m *AppModel) updateTokenCounter() {
 	if totalTok > 0 {
 		m.tokenCount = format.FmtTokens(totalTok)
 	}
+	if ratio := total.CacheSavings(); ratio > 0 {
+		m.cacheInfo = fmt.Sprintf("cache %.0f%%", ratio*100)
+	}
 }
 
 // statusBar renders the task panel and token counter below the input.
@@ -337,7 +341,11 @@ func (m AppModel) statusBar() string {
 		parts = append(parts, panel)
 	}
 	if m.tokenCount != "" {
-		parts = append(parts, styles.StatusStyle.Render(fmt.Sprintf(" %s tokens", m.tokenCount)))
+		status := fmt.Sprintf(" %s tokens", m.tokenCount)
+		if m.cacheInfo != "" {
+			status += " | " + m.cacheInfo
+		}
+		parts = append(parts, styles.StatusStyle.Render(status))
 	}
 	if len(parts) == 0 {
 		return ""

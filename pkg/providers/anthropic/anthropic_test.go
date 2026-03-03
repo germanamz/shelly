@@ -327,6 +327,43 @@ func TestComplete_SystemPromptSkipped(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestComplete_CacheControl(t *testing.T) {
+	_, adapter := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		req := readBody(t, r)
+
+		// Verify cache_control is present in the request.
+		cc, ok := req["cache_control"].(map[string]any)
+		assert.True(t, ok, "cache_control field should be present")
+		assert.Equal(t, "ephemeral", cc["type"])
+
+		writeJSON(t, w, map[string]any{
+			"content":     []map[string]any{{"type": "text", "text": "OK"}},
+			"stop_reason": "end_turn",
+			"usage": map[string]any{
+				"input_tokens":                10,
+				"output_tokens":               5,
+				"cache_creation_input_tokens": 100,
+				"cache_read_input_tokens":     200,
+			},
+		})
+	})
+
+	c := chat.New(
+		message.NewText("system", role.System, "You are helpful."),
+		message.NewText("user", role.User, "Hi"),
+	)
+
+	_, err := adapter.Complete(context.Background(), c, nil)
+	require.NoError(t, err)
+
+	last, ok := adapter.Usage.Last()
+	require.True(t, ok)
+	assert.Equal(t, 10, last.InputTokens)
+	assert.Equal(t, 5, last.OutputTokens)
+	assert.Equal(t, 100, last.CacheCreationInputTokens)
+	assert.Equal(t, 200, last.CacheReadInputTokens)
+}
+
 func TestComplete_HTTPError(t *testing.T) {
 	_, adapter := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

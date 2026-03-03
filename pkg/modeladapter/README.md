@@ -180,22 +180,32 @@ if tokens > contextWindow * 0.8 {
 
 `Tracker` accumulates `TokenCount` entries across multiple LLM calls. It is thread-safe via `sync.Mutex`. The zero value is ready to use.
 
-`TokenCount` holds input and output token counts for a single LLM call:
+`TokenCount` holds input and output token counts for a single LLM call, including provider cache metrics:
 
 ```go
 type TokenCount struct {
-    InputTokens  int
-    OutputTokens int
+    InputTokens              int
+    OutputTokens             int
+    CacheCreationInputTokens int // Tokens written to provider cache (Anthropic).
+    CacheReadInputTokens     int // Tokens read from provider cache (all providers).
 }
 ```
 
-`TokenCount.Total()` returns the sum of input and output tokens.
+- `TokenCount.Total()` returns the sum of input and output tokens.
+- `TokenCount.CacheSavings()` returns the ratio of cache-read tokens to total input tokens (`cache_read / (cache_read + cache_creation + input)`). Returns 0 if there are no input tokens. This is useful for displaying cache hit ratios in the TUI.
+
+Cache fields are populated automatically by providers that support prompt caching:
+- **Anthropic**: `CacheCreationInputTokens` and `CacheReadInputTokens` from `cache_creation_input_tokens` / `cache_read_input_tokens` response fields.
+- **OpenAI**: `CacheReadInputTokens` from `prompt_tokens_details.cached_tokens`.
+- **Gemini**: `CacheReadInputTokens` from `usageMetadata.cachedContentTokenCount`.
+
+`Tracker` methods:
 
 | Method    | Description                                      |
 |-----------|--------------------------------------------------|
 | `Add`     | Records a token count entry                      |
 | `Last`    | Returns the most recent entry (and a bool)       |
-| `Total`   | Returns aggregate input/output counts            |
+| `Total`   | Returns aggregate counts (including cache fields) |
 | `Count`   | Returns the number of recorded entries            |
 | `Reset`   | Clears all entries                                |
 

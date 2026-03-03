@@ -138,6 +138,7 @@ func newProviderFormScreen(p *engine.ProviderConfig, kinds []string, isNew bool)
 	modelField := NewTextField("Model", "e.g. claude-opus-4-6", false)
 	baseURLField := NewTextField("Base URL", "optional", false)
 	ctxWindowField := NewIntField("Context Window", "empty=default, 0=disabled", false)
+	maxTokensField := NewIntField("Max Tokens", "empty=provider default", false)
 	maxRetriesField := NewIntField("Rate Limit Retries", "e.g. 3", false)
 	baseDelayField := NewTextField("Rate Limit Delay", "e.g. 1s", false)
 
@@ -160,6 +161,9 @@ func newProviderFormScreen(p *engine.ProviderConfig, kinds []string, isNew bool)
 	if p.ContextWindow != nil {
 		ctxWindowField.SetValue(strconv.Itoa(*p.ContextWindow))
 	}
+	if p.MaxTokens != nil {
+		maxTokensField.SetValue(strconv.Itoa(*p.MaxTokens))
+	}
 	if p.RateLimit.MaxRetries > 0 {
 		maxRetriesField.SetValue(strconv.Itoa(p.RateLimit.MaxRetries))
 	}
@@ -174,7 +178,7 @@ func newProviderFormScreen(p *engine.ProviderConfig, kinds []string, isNew bool)
 
 	form := NewFormModel(title, []FormField{
 		kindField, nameField, apiKeyField, modelField,
-		baseURLField, ctxWindowField, maxRetriesField, baseDelayField,
+		baseURLField, ctxWindowField, maxTokensField, maxRetriesField, baseDelayField,
 	})
 
 	return &providerFormScreen{provider: p, form: form, isNew: isNew, kinds: kinds}
@@ -213,15 +217,24 @@ func (s *providerFormScreen) applyToProvider() {
 		}
 	}
 
-	// Rate limit fields.
+	// Max tokens: empty = nil (provider default), value = *int.
 	if f, ok := s.form.Fields[6].(*IntField); ok {
+		if v, set := f.IntValue(); set {
+			s.provider.MaxTokens = &v
+		} else {
+			s.provider.MaxTokens = nil
+		}
+	}
+
+	// Rate limit fields.
+	if f, ok := s.form.Fields[7].(*IntField); ok {
 		if v, set := f.IntValue(); set {
 			s.provider.RateLimit.MaxRetries = v
 		} else {
 			s.provider.RateLimit.MaxRetries = 0
 		}
 	}
-	s.provider.RateLimit.BaseDelay = s.form.Fields[7].Value()
+	s.provider.RateLimit.BaseDelay = s.form.Fields[8].Value()
 }
 
 func (s *providerFormScreen) View() string {

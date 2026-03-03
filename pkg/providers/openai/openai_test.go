@@ -234,6 +234,40 @@ func TestComplete_ToolCall(t *testing.T) {
 	assert.Equal(t, 20, total.OutputTokens)
 }
 
+func TestComplete_CachedTokens(t *testing.T) {
+	_, adapter := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		text := "Hello!"
+		writeJSON(t, w, map[string]any{
+			"choices": []map[string]any{
+				{
+					"message":       map[string]any{"role": "assistant", "content": text},
+					"finish_reason": "stop",
+				},
+			},
+			"usage": map[string]any{
+				"prompt_tokens":     100,
+				"completion_tokens": 10,
+				"prompt_tokens_details": map[string]any{
+					"cached_tokens": 80,
+				},
+			},
+		})
+	})
+
+	c := chat.New(
+		message.NewText("user", role.User, "Hi"),
+	)
+
+	_, err := adapter.Complete(context.Background(), c, nil)
+	require.NoError(t, err)
+
+	last, ok := adapter.Usage.Last()
+	require.True(t, ok)
+	assert.Equal(t, 100, last.InputTokens)
+	assert.Equal(t, 10, last.OutputTokens)
+	assert.Equal(t, 80, last.CacheReadInputTokens)
+}
+
 func TestComplete_EmptyChoices(t *testing.T) {
 	_, adapter := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(t, w, map[string]any{

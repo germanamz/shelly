@@ -4,13 +4,25 @@ import "sync"
 
 // TokenCount holds input and output token counts for a single LLM call.
 type TokenCount struct {
-	InputTokens  int
-	OutputTokens int
+	InputTokens              int
+	OutputTokens             int
+	CacheCreationInputTokens int
+	CacheReadInputTokens     int
 }
 
 // Total returns the sum of input and output tokens.
 func (tc TokenCount) Total() int {
 	return tc.InputTokens + tc.OutputTokens
+}
+
+// CacheSavings returns the ratio of cache-read tokens to total input tokens
+// (cache_read + cache_creation + input). Returns 0 if there are no input tokens.
+func (tc TokenCount) CacheSavings() float64 {
+	total := tc.InputTokens + tc.CacheCreationInputTokens + tc.CacheReadInputTokens
+	if total == 0 {
+		return 0
+	}
+	return float64(tc.CacheReadInputTokens) / float64(total)
 }
 
 // Tracker accumulates token usage across multiple LLM calls.
@@ -50,6 +62,8 @@ func (t *Tracker) Total() TokenCount {
 	for _, e := range t.entries {
 		total.InputTokens += e.InputTokens
 		total.OutputTokens += e.OutputTokens
+		total.CacheCreationInputTokens += e.CacheCreationInputTokens
+		total.CacheReadInputTokens += e.CacheReadInputTokens
 	}
 
 	return total

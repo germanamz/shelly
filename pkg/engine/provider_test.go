@@ -3,7 +3,9 @@ package engine
 import (
 	"testing"
 
+	"github.com/germanamz/shelly/pkg/modeladapter"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestResolveContextWindow_DefaultsForKnownKinds(t *testing.T) {
@@ -55,4 +57,39 @@ func TestResolveContextWindow_ExplicitValueOverridesConfigDefault(t *testing.T) 
 	cfg := ProviderConfig{Kind: "anthropic", ContextWindow: intPtr(100000)}
 	overrides := map[string]int{"anthropic": 150000}
 	assert.Equal(t, 100000, resolveContextWindow(cfg, overrides))
+}
+
+func TestMaxTokens_AppliedToProvider(t *testing.T) {
+	maxTok := 16384
+
+	tests := []struct {
+		kind           string
+		defaultMaxToks int
+	}{
+		{"anthropic", 4096},
+		{"openai", 4096},
+		{"grok", 4096},
+		{"gemini", 8192},
+	}
+	for _, tt := range tests {
+		t.Run(tt.kind+"_default", func(t *testing.T) {
+			cfg := ProviderConfig{Kind: tt.kind}
+			c, err := buildCompleter(cfg)
+			require.NoError(t, err)
+
+			reporter, ok := c.(modeladapter.UsageReporter)
+			require.True(t, ok, "completer should implement UsageReporter")
+			assert.Equal(t, tt.defaultMaxToks, reporter.ModelMaxTokens())
+		})
+
+		t.Run(tt.kind+"_overridden", func(t *testing.T) {
+			cfg := ProviderConfig{Kind: tt.kind, MaxTokens: &maxTok}
+			c, err := buildCompleter(cfg)
+			require.NoError(t, err)
+
+			reporter, ok := c.(modeladapter.UsageReporter)
+			require.True(t, ok, "completer should implement UsageReporter")
+			assert.Equal(t, maxTok, reporter.ModelMaxTokens())
+		})
+	}
 }

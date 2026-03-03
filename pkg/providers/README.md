@@ -34,8 +34,8 @@ All providers follow the same pattern:
 3. **Convert messages** -- Transform `pkg/chats` types (Text, ToolCall,
    ToolResult, roles) into the provider's API format and parse responses back
    into `message.Message` with `content.Part` slices.
-4. **Track usage** -- Accumulate input/output token counts via
-   `adapter.Usage.Add()` after each successful API call.
+4. **Track usage** -- Accumulate input/output token counts (and cache metrics
+   where available) via `adapter.Usage.Add()` after each successful API call.
 
 ### Provider Differences
 
@@ -43,10 +43,18 @@ All providers follow the same pattern:
   tool results in `"user"` role messages. Tool schemas use `input_schema`.
   Default max tokens: 4096. Uses `ParseAnthropicRateLimitHeaders` for rate
   limit handling. Sends a custom `anthropic-version: 2023-06-01` header.
+  **Prompt caching**: Every request includes `cache_control: {type: "ephemeral"}`
+  which enables automatic prefix caching. The API caches the entire prefix up to
+  the last cacheable block (tools -> system -> messages). Cache metrics
+  (`cache_creation_input_tokens`, `cache_read_input_tokens`) are tracked in the
+  usage system.
 - **OpenAI** sends the system prompt as a `"system"` role message in the messages
   array. Tool definitions use the `{"type":"function","function":{...}}` wrapper
   with `parameters`. Default max tokens: 4096. Uses
   `ParseOpenAIRateLimitHeaders` for rate limit handling.
+  **Prompt caching**: OpenAI auto-caches prompts >= 1024 tokens. The adapter
+  captures `prompt_tokens_details.cached_tokens` from responses and maps it to
+  `CacheReadInputTokens` in the usage tracker.
 - **Grok** follows the OpenAI-compatible format (same message structure and tool
   definitions). Its constructor accepts an `*http.Client` and uses
   `modeladapter.New()` rather than direct field assignment. The model name is
@@ -63,6 +71,9 @@ All providers follow the same pattern:
   round-tripping on tool calls via `content.ToolCall.Metadata`. Sanitizes JSON
   schemas by recursively stripping `$schema` and `additionalProperties` keys
   that the Gemini API rejects. Default max tokens: 8192.
+  **Prompt caching**: Gemini has implicit caching (90% discount on Gemini 2.5+).
+  The adapter captures `cachedContentTokenCount` from `usageMetadata` and maps
+  it to `CacheReadInputTokens` in the usage tracker.
 
 ## Exported Types and Constructors
 

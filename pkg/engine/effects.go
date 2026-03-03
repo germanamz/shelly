@@ -75,7 +75,7 @@ func sortEffects(effs []agent.Effect) {
 // first) and 1 for everything else.
 func effectPriority(e agent.Effect) int {
 	switch e.(type) {
-	case *effects.CompactEffect, *effects.SlidingWindowEffect:
+	case *effects.CompactEffect, *effects.SlidingWindowEffect, *effects.ObservationMaskEffect:
 		return 0
 	case *effects.ToolScopeEffect, *effects.OffloadEffect:
 		return 1

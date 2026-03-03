@@ -64,6 +64,7 @@ type ProviderConfig struct {
 	APIKey        string          `yaml:"api_key"` //nolint:gosec // configuration field, not a hardcoded secret
 	Model         string          `yaml:"model"`
 	ContextWindow *int            `yaml:"context_window"` // Max context tokens (nil = use provider default, 0 = no compaction).
+	MaxTokens     *int            `yaml:"max_tokens"`     // Max output tokens per response (nil = use provider default).
 	RateLimit     RateLimitConfig `yaml:"rate_limit"`
 	Batch         BatchConfig     `yaml:"batch"`
 }
@@ -330,6 +331,9 @@ func validateProviders(providers []ProviderConfig) (map[string]struct{}, error) 
 		}
 		if p.ContextWindow != nil && *p.ContextWindow < 0 {
 			return nil, fmt.Errorf("engine: config: provider %q: context_window must be >= 0", p.Name)
+		}
+		if p.MaxTokens != nil && *p.MaxTokens <= 0 {
+			return nil, fmt.Errorf("engine: config: provider %q: max_tokens must be > 0", p.Name)
 		}
 		if err := validateBatchConfig(p); err != nil {
 			return nil, err

@@ -60,8 +60,9 @@ func (a *Adapter) Complete(ctx context.Context, c *chat.Chat, tools []toolbox.To
 	}
 
 	a.Usage.Add(usage.TokenCount{
-		InputTokens:  resp.UsageMetadata.PromptTokenCount,
-		OutputTokens: resp.UsageMetadata.CandidatesTokenCount,
+		InputTokens:          resp.UsageMetadata.PromptTokenCount,
+		OutputTokens:         resp.UsageMetadata.CandidatesTokenCount,
+		CacheReadInputTokens: resp.UsageMetadata.CachedContentTokenCount,
 	})
 
 	return a.parseCandidate(resp.Candidates[0]), nil
@@ -126,9 +127,10 @@ type apiCandidate struct {
 }
 
 type apiUsageMeta struct {
-	PromptTokenCount     int `json:"promptTokenCount"`
-	CandidatesTokenCount int `json:"candidatesTokenCount"`
-	TotalTokenCount      int `json:"totalTokenCount"`
+	PromptTokenCount        int `json:"promptTokenCount"`
+	CandidatesTokenCount    int `json:"candidatesTokenCount"`
+	TotalTokenCount         int `json:"totalTokenCount"`
+	CachedContentTokenCount int `json:"cachedContentTokenCount"`
 }
 
 // --- conversion helpers ---

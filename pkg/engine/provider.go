@@ -82,7 +82,11 @@ func newAnthropic(cfg ProviderConfig) (modeladapter.Completer, error) {
 		baseURL = "https://api.anthropic.com"
 	}
 
-	return anthropic.New(baseURL, cfg.APIKey, cfg.Model), nil
+	a := anthropic.New(baseURL, cfg.APIKey, cfg.Model)
+	if cfg.MaxTokens != nil {
+		a.MaxTokens = *cfg.MaxTokens
+	}
+	return a, nil
 }
 
 func newOpenAI(cfg ProviderConfig) (modeladapter.Completer, error) {
@@ -91,7 +95,11 @@ func newOpenAI(cfg ProviderConfig) (modeladapter.Completer, error) {
 		baseURL = "https://api.openai.com"
 	}
 
-	return openai.New(baseURL, cfg.APIKey, cfg.Model), nil
+	a := openai.New(baseURL, cfg.APIKey, cfg.Model)
+	if cfg.MaxTokens != nil {
+		a.MaxTokens = *cfg.MaxTokens
+	}
+	return a, nil
 }
 
 func newGrok(cfg ProviderConfig) (modeladapter.Completer, error) {
@@ -101,6 +109,9 @@ func newGrok(cfg ProviderConfig) (modeladapter.Completer, error) {
 	}
 	if cfg.Model != "" {
 		a.Name = cfg.Model
+	}
+	if cfg.MaxTokens != nil {
+		a.MaxTokens = *cfg.MaxTokens
 	}
 
 	return a, nil
@@ -112,7 +123,11 @@ func newGemini(cfg ProviderConfig) (modeladapter.Completer, error) {
 		baseURL = "https://generativelanguage.googleapis.com"
 	}
 
-	return gemini.New(baseURL, cfg.APIKey, cfg.Model), nil
+	a := gemini.New(baseURL, cfg.APIKey, cfg.Model)
+	if cfg.MaxTokens != nil {
+		a.MaxTokens = *cfg.MaxTokens
+	}
+	return a, nil
 }
 
 // BatchSubmitterFactory creates a batch.Submitter from a ProviderConfig and

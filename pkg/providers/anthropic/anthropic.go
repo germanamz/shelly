@@ -54,8 +54,10 @@ func (a *Adapter) Complete(ctx context.Context, c *chat.Chat, tools []toolbox.To
 	}
 
 	a.Usage.Add(usage.TokenCount{
-		InputTokens:  resp.Usage.InputTokens,
-		OutputTokens: resp.Usage.OutputTokens,
+		InputTokens:              resp.Usage.InputTokens,
+		OutputTokens:             resp.Usage.OutputTokens,
+		CacheCreationInputTokens: resp.Usage.CacheCreationInputTokens,
+		CacheReadInputTokens:     resp.Usage.CacheReadInputTokens,
 	})
 
 	return a.parseResponse(resp), nil
@@ -63,13 +65,18 @@ func (a *Adapter) Complete(ctx context.Context, c *chat.Chat, tools []toolbox.To
 
 // --- request types ---
 
+type cacheControl struct {
+	Type string `json:"type"`
+}
+
 type apiRequest struct {
-	Model       string       `json:"model"`
-	MaxTokens   int          `json:"max_tokens"`
-	System      string       `json:"system,omitempty"`
-	Messages    []apiMessage `json:"messages"`
-	Temperature *float64     `json:"temperature,omitempty"`
-	Tools       []apiToolDef `json:"tools,omitempty"`
+	Model        string        `json:"model"`
+	MaxTokens    int           `json:"max_tokens"`
+	System       string        `json:"system,omitempty"`
+	Messages     []apiMessage  `json:"messages"`
+	Temperature  *float64      `json:"temperature,omitempty"`
+	Tools        []apiToolDef  `json:"tools,omitempty"`
+	CacheControl *cacheControl `json:"cache_control,omitempty"`
 }
 
 type apiMessage struct {
@@ -103,8 +110,10 @@ type apiResponse struct {
 }
 
 type apiUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 }
 
 // --- conversion helpers ---
@@ -120,6 +129,8 @@ func (a *Adapter) buildRequest(c *chat.Chat, tools []toolbox.Tool) apiRequest {
 		t := a.Temperature
 		req.Temperature = &t
 	}
+
+	req.CacheControl = &cacheControl{Type: "ephemeral"}
 
 	if len(tools) > 0 {
 		req.Tools = make([]apiToolDef, len(tools))

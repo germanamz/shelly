@@ -84,6 +84,53 @@ func TestTracker_Reset(t *testing.T) {
 	assert.Equal(t, usage.TokenCount{}, tr.Total())
 }
 
+func TestTokenCount_CacheSavings(t *testing.T) {
+	tc := usage.TokenCount{
+		InputTokens:              100,
+		OutputTokens:             50,
+		CacheCreationInputTokens: 50,
+		CacheReadInputTokens:     200,
+	}
+	// 200 / (100 + 50 + 200) = 200/350 ≈ 0.5714
+	assert.InDelta(t, 0.5714, tc.CacheSavings(), 0.001)
+}
+
+func TestTokenCount_CacheSavings_Zero(t *testing.T) {
+	tc := usage.TokenCount{}
+	assert.InDelta(t, 0, tc.CacheSavings(), 0.001)
+}
+
+func TestTokenCount_CacheSavings_NoCacheReads(t *testing.T) {
+	tc := usage.TokenCount{
+		InputTokens:              100,
+		CacheCreationInputTokens: 50,
+	}
+	assert.InDelta(t, 0, tc.CacheSavings(), 0.001)
+}
+
+func TestTracker_Total_CacheFields(t *testing.T) {
+	var tr usage.Tracker
+
+	tr.Add(usage.TokenCount{
+		InputTokens:              10,
+		OutputTokens:             5,
+		CacheCreationInputTokens: 20,
+		CacheReadInputTokens:     30,
+	})
+	tr.Add(usage.TokenCount{
+		InputTokens:              15,
+		OutputTokens:             8,
+		CacheCreationInputTokens: 10,
+		CacheReadInputTokens:     50,
+	})
+
+	total := tr.Total()
+	assert.Equal(t, 25, total.InputTokens)
+	assert.Equal(t, 13, total.OutputTokens)
+	assert.Equal(t, 30, total.CacheCreationInputTokens)
+	assert.Equal(t, 80, total.CacheReadInputTokens)
+}
+
 func TestTracker_Concurrent_Add(t *testing.T) {
 	var tr usage.Tracker
 

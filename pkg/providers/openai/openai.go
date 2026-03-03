@@ -51,10 +51,14 @@ func (a *Adapter) Complete(ctx context.Context, c *chat.Chat, tools []toolbox.To
 		return message.Message{}, fmt.Errorf("openai: empty choices in response")
 	}
 
-	a.Usage.Add(usage.TokenCount{
+	tc := usage.TokenCount{
 		InputTokens:  resp.Usage.PromptTokens,
 		OutputTokens: resp.Usage.CompletionTokens,
-	})
+	}
+	if resp.Usage.PromptTokensDetails != nil {
+		tc.CacheReadInputTokens = resp.Usage.PromptTokensDetails.CachedTokens
+	}
+	a.Usage.Add(tc)
 
 	return a.parseChoice(resp.Choices[0]), nil
 }
@@ -117,8 +121,13 @@ type apiRespMessage struct {
 }
 
 type apiUsage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
+	PromptTokens        int                  `json:"prompt_tokens"`
+	CompletionTokens    int                  `json:"completion_tokens"`
+	PromptTokensDetails *promptTokensDetails `json:"prompt_tokens_details,omitempty"`
+}
+
+type promptTokensDetails struct {
+	CachedTokens int `json:"cached_tokens"`
 }
 
 // --- conversion helpers ---

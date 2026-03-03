@@ -630,6 +630,7 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 		// after each completion) + compact (full summarization as fallback).
 		effectConfigs = []EffectConfig{
 			{Kind: "trim_tool_results"},
+			{Kind: "observation_mask", Params: map[string]any{"threshold": 0.5}},
 			{Kind: "compact", Params: map[string]any{"threshold": contextThreshold}},
 		}
 	}

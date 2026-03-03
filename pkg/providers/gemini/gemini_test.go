@@ -302,6 +302,42 @@ func TestComplete_SystemPromptInInstruction(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestComplete_CachedTokens(t *testing.T) {
+	_, adapter := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(t, w, map[string]any{
+			"candidates": []map[string]any{
+				{
+					"content": map[string]any{
+						"role":  "model",
+						"parts": []map[string]any{{"text": "Hello!"}},
+					},
+					"finishReason": "STOP",
+				},
+			},
+			"usageMetadata": map[string]any{
+				"promptTokenCount":        100,
+				"candidatesTokenCount":    10,
+				"totalTokenCount":         110,
+				"cachedContentTokenCount": 75,
+			},
+		})
+	})
+
+	c := chat.New(
+		message.NewText("user", role.User, "Hi"),
+	)
+
+	msg, err := adapter.Complete(context.Background(), c, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "Hello!", msg.TextContent())
+
+	last, ok := adapter.Usage.Last()
+	require.True(t, ok)
+	assert.Equal(t, 100, last.InputTokens)
+	assert.Equal(t, 10, last.OutputTokens)
+	assert.Equal(t, 75, last.CacheReadInputTokens)
+}
+
 func TestComplete_EmptyCandidates(t *testing.T) {
 	_, adapter := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(t, w, map[string]any{

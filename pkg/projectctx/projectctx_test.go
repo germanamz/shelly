@@ -3,6 +3,7 @@ package projectctx
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/germanamz/shelly/pkg/shellydir"
@@ -76,6 +77,56 @@ func TestLoadCurated_EmptyFiles(t *testing.T) {
 
 	d := shellydir.New(tmp)
 	assert.Empty(t, LoadCurated(d))
+}
+
+func TestContext_String_TruncatesWhenExceedsDefault(t *testing.T) {
+	// Build content that exceeds MaxContextRunes.
+	long := strings.Repeat("a", MaxContextRunes+100)
+	ctx := Context{External: long}
+
+	result := ctx.String()
+
+	runes := []rune(result)
+	// Truncated content + marker must be longer than just MaxContextRunes
+	// but the content portion must be exactly MaxContextRunes.
+	assert.Greater(t, len(runes), MaxContextRunes)
+	assert.Contains(t, result, "\n\n[truncated — context exceeds limit]")
+	// First MaxContextRunes runes should be preserved.
+	assert.Equal(t, long[:MaxContextRunes], string(runes[:MaxContextRunes]))
+}
+
+func TestContext_String_NoTruncationUnderLimit(t *testing.T) {
+	content := strings.Repeat("b", MaxContextRunes-10)
+	ctx := Context{External: content}
+
+	result := ctx.String()
+
+	assert.Equal(t, content, result)
+	assert.NotContains(t, result, "[truncated")
+}
+
+func TestContext_String_CustomMaxRunes(t *testing.T) {
+	customLimit := 50
+	content := strings.Repeat("c", 100)
+	ctx := Context{External: content, MaxRunes: customLimit}
+
+	result := ctx.String()
+
+	runes := []rune(result)
+	// The content portion should be exactly customLimit runes.
+	prefix := string(runes[:customLimit])
+	assert.Equal(t, strings.Repeat("c", customLimit), prefix)
+	assert.Contains(t, result, "\n\n[truncated — context exceeds limit]")
+}
+
+func TestContext_String_ExactlyAtLimit(t *testing.T) {
+	content := strings.Repeat("d", MaxContextRunes)
+	ctx := Context{External: content}
+
+	result := ctx.String()
+
+	assert.Equal(t, content, result)
+	assert.NotContains(t, result, "[truncated")
 }
 
 func TestLoad(t *testing.T) {

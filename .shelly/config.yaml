@@ -1,52 +1,80 @@
 providers:
-    - name: anthropic
+    - name: default
       kind: anthropic
       base_url: ""
       api_key: ${ANTHROPIC_API_KEY}
       model: claude-sonnet-4-20250514
       context_window: null
+      max_tokens: null
       rate_limit:
         input_tpm: 0
         output_tpm: 0
         rpm: 0
         max_retries: 0
         base_delay: ""
+      batch:
+        enabled: false
+        collect_window: ""
+        poll_interval: ""
+        timeout: ""
+        max_batch_size: 0
     - name: openai
       kind: openai
       base_url: ""
       api_key: ${OPENAI_API_KEY}
       model: gpt-4.1
       context_window: null
+      max_tokens: null
       rate_limit:
         input_tpm: 0
         output_tpm: 0
         rpm: 0
         max_retries: 0
         base_delay: ""
+      batch:
+        enabled: false
+        collect_window: ""
+        poll_interval: ""
+        timeout: ""
+        max_batch_size: 0
     - name: grok
       kind: grok
       base_url: ""
       api_key: ${GROK_API_KEY}
       model: grok-3
       context_window: null
+      max_tokens: null
       rate_limit:
         input_tpm: 0
         output_tpm: 0
         rpm: 0
         max_retries: 0
         base_delay: ""
-    - name: default
+      batch:
+        enabled: false
+        collect_window: ""
+        poll_interval: ""
+        timeout: ""
+        max_batch_size: 0
+    - name: gemini
       kind: gemini
       base_url: ""
       api_key: ${GEMINI_API_KEY}
       model: gemini-3.1-pro-preview
       context_window: null
+      max_tokens: null
       rate_limit:
         input_tpm: 0
         output_tpm: 0
         rpm: 0
         max_retries: 0
         base_delay: ""
+      batch:
+        enabled: false
+        collect_window: ""
+        poll_interval: ""
+        timeout: ""
+        max_batch_size: 0
 mcp_servers: []
 agents:
     - name: lead
@@ -69,8 +97,8 @@ agents:
       effects:
         - kind: observation_mask
           params:
-            threshold: 0.5
             recent_window: 8
+            threshold: 0.5
         - kind: trim_tool_results
           params:
             max_result_length: 300
@@ -172,8 +200,8 @@ agents:
       effects:
         - kind: observation_mask
           params:
-            threshold: 0.5
             recent_window: 8
+            threshold: 0.5
         - kind: loop_detect
           params: {}
         - kind: reflection

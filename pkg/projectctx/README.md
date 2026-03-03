@@ -34,6 +34,16 @@ The knowledge graph is a filesystem-based markdown graph that agents build and m
 
 The knowledge graph is built by a dedicated **project-indexing team** (`shelly index`), not by task agents.
 
+## Exported Constants
+
+### MaxContextRunes
+
+```go
+const MaxContextRunes = 32000
+```
+
+Default maximum number of runes (~8000 tokens) for the combined context string returned by `String()`.
+
 ## Exported Types
 
 ### Context
@@ -42,10 +52,11 @@ The knowledge graph is built by a dedicated **project-indexing team** (`shelly i
 type Context struct {
     External string // Content from external AI tool context files.
     Curated  string // Content from curated *.md files in .shelly/.
+    MaxRunes int    // Override for MaxContextRunes. If > 0, used instead of the default.
 }
 ```
 
-- **`String()`** -- returns the combined context string. Sections are separated by `\n\n`. Empty sections are omitted.
+- **`String()`** -- returns the combined context string. Sections are separated by `\n\n`. Empty sections are omitted. If the combined length exceeds `MaxRunes` (or `MaxContextRunes` when `MaxRunes` is 0), the result is truncated and `\n\n[truncated — context exceeds limit]` is appended.
 
 ## Exported Functions
 

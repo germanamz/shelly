@@ -118,6 +118,7 @@ providers:
     api_key: ${ANTHROPIC_API_KEY}
     model: claude-sonnet-4-20250514
     context_window: 200000  # max context tokens (omit = provider default, 0 = no compaction)
+    max_tokens: 4096        # max output tokens per response (omit = provider default)
     rate_limit:
       input_tpm: 100000     # input tokens per minute (0 = no limit)
       output_tpm: 50000     # output tokens per minute (0 = no limit)
@@ -218,7 +219,7 @@ browser:
 | Type | Description |
 |---|---|
 | `Config` | Top-level engine configuration. Contains providers, MCP servers, agents, entry agent, filesystem/git/browser settings, default context windows, and an optional `StatusFunc` callback for progress messages during initialization. `ShellyDir` is set by the CLI (not from YAML). |
-| `ProviderConfig` | Describes an LLM provider instance: name, kind, base URL, API key, model, optional context window (`*int`: nil = use default, 0 = disable compaction), and rate limit settings. |
+| `ProviderConfig` | Describes an LLM provider instance: name, kind, base URL, API key, model, optional context window (`*int`: nil = use default, 0 = disable compaction), optional `max_tokens` (`*int`: nil = use provider default, overrides the provider's default max output tokens), and rate limit settings. |
 | `RateLimitConfig` | Per-provider rate limiting: `InputTPM`, `OutputTPM`, `RPM`, `MaxRetries`, and `BaseDelay` (duration string). When any field is non-zero, the completer is wrapped with `modeladapter.NewRateLimitedCompleter`. |
 | `MCPConfig` | Describes an MCP server: name, command + args (stdio transport) or URL (SSE transport). Command and URL are mutually exclusive. |
 | `ToolboxRef` | References a toolbox by name with an optional `Tools` whitelist. Supports both plain string ("filesystem") and object form (`{name: git, tools: [git_status]}`) in YAML. |
@@ -246,11 +247,17 @@ browser:
 
 Agents support pluggable **effects** -- per-iteration hooks that run inside the ReAct loop. Effects are configured per-agent in YAML via the `effects:` list, or auto-generated from legacy options for backward compatibility.
 
-When the effective context window is non-zero and no explicit effects are configured, the engine auto-generates both a `trim_tool_results` effect (lightweight, runs after each completion) and a `compact` effect with the agent's `context_threshold` (default 0.8). This graduated approach trims tool results first, then falls back to full summarisation only when needed.
+When the effective context window is non-zero and no explicit effects are configured, the engine auto-generates a three-stage default pipeline:
+
+1. **`trim_tool_results`** -- Lightweight post-completion trimming of old tool results.
+2. **`observation_mask`** (threshold 0.5) -- Replaces old tool results with compact previews at zero LLM cost. Fires before compaction to delay expensive summarization.
+3. **`compact`** (threshold from `context_threshold`, default 0.8) -- Full context summarization as a last resort.
+
+This graduated approach handles most context pressure with zero-cost masking, falling back to full summarization only when truly needed.
 
 Known provider kinds have built-in default context windows (anthropic: 200k, openai: 128k, grok: 131k, gemini: 1M). When `context_window` is omitted from the YAML, the default for the provider kind is used -- meaning compaction works out of the box. Set `context_window: 0` explicitly to disable compaction.
 
-Effects are sorted by priority before execution: compaction-class effects (`compact`, `sliding_window`) run first so that effects injecting messages (e.g., `reflection`, `loop_detect`) are not immediately summarized away in the same iteration.
+Effects are sorted by priority before execution: compaction-class effects (`compact`, `sliding_window`, `observation_mask`) run first so that effects injecting messages (e.g., `reflection`, `loop_detect`) are not immediately summarized away in the same iteration.
 
 Available effect kinds:
 
@@ -263,6 +270,8 @@ Available effect kinds:
 | `observation_mask` | Masks observations beyond a context threshold. | `threshold`, `recent_window` |
 | `reflection` | Injects reflection prompts after repeated failures. | `failure_threshold` |
 | `progress` | Periodic progress checkpoint. | `interval` |
+| `tool_scope` | Excludes tools from the tool list sent to the LLM. | `exclude` (list of tool names) |
+| `offload` | Offloads large tool results to disk beyond a context threshold. | `threshold`, `min_result_len`, `recent_window` |
 
 See `pkg/agent/effects/` for implementation details.
 

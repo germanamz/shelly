@@ -507,3 +507,57 @@ func TestToolboxRefsFromNames(t *testing.T) {
 	}
 	assert.Equal(t, expected, ToolboxRefsFromNames(names))
 }
+
+func TestConfig_Validate_MaxTokensPositive(t *testing.T) {
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic", MaxTokens: intPtr(8192)}},
+		Agents:    []AgentConfig{{Name: "a1"}},
+	}
+	assert.NoError(t, cfg.Validate())
+}
+
+func TestConfig_Validate_MaxTokensZero(t *testing.T) {
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic", MaxTokens: intPtr(0)}},
+		Agents:    []AgentConfig{{Name: "a1"}},
+	}
+	assert.ErrorContains(t, cfg.Validate(), "max_tokens must be > 0")
+}
+
+func TestConfig_Validate_MaxTokensNegative(t *testing.T) {
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic", MaxTokens: intPtr(-1)}},
+		Agents:    []AgentConfig{{Name: "a1"}},
+	}
+	assert.ErrorContains(t, cfg.Validate(), "max_tokens must be > 0")
+}
+
+func TestConfig_Validate_MaxTokensNil(t *testing.T) {
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
+		Agents:    []AgentConfig{{Name: "a1"}},
+	}
+	assert.NoError(t, cfg.Validate())
+}
+
+func TestConfig_LoadMaxTokensFromYAML(t *testing.T) {
+	yamlData := `
+providers:
+  - name: p1
+    kind: anthropic
+    api_key: sk-test
+    model: m1
+    max_tokens: 16384
+agents:
+  - name: a1
+    provider: p1
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(yamlData), 0o600))
+
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Providers[0].MaxTokens)
+	assert.Equal(t, 16384, *cfg.Providers[0].MaxTokens)
+}
