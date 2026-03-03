@@ -429,14 +429,17 @@ The internal `run()` method:
 ## File Structure
 
 ```
-agent.go        -- Agent struct, New(), Run(), Init(), system prompt building, event emission
+agent.go        -- Agent struct, New(), Run(), run(), Init(), accessors
+completion.go   -- CompletionResult, completionHandler, task_complete tool
+delegation.go   -- Orchestration tools (list_agents, delegate), AgentEventData, context helpers
 effect.go       -- Effect interface, EffectFunc, Resetter, IterationPhase, IterationContext
 effects/        -- Reusable Effect implementations (see pkg/agent/effects/README.md)
-registry.go     -- Registry, Factory, Entry for dynamic agent discovery and spawning
-tools.go        -- Built-in orchestration tools (list_agents, delegate, task_complete),
-                   AgentEventData, delegation context, reflection helpers
 middleware.go   -- Runner interface, Middleware type, built-in middleware
                    (Timeout, Recovery, Logger, OutputGuardrail)
+prompt.go       -- promptBuilder for system prompt assembly
+reflection.go   -- Failure reflection read/write helpers
+registry.go     -- Registry, Factory, Entry for dynamic agent discovery and spawning
+tools.go        -- deduplicateTools, shared tool helpers
 ```
 
 ## Dependencies
