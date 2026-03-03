@@ -103,21 +103,28 @@ func (e *SlidingWindowEffect) Reset() {
 
 // Eval implements agent.Effect.
 func (e *SlidingWindowEffect) Eval(ctx context.Context, ic agent.IterationContext) error {
-	if ic.Phase != agent.PhaseBeforeComplete || ic.Iteration == 0 {
+	if ic.Phase != agent.PhaseBeforeComplete {
 		return nil
 	}
 
-	if !e.shouldManage(ic.Completer) {
+	if !e.shouldManage(ic.Completer, ic.EstimatedTokens) {
 		return nil
 	}
 
 	return e.manage(ctx, ic)
 }
 
-// shouldManage returns true when token usage exceeds the configured threshold.
-func (e *SlidingWindowEffect) shouldManage(completer modeladapter.Completer) bool {
+// shouldManage returns true when the context is estimated or measured to
+// have exceeded the configured threshold.
+func (e *SlidingWindowEffect) shouldManage(completer modeladapter.Completer, estimatedTokens int) bool {
 	if e.cfg.ContextWindow <= 0 || e.cfg.Threshold <= 0 {
 		return false
+	}
+
+	limit := int(float64(e.cfg.ContextWindow) * e.cfg.Threshold)
+
+	if estimatedTokens > 0 && estimatedTokens >= limit {
+		return true
 	}
 
 	reporter, ok := completer.(modeladapter.UsageReporter)
@@ -129,8 +136,6 @@ func (e *SlidingWindowEffect) shouldManage(completer modeladapter.Completer) boo
 	if !ok {
 		return false
 	}
-
-	limit := int(float64(e.cfg.ContextWindow) * e.cfg.Threshold)
 
 	return last.InputTokens >= limit
 }

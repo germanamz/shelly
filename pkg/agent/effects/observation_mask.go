@@ -48,11 +48,11 @@ func NewObservationMaskEffect(cfg ObservationMaskConfig) *ObservationMaskEffect 
 
 // Eval implements agent.Effect.
 func (e *ObservationMaskEffect) Eval(_ context.Context, ic agent.IterationContext) error {
-	if ic.Phase != agent.PhaseBeforeComplete || ic.Iteration == 0 {
+	if ic.Phase != agent.PhaseBeforeComplete {
 		return nil
 	}
 
-	if !e.shouldMask(ic.Completer) {
+	if !e.shouldMask(ic.Completer, ic.EstimatedTokens) {
 		return nil
 	}
 
@@ -61,10 +61,17 @@ func (e *ObservationMaskEffect) Eval(_ context.Context, ic agent.IterationContex
 	return nil
 }
 
-// shouldMask returns true when token usage exceeds the configured threshold.
-func (e *ObservationMaskEffect) shouldMask(completer modeladapter.Completer) bool {
+// shouldMask returns true when the context is estimated or measured to
+// have exceeded the configured threshold.
+func (e *ObservationMaskEffect) shouldMask(completer modeladapter.Completer, estimatedTokens int) bool {
 	if e.cfg.ContextWindow <= 0 || e.cfg.Threshold <= 0 {
 		return false
+	}
+
+	limit := int(float64(e.cfg.ContextWindow) * e.cfg.Threshold)
+
+	if estimatedTokens > 0 && estimatedTokens >= limit {
+		return true
 	}
 
 	reporter, ok := completer.(modeladapter.UsageReporter)
@@ -76,8 +83,6 @@ func (e *ObservationMaskEffect) shouldMask(completer modeladapter.Completer) boo
 	if !ok {
 		return false
 	}
-
-	limit := int(float64(e.cfg.ContextWindow) * e.cfg.Threshold)
 
 	return last.InputTokens >= limit
 }

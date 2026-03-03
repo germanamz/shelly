@@ -637,6 +637,7 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 	wctx := EffectWiringContext{
 		ContextWindow: contextWindow,
 		AgentName:     ac.Name,
+		StorageDir:    e.effectStorageDir(ac.Name),
 		AskFunc:       e.responder.Ask,
 		NotifyFunc:    notifyFn,
 	}
@@ -738,4 +739,14 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 	})
 
 	return nil
+}
+
+// effectStorageDir returns a per-agent directory for effects that need
+// persistent storage (e.g. offload). Returns empty string when the .shelly
+// directory does not exist.
+func (e *Engine) effectStorageDir(agentName string) string {
+	if !e.dir.Exists() {
+		return ""
+	}
+	return filepath.Join(e.dir.Root(), "offload", agentName)
 }

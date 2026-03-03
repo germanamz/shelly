@@ -42,6 +42,18 @@ config:
         - notes
       skills:
         - lead-workflow
+      effects:
+        - kind: observation_mask
+          params:
+            threshold: 0.5
+            recent_window: 8
+        - kind: trim_tool_results
+          params:
+            max_result_length: 300
+            preserve_recent: 3
+        - kind: compact
+          params:
+            threshold: 0.75
       options:
         max_iterations: 20
         max_delegation_depth: 2
@@ -66,6 +78,13 @@ config:
         - project-indexer
       effects:
         - kind: observation_mask
+        - kind: trim_tool_results
+          params:
+            max_result_length: 400
+            preserve_recent: 3
+        - kind: compact
+          params:
+            threshold: 0.8
       options:
         max_iterations: 10
 
@@ -90,6 +109,13 @@ config:
         - planner-workflow
       effects:
         - kind: observation_mask
+        - kind: trim_tool_results
+          params:
+            max_result_length: 400
+            preserve_recent: 3
+        - kind: compact
+          params:
+            threshold: 0.8
       options:
         max_iterations: 10
 
@@ -113,13 +139,17 @@ config:
       skills:
         - coder-workflow
       effects:
+        - kind: observation_mask
+          params:
+            threshold: 0.5
+            recent_window: 8
         - kind: loop_detect
         - kind: reflection
         - kind: progress
         - kind: trim_tool_results
         - kind: compact
           params:
-            threshold: 0.8
+            threshold: 0.75
       options:
         max_iterations: 20
 
@@ -141,6 +171,13 @@ config:
         - reviewer-workflow
       effects:
         - kind: observation_mask
+        - kind: trim_tool_results
+          params:
+            max_result_length: 400
+            preserve_recent: 3
+        - kind: compact
+          params:
+            threshold: 0.8
       options:
         max_iterations: 10
 

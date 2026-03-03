@@ -1056,6 +1056,29 @@ func TestAddToolBoxesDeduplicates(t *testing.T) {
 	assert.Len(t, a.toolboxes, 3)
 }
 
+// --- capToolResult tests ---
+
+func TestCapToolResult_UnderLimit(t *testing.T) {
+	tr := content.ToolResult{ToolCallID: "c1", Content: "short result"}
+	capped := capToolResult(tr)
+	assert.Equal(t, "short result", capped.Content)
+}
+
+func TestCapToolResult_OverLimit(t *testing.T) {
+	longContent := string(make([]rune, maxToolResultRunes+100))
+	tr := content.ToolResult{ToolCallID: "c1", Content: longContent}
+	capped := capToolResult(tr)
+	assert.Contains(t, capped.Content, "[output capped")
+	assert.LessOrEqual(t, len([]rune(capped.Content)), maxToolResultRunes+100) // capped content + suffix
+}
+
+func TestCapToolResult_ErrorNeverCapped(t *testing.T) {
+	longContent := string(make([]rune, maxToolResultRunes+100))
+	tr := content.ToolResult{ToolCallID: "c1", Content: longContent, IsError: true}
+	capped := capToolResult(tr)
+	assert.Equal(t, longContent, capped.Content)
+}
+
 func TestAddToolBoxesDeduplicatesWithinSingleCall(t *testing.T) {
 	tb := newEchoToolBox()
 	a := New("bot", "", "", &sequenceCompleter{}, Options{})

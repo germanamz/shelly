@@ -21,6 +21,18 @@ config:
         - git
       skills:
         - project-indexer
+      effects:
+        - kind: observation_mask
+          params:
+            threshold: 0.5
+            recent_window: 8
+        - kind: trim_tool_results
+          params:
+            max_result_length: 400
+            preserve_recent: 3
+        - kind: compact
+          params:
+            threshold: 0.75
       options:
         max_iterations: 10
         max_delegation_depth: 2

@@ -86,9 +86,10 @@ func TestCompactEffect_SkipsAfterComplete(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestCompactEffect_SkipsIteration0(t *testing.T) {
+func TestCompactEffect_SkipsIteration0WithoutEstimate(t *testing.T) {
+	// Without EstimatedTokens and no prior usage data, iteration 0
+	// should be skipped (UsageReporter has no data).
 	uc := &usageCompleter{}
-	uc.tracker.Add(usage.TokenCount{InputTokens: 900, OutputTokens: 100})
 
 	e := NewCompactEffect(CompactConfig{
 		ContextWindow: 1000,
@@ -103,6 +104,62 @@ func TestCompactEffect_SkipsIteration0(t *testing.T) {
 
 	err := e.Eval(context.Background(), ic)
 	require.NoError(t, err)
+}
+
+func TestCompactEffect_FiresOnIteration0WithEstimate(t *testing.T) {
+	uc := &usageCompleter{
+		sequenceCompleter: sequenceCompleter{
+			replies: []message.Message{
+				message.NewText("", role.Assistant, "Summary of initial context."),
+			},
+		},
+	}
+
+	var notified bool
+	e := NewCompactEffect(CompactConfig{
+		ContextWindow: 1000,
+		Threshold:     0.8,
+		NotifyFunc: func(_ context.Context, _ string) {
+			notified = true
+		},
+	})
+
+	c := chat.New(
+		message.NewText("bot", role.System, "Be helpful."),
+		message.NewText("user", role.User, "Large delegation context here"),
+	)
+
+	ic := agent.IterationContext{
+		Phase:           agent.PhaseBeforeComplete,
+		Iteration:       0,
+		Chat:            c,
+		Completer:       uc,
+		AgentName:       "bot",
+		EstimatedTokens: 900, // >= 1000 * 0.8 = 800
+	}
+
+	err := e.Eval(context.Background(), ic)
+	require.NoError(t, err)
+	assert.True(t, notified)
+	// Chat should be compacted.
+	assert.Equal(t, 2, c.Len())
+}
+
+func TestCompactEffect_ShouldCompactWithEstimateOnly(t *testing.T) {
+	// shouldCompact returns true from estimate even with no usage data.
+	e := NewCompactEffect(CompactConfig{
+		ContextWindow: 1000,
+		Threshold:     0.8,
+	})
+
+	// No usage data, but estimate is over threshold.
+	uc := &usageCompleter{}
+	result := e.shouldCompact(uc, 900) // >= 800
+	assert.True(t, result)
+
+	// Estimate below threshold.
+	result = e.shouldCompact(uc, 500)
+	assert.False(t, result)
 }
 
 // --- shouldCompact logic ---

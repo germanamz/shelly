@@ -204,13 +204,17 @@ const (
 
 ```go
 type IterationContext struct {
-    Phase     IterationPhase
-    Iteration int
-    Chat      *chat.Chat
-    Completer modeladapter.Completer
-    AgentName string
+    Phase           IterationPhase
+    Iteration       int
+    Chat            *chat.Chat
+    Completer       modeladapter.Completer
+    AgentName       string
+    EstimatedTokens int // Pre-call token estimate (chat + tools). 0 = not computed.
+    ToolTokens      int // Static tool definition token cost. 0 = not computed.
 }
 ```
+
+`EstimatedTokens` is computed via `modeladapter.TokenEstimator` before each LLM call, enabling threshold-based effects to fire on iteration 0 (before any usage data is available). `ToolTokens` caches the static tool definition cost so effects can distinguish chat tokens from tool tokens.
 
 ### Resetter
 
@@ -219,6 +223,26 @@ Optional interface that effects can implement to reset internal state between ag
 ```go
 type Resetter interface {
     Reset()
+}
+```
+
+### ToolFilter
+
+Optional interface that effects can implement to filter which tools are sent to the LLM on each iteration. Multiple filters are applied sequentially (intersection semantics). Tool execution is unaffected -- the filter only controls what the LLM sees.
+
+```go
+type ToolFilter interface {
+    FilterTools(ctx context.Context, ic IterationContext, tools []toolbox.Tool) []toolbox.Tool
+}
+```
+
+### ToolProvider
+
+Optional interface that effects can implement to provide additional tools that should be added to the agent's toolbox. Provided toolboxes are collected once before the ReAct loop starts and included alongside user and orchestration toolboxes.
+
+```go
+type ToolProvider interface {
+    ProvidedTools() *toolbox.ToolBox
 }
 ```
 

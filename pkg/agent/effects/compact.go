@@ -70,22 +70,29 @@ func NewCompactEffect(cfg CompactConfig) *CompactEffect {
 
 // Eval implements agent.Effect.
 func (e *CompactEffect) Eval(ctx context.Context, ic agent.IterationContext) error {
-	if ic.Phase != agent.PhaseBeforeComplete || ic.Iteration == 0 {
+	if ic.Phase != agent.PhaseBeforeComplete {
 		return nil
 	}
 
-	if !e.shouldCompact(ic.Completer) {
+	if !e.shouldCompact(ic.Completer, ic.EstimatedTokens) {
 		return nil
 	}
 
 	return e.summarize(ctx, ic)
 }
 
-// shouldCompact returns true when the last LLM call's input tokens have
-// reached or exceeded contextWindow * threshold.
-func (e *CompactEffect) shouldCompact(completer modeladapter.Completer) bool {
+// shouldCompact returns true when the context is estimated or measured to
+// have reached or exceeded contextWindow * threshold.
+func (e *CompactEffect) shouldCompact(completer modeladapter.Completer, estimatedTokens int) bool {
 	if e.cfg.ContextWindow <= 0 || e.cfg.Threshold <= 0 {
 		return false
+	}
+
+	limit := int(float64(e.cfg.ContextWindow) * e.cfg.Threshold)
+
+	// Use pre-call estimate when available (enables firing on iteration 0).
+	if estimatedTokens > 0 && estimatedTokens >= limit {
+		return true
 	}
 
 	reporter, ok := completer.(modeladapter.UsageReporter)
@@ -97,8 +104,6 @@ func (e *CompactEffect) shouldCompact(completer modeladapter.Completer) bool {
 	if !ok {
 		return false
 	}
-
-	limit := int(float64(e.cfg.ContextWindow) * e.cfg.Threshold)
 
 	return last.InputTokens >= limit
 }

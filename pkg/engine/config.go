@@ -267,6 +267,8 @@ var knownEffectKinds = map[string]struct{}{
 	"observation_mask":  {},
 	"reflection":        {},
 	"progress":          {},
+	"tool_scope":        {},
+	"offload":           {},
 }
 
 // Validate checks that the configuration is internally consistent.

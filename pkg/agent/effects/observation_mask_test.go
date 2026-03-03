@@ -33,9 +33,9 @@ func TestObservationMaskEffect_SkipsAfterComplete(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestObservationMaskEffect_SkipsIteration0(t *testing.T) {
+func TestObservationMaskEffect_SkipsIteration0WithoutEstimate(t *testing.T) {
+	// Without EstimatedTokens and no prior usage, iteration 0 is skipped.
 	uc := &usageCompleter{}
-	uc.tracker.Add(usage.TokenCount{InputTokens: 700, OutputTokens: 100})
 
 	e := NewObservationMaskEffect(ObservationMaskConfig{
 		ContextWindow: 1000,
@@ -50,6 +50,47 @@ func TestObservationMaskEffect_SkipsIteration0(t *testing.T) {
 
 	err := e.Eval(context.Background(), ic)
 	require.NoError(t, err)
+}
+
+func TestObservationMaskEffect_FiresOnIteration0WithEstimate(t *testing.T) {
+	uc := &usageCompleter{}
+
+	e := NewObservationMaskEffect(ObservationMaskConfig{
+		ContextWindow: 1000,
+		Threshold:     0.6,
+		RecentWindow:  2,
+	})
+
+	c := chat.New(
+		message.NewText("", role.System, "sys"),
+		message.New("bot", role.Assistant,
+			content.ToolCall{ID: "c1", Name: "read_file", Arguments: `{"path":"a.go"}`},
+		),
+		message.New("", role.Tool,
+			content.ToolResult{ToolCallID: "c1", Content: "old content that should be masked on iteration 0"},
+		),
+		message.New("bot", role.Assistant,
+			content.ToolCall{ID: "c2", Name: "write_file", Arguments: `{"path":"b.go"}`},
+		),
+		message.New("", role.Tool,
+			content.ToolResult{ToolCallID: "c2", Content: "recent result preserved"},
+		),
+	)
+
+	ic := agent.IterationContext{
+		Phase:           agent.PhaseBeforeComplete,
+		Iteration:       0,
+		Chat:            c,
+		Completer:       uc,
+		EstimatedTokens: 700, // >= 1000 * 0.6 = 600
+	}
+
+	err := e.Eval(context.Background(), ic)
+	require.NoError(t, err)
+
+	// Old tool result should be masked.
+	oldResult := c.At(2).Parts[0].(content.ToolResult)
+	assert.Contains(t, oldResult.Content, "[tool result for read_file:")
 }
 
 func TestObservationMaskEffect_BelowThreshold(t *testing.T) {

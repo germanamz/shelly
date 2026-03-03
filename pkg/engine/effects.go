@@ -14,6 +14,7 @@ import (
 type EffectWiringContext struct {
 	ContextWindow int
 	AgentName     string
+	StorageDir    string // Directory for effects that need persistent storage (e.g. offload).
 
 	AskFunc    func(ctx context.Context, text string, options []string) (string, error)
 	NotifyFunc func(ctx context.Context, message string)
@@ -31,6 +32,8 @@ var effectFactories = map[string]EffectFactory{
 	"observation_mask":  buildObservationMaskEffect,
 	"reflection":        buildReflectionEffect,
 	"progress":          buildProgressEffect,
+	"tool_scope":        buildToolScopeEffect,
+	"offload":           buildOffloadEffect,
 }
 
 // buildEffects constructs all effects for an agent from its config.
@@ -74,6 +77,8 @@ func effectPriority(e agent.Effect) int {
 	switch e.(type) {
 	case *effects.CompactEffect, *effects.SlidingWindowEffect:
 		return 0
+	case *effects.ToolScopeEffect, *effects.OffloadEffect:
+		return 1
 	default:
 		return 1
 	}
@@ -280,4 +285,69 @@ func buildSlidingWindowEffect(params map[string]any, wctx EffectWiringContext) (
 	}
 
 	return effects.NewSlidingWindowEffect(cfg), nil
+}
+
+// buildToolScopeEffect creates a ToolScopeEffect from YAML params.
+func buildToolScopeEffect(params map[string]any, _ EffectWiringContext) (agent.Effect, error) {
+	cfg := effects.ToolScopeConfig{}
+
+	if v, ok := params["exclude"]; ok {
+		switch items := v.(type) {
+		case []any:
+			for _, item := range items {
+				s, ok := item.(string)
+				if !ok {
+					return nil, fmt.Errorf("exclude items must be strings, got %T", item)
+				}
+				cfg.Exclude = append(cfg.Exclude, s)
+			}
+		default:
+			return nil, fmt.Errorf("exclude must be an array, got %T", v)
+		}
+	}
+
+	return effects.NewToolScopeEffect(cfg), nil
+}
+
+// buildOffloadEffect creates an OffloadEffect from YAML params.
+func buildOffloadEffect(params map[string]any, wctx EffectWiringContext) (agent.Effect, error) {
+	cfg := effects.OffloadConfig{
+		ContextWindow: wctx.ContextWindow,
+		StorageDir:    wctx.StorageDir,
+	}
+
+	if v, ok := params["threshold"]; ok {
+		switch t := v.(type) {
+		case float64:
+			cfg.Threshold = t
+		case int:
+			cfg.Threshold = float64(t)
+		default:
+			return nil, fmt.Errorf("threshold must be a number, got %T", v)
+		}
+	}
+
+	if v, ok := params["min_result_len"]; ok {
+		switch t := v.(type) {
+		case float64:
+			cfg.MinResultLen = int(t)
+		case int:
+			cfg.MinResultLen = t
+		default:
+			return nil, fmt.Errorf("min_result_len must be a number, got %T", v)
+		}
+	}
+
+	if v, ok := params["recent_window"]; ok {
+		switch t := v.(type) {
+		case float64:
+			cfg.RecentWindow = int(t)
+		case int:
+			cfg.RecentWindow = t
+		default:
+			return nil, fmt.Errorf("recent_window must be a number, got %T", v)
+		}
+	}
+
+	return effects.NewOffloadEffect(cfg), nil
 }

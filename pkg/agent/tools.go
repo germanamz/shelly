@@ -317,6 +317,10 @@ func tryUpdateTask(taskBoard TaskBoard, taskID, status string) string {
 
 const maxDelegateResultLen = 2000
 
+// maxDelegateContextRunes caps the delegation context field to prevent
+// unbounded context dumps to children (~4000 tokens).
+const maxDelegateContextRunes = 16000
+
 // buildDelegateResult constructs a delegateResult from a child agent's reply.
 // When a CompletionResult is available, its Summary is used as the primary
 // result to keep the parent's context concise. Otherwise, the reply text is
@@ -349,10 +353,14 @@ func buildDelegateResult(agentName string, reply message.Message, cr *Completion
 
 // prependContext adds a context message before the task message
 // in a child agent's chat. The context is wrapped in <delegation_context> tags.
-// If ctx is empty, no message is appended.
+// If ctx is empty, no message is appended. Context exceeding
+// maxDelegateContextRunes is truncated with a suffix.
 func prependContext(child *Agent, ctx string) {
 	if ctx == "" {
 		return
+	}
+	if utf8.RuneCountInString(ctx) > maxDelegateContextRunes {
+		ctx = string([]rune(ctx)[:maxDelegateContextRunes]) + "… [context truncated]"
 	}
 	child.chat.Append(message.NewText("user", role.User,
 		"<delegation_context>\n"+ctx+"\n</delegation_context>"))

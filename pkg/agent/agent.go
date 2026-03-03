@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/germanamz/shelly/pkg/agentctx"
 	"github.com/germanamz/shelly/pkg/chats/chat"
@@ -191,6 +192,24 @@ func (a *Agent) Run(ctx context.Context) (message.Message, error) {
 	return runner.Run(ctx)
 }
 
+// maxToolResultRunes caps individual tool results before they enter the chat
+// to prevent a single large result from consuming the entire context (~8000 tokens).
+const maxToolResultRunes = 32000
+
+// capToolResult truncates oversized tool results. Error results are never
+// capped to preserve diagnostic information.
+func capToolResult(result content.ToolResult) content.ToolResult {
+	if result.IsError {
+		return result
+	}
+	if utf8.RuneCountInString(result.Content) <= maxToolResultRunes {
+		return result
+	}
+	result.Content = string([]rune(result.Content)[:maxToolResultRunes]) +
+		"\n… [output capped — use targeted reads for remaining content]"
+	return result
+}
+
 // run is the internal ReAct loop.
 func (a *Agent) run(ctx context.Context) (message.Message, error) {
 	ctx = agentctx.WithAgentName(ctx, a.name)
@@ -224,20 +243,30 @@ func (a *Agent) run(ctx context.Context) (message.Message, error) {
 		}
 	}
 
+	// Cache the static tool token cost so effects can inspect it without
+	// recomputing on every iteration.
+	var estimator modeladapter.TokenEstimator
+	toolTokens := estimator.EstimateTools(tools)
+
 	for i := 0; a.options.MaxIterations == 0 || i < a.options.MaxIterations; i++ {
+		estimatedTokens := estimator.EstimateTotal(a.chat, tools)
+
 		ic := IterationContext{
-			Phase:     PhaseBeforeComplete,
-			Iteration: i,
-			Chat:      a.chat,
-			Completer: a.completer,
-			AgentName: a.name,
+			Phase:           PhaseBeforeComplete,
+			Iteration:       i,
+			Chat:            a.chat,
+			Completer:       a.completer,
+			AgentName:       a.name,
+			EstimatedTokens: estimatedTokens,
+			ToolTokens:      toolTokens,
 		}
 
 		if err := a.evalEffects(ctx, ic); err != nil {
 			return message.Message{}, err
 		}
 
-		reply, err := a.completer.Complete(ctx, a.chat, tools)
+		iterTools := a.filterTools(ctx, ic, tools)
+		reply, err := a.completer.Complete(ctx, a.chat, iterTools)
 		if err != nil {
 			return message.Message{}, err
 		}
@@ -277,6 +306,7 @@ func (a *Agent) run(ctx context.Context) (message.Message, error) {
 		}
 
 		for _, result := range results {
+			result = capToolResult(result)
 			msg := message.New(a.name, role.Tool, result)
 			a.chat.Append(msg)
 			a.emitEvent(ctx, "message_added", MessageAddedEventData{Role: string(role.Tool), Message: msg})
@@ -307,8 +337,20 @@ func (a *Agent) canDelegate() bool {
 	return a.registry != nil && a.options.MaxDelegationDepth > 0 && a.depth < a.options.MaxDelegationDepth
 }
 
-// allToolBoxes returns the combined set of user toolboxes and orchestration
-// toolbox (if delegation is possible).
+// filterTools applies all ToolFilter effects to the tool list, returning the
+// filtered set. Filters are applied sequentially (intersection semantics).
+func (a *Agent) filterTools(ctx context.Context, ic IterationContext, tools []toolbox.Tool) []toolbox.Tool {
+	filtered := tools
+	for _, eff := range a.options.Effects {
+		if tf, ok := eff.(ToolFilter); ok {
+			filtered = tf.FilterTools(ctx, ic, filtered)
+		}
+	}
+	return filtered
+}
+
+// allToolBoxes returns the combined set of user toolboxes, orchestration
+// toolbox (if delegation is possible), and effect-provided toolboxes.
 func (a *Agent) allToolBoxes() []*toolbox.ToolBox {
 	tbs := make([]*toolbox.ToolBox, len(a.toolboxes))
 	copy(tbs, a.toolboxes)
@@ -321,6 +363,15 @@ func (a *Agent) allToolBoxes() []*toolbox.ToolBox {
 		completionTB := toolbox.New()
 		completionTB.Register(taskCompleteTool(a))
 		tbs = append(tbs, completionTB)
+	}
+
+	// Collect tools provided by effects (e.g. offload's recall tool).
+	for _, eff := range a.options.Effects {
+		if tp, ok := eff.(ToolProvider); ok {
+			if tb := tp.ProvidedTools(); tb != nil {
+				tbs = append(tbs, tb)
+			}
+		}
 	}
 
 	return tbs

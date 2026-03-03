@@ -1465,6 +1465,37 @@ func TestDelegateToolErrorRollbackUpdateFails(t *testing.T) {
 	assert.Contains(t, results[0].Warning, "board unavailable")
 }
 
+// --- prependContext tests ---
+
+func TestPrependContextUnderBudget(t *testing.T) {
+	child := &Agent{chat: chat.New()}
+	ctx := "short context"
+	prependContext(child, ctx)
+
+	require.Equal(t, 1, child.chat.Len())
+	assert.Contains(t, child.chat.At(0).TextContent(), "short context")
+	assert.NotContains(t, child.chat.At(0).TextContent(), "[context truncated]")
+}
+
+func TestPrependContextOverBudget(t *testing.T) {
+	child := &Agent{chat: chat.New()}
+	ctx := strings.Repeat("x", maxDelegateContextRunes+1000)
+	prependContext(child, ctx)
+
+	require.Equal(t, 1, child.chat.Len())
+	text := child.chat.At(0).TextContent()
+	assert.Contains(t, text, "… [context truncated]")
+	// The truncated content should be shorter than the original.
+	assert.Less(t, len(text), len(ctx))
+}
+
+func TestPrependContextEmpty(t *testing.T) {
+	child := &Agent{chat: chat.New()}
+	prependContext(child, "")
+
+	assert.Equal(t, 0, child.chat.Len())
+}
+
 func TestDelegateToolNoCompletionUpdatesTask(t *testing.T) {
 	// Child finishes without error but no CompletionResult → task auto-completed.
 	board := &mockTaskBoard{}

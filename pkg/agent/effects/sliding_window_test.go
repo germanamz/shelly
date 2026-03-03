@@ -33,9 +33,9 @@ func TestSlidingWindowEffect_SkipsAfterComplete(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestSlidingWindowEffect_SkipsIteration0(t *testing.T) {
+func TestSlidingWindowEffect_SkipsIteration0WithoutEstimate(t *testing.T) {
+	// Without EstimatedTokens and no prior usage, iteration 0 is skipped.
 	uc := &usageCompleter{}
-	uc.tracker.Add(usage.TokenCount{InputTokens: 900, OutputTokens: 100})
 
 	e := NewSlidingWindowEffect(SlidingWindowConfig{
 		ContextWindow: 1000,

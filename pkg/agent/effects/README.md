@@ -46,6 +46,8 @@ type Resetter interface {
 | `LoopDetectEffect` | `loop_detect` | BeforeComplete | Yes | Detects repeated identical tool calls and injects an intervention |
 | `ReflectionEffect` | `reflection` | BeforeComplete | Yes | Detects consecutive tool failures and injects a reflection prompt |
 | `ProgressEffect` | `progress` | BeforeComplete | No | Periodically prompts the agent to write a progress note |
+| `ToolScopeEffect` | `tool_scope` | -- | No | Filters tools sent to the LLM by excluding named tools (implements `ToolFilter`) |
+| `OffloadEffect` | `offload` | AfterComplete | Yes | Offloads large tool results to disk and provides a `recall` tool to reload them (implements `ToolProvider`) |
 
 ### CompactEffect -- Full Summarisation
 
@@ -283,6 +285,70 @@ type ProgressConfig struct {
     interval: 5
 ```
 
+### ToolScopeEffect -- Tool Filtering
+
+Does not run at any phase (`Eval` is a no-op). Instead it implements the
+`agent.ToolFilter` interface to remove named tools from the set sent to the LLM
+each iteration. Useful for hiding tools an agent should never use without
+modifying the toolbox configuration.
+
+**Config:**
+
+```go
+type ToolScopeConfig struct {
+    Exclude []string // Tool names to exclude.
+}
+```
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `exclude` | []string | -- | Tool names to remove from the LLM's view |
+
+```yaml
+- kind: tool_scope
+  params:
+    exclude:
+      - dangerous_tool
+      - legacy_tool
+```
+
+### OffloadEffect -- External Memory Offloading
+
+Runs at `PhaseAfterComplete`. When token usage or estimation exceeds the
+threshold, scans non-recent tool result messages and writes large results
+(exceeding `MinResultLen` runes) to disk. The in-context content is replaced
+with a placeholder containing a summary and a `recall()` instruction.
+
+Implements `agent.ToolProvider` to inject a `recall` tool that reloads offloaded
+content on demand. Implements `agent.Resetter` to clean up temporary files
+between runs. Error results are never offloaded.
+
+**Config:**
+
+```go
+type OffloadConfig struct {
+    ContextWindow int     // Provider's context window size.
+    Threshold     float64 // Fraction triggering offload (default 0.5).
+    MinResultLen  int     // Only offload results longer than this (default 2000 runes).
+    RecentWindow  int     // Keep last N tool messages in-context (default 6).
+    StorageDir    string  // Directory for offloaded data.
+}
+```
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `threshold` | float | 0.5 | Fraction of context window that triggers offloading |
+| `min_result_len` | int | 2000 | Only offload results longer than this (in runes) |
+| `recent_window` | int | 6 | Keep last N tool messages in-context |
+
+```yaml
+- kind: offload
+  params:
+    threshold: 0.5
+    min_result_len: 2000
+    recent_window: 6
+```
+
 ## Shared Helpers
 
 The package includes internal helpers used by multiple effects:
@@ -301,6 +367,7 @@ Other dependencies:
 
 - `pkg/chats/` -- chat, message, content, role types
 - `pkg/modeladapter/` -- `Completer`, `UsageReporter`, and `usage.Tracker` for token-aware effects
+- `pkg/tools/toolbox/` -- `ToolBox` and `Tool` types (used by `ToolScopeEffect`, `OffloadEffect`)
 
 ## Usage
 
@@ -379,5 +446,17 @@ reflectEff := effects.NewReflectionEffect(effects.ReflectionConfig{
 progressEff := effects.NewProgressEffect(effects.ProgressConfig{
     Interval:     5,
     HasNotesTool: true,
+})
+
+toolScopeEff := effects.NewToolScopeEffect(effects.ToolScopeConfig{
+    Exclude: []string{"dangerous_tool"},
+})
+
+offloadEff := effects.NewOffloadEffect(effects.OffloadConfig{
+    ContextWindow: 200000,
+    Threshold:     0.5,
+    MinResultLen:  2000,
+    RecentWindow:  6,
+    StorageDir:    "/tmp/offload",
 })
 ```
