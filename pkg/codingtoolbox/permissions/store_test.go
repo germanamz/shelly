@@ -2,8 +2,10 @@ package permissions
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -125,4 +127,98 @@ func TestPersist_CreatesParentDir(t *testing.T) {
 	// File should exist.
 	_, err = os.Stat(path)
 	assert.NoError(t, err)
+}
+
+func TestApprovedDirs(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(filepath.Join(dir, "perms.json"))
+	require.NoError(t, err)
+
+	assert.Empty(t, s.ApprovedDirs())
+
+	require.NoError(t, s.ApproveDir("/a"))
+	require.NoError(t, s.ApproveDir("/b"))
+
+	dirs := s.ApprovedDirs()
+	assert.Len(t, dirs, 2)
+	assert.ElementsMatch(t, []string{"/a", "/b"}, dirs)
+}
+
+func TestOnDirApproved_CallbackFires(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(filepath.Join(dir, "perms.json"))
+	require.NoError(t, err)
+
+	var got []string
+	s.OnDirApproved(func(d string) {
+		got = append(got, d)
+	})
+
+	require.NoError(t, s.ApproveDir("/first"))
+	require.NoError(t, s.ApproveDir("/second"))
+
+	assert.Equal(t, []string{"/first", "/second"}, got)
+}
+
+func TestOnDirApproved_NoDuplicateFire(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(filepath.Join(dir, "perms.json"))
+	require.NoError(t, err)
+
+	callCount := 0
+	s.OnDirApproved(func(string) {
+		callCount++
+	})
+
+	require.NoError(t, s.ApproveDir("/dup"))
+	require.NoError(t, s.ApproveDir("/dup")) // re-approve same dir
+
+	assert.Equal(t, 1, callCount, "callback should not fire on re-approval")
+}
+
+func TestOnDirApproved_Unsubscribe(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(filepath.Join(dir, "perms.json"))
+	require.NoError(t, err)
+
+	callCount := 0
+	unsub := s.OnDirApproved(func(string) {
+		callCount++
+	})
+
+	require.NoError(t, s.ApproveDir("/before"))
+	assert.Equal(t, 1, callCount)
+
+	unsub()
+
+	require.NoError(t, s.ApproveDir("/after"))
+	assert.Equal(t, 1, callCount, "callback should not fire after unsubscribe")
+}
+
+func TestOnDirApproved_ConcurrentSafety(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(filepath.Join(dir, "perms.json"))
+	require.NoError(t, err)
+
+	var mu sync.Mutex
+	var got []string
+	s.OnDirApproved(func(d string) {
+		mu.Lock()
+		got = append(got, d)
+		mu.Unlock()
+	})
+
+	var wg sync.WaitGroup
+	for i := range 10 {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			_ = s.ApproveDir(filepath.Join("/concurrent", fmt.Sprintf("%d", n)))
+		}(i)
+	}
+	wg.Wait()
+
+	mu.Lock()
+	assert.Len(t, got, 10)
+	mu.Unlock()
 }

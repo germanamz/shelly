@@ -15,11 +15,32 @@ type MCPServer struct {
 }
 
 // New creates a new MCPServer with the given name and version.
-func New(name, version string) *MCPServer {
+func New(name, version string, opts ...MCPServerOption) *MCPServer {
+	var cfg mcpServerConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
+
+	var serverOpts *mcp.ServerOptions
+	if cfg.rootsChangedHandler != nil {
+		handler := cfg.rootsChangedHandler
+		serverOpts = &mcp.ServerOptions{
+			RootsListChangedHandler: func(ctx context.Context, req *mcp.RootsListChangedRequest) {
+				res, err := req.Session.ListRoots(ctx, nil)
+				if err != nil {
+					return
+				}
+				roots := make([]*mcp.Root, len(res.Roots))
+				copy(roots, res.Roots)
+				handler(roots)
+			},
+		}
+	}
+
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    name,
 		Version: version,
-	}, nil)
+	}, serverOpts)
 
 	return &MCPServer{server: server}
 }

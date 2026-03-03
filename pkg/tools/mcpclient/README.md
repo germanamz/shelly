@@ -44,6 +44,9 @@ Communicates with a single MCP server instance.
 | `(*MCPClient) ListTools(ctx context.Context) ([]toolbox.Tool, error)`     | Fetches available tools; returns `toolbox.Tool` instances with handlers that call back through the client |
 | `(*MCPClient) CallTool(ctx context.Context, name string, arguments json.RawMessage) (string, error)` | Calls a named tool on the server with JSON arguments |
 | `(*MCPClient) Close() error`                                              | Terminates the session and releases resources (subprocess cleanup is handled by the SDK)      |
+| `(*MCPClient) AddRoots(roots ...*mcp.Root)`                               | Adds roots to the client's root list and notifies connected servers                           |
+| `(*MCPClient) RemoveRoots(uris ...string)`                                | Removes roots by URI and notifies connected servers                                           |
+| `DirToRoot(dir string) *mcp.Root`                                         | Converts an absolute directory path to an MCP Root with a `file://` URI                       |
 
 ### Internal Helpers
 

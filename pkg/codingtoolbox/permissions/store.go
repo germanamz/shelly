@@ -15,12 +15,14 @@ import (
 
 // Store manages permission grants persisted to a JSON file.
 type Store struct {
-	mu       sync.RWMutex
-	writeMu  sync.Mutex
-	dirs     map[string]struct{}
-	commands map[string]struct{}
-	domains  map[string]struct{}
-	filePath string
+	mu         sync.RWMutex
+	writeMu    sync.Mutex
+	dirs       map[string]struct{}
+	commands   map[string]struct{}
+	domains    map[string]struct{}
+	filePath   string
+	listenerMu sync.Mutex
+	onDirAdd   []func(string)
 }
 
 // fileFormat is the JSON structure written to disk.
@@ -76,10 +78,19 @@ func (s *Store) IsDirApproved(dir string) bool {
 // ApproveDir marks dir as approved and persists the change.
 func (s *Store) ApproveDir(dir string) error {
 	s.mu.Lock()
+	_, existed := s.dirs[dir]
 	s.dirs[dir] = struct{}{}
 	s.mu.Unlock()
 
-	return s.persist()
+	if err := s.persist(); err != nil {
+		return err
+	}
+
+	if !existed {
+		s.fireDirCallbacks(dir)
+	}
+
+	return nil
 }
 
 // IsCommandTrusted reports whether a command has been trusted.
@@ -118,6 +129,50 @@ func (s *Store) TrustDomain(domain string) error {
 	s.mu.Unlock()
 
 	return s.persist()
+}
+
+// ApprovedDirs returns a snapshot of all approved directory paths.
+func (s *Store) ApprovedDirs() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	dirs := make([]string, 0, len(s.dirs))
+	for d := range s.dirs {
+		dirs = append(dirs, d)
+	}
+
+	return dirs
+}
+
+// OnDirApproved registers a callback that fires when a new directory is
+// approved. Returns an unsubscribe function. The callback will not be called
+// for directories that are re-approved (already in the set).
+func (s *Store) OnDirApproved(fn func(dir string)) func() {
+	s.listenerMu.Lock()
+	idx := len(s.onDirAdd)
+	s.onDirAdd = append(s.onDirAdd, fn)
+	s.listenerMu.Unlock()
+
+	return func() {
+		s.listenerMu.Lock()
+		s.onDirAdd[idx] = nil
+		s.listenerMu.Unlock()
+	}
+}
+
+// fireDirCallbacks notifies all registered listeners about a new directory.
+func (s *Store) fireDirCallbacks(dir string) {
+	s.listenerMu.Lock()
+	// Snapshot listeners under lock to avoid holding it during callbacks.
+	listeners := make([]func(string), len(s.onDirAdd))
+	copy(listeners, s.onDirAdd)
+	s.listenerMu.Unlock()
+
+	for _, fn := range listeners {
+		if fn != nil {
+			fn(dir)
+		}
+	}
 }
 
 // --- persistence ---

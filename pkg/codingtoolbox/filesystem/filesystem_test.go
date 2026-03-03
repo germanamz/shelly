@@ -9,6 +9,7 @@ import (
 
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
+	"github.com/germanamz/shelly/pkg/mcproots"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -577,6 +578,83 @@ func TestEdit_ConfirmDenied(t *testing.T) {
 	data, err := os.ReadFile(filePath) //nolint:gosec // test reads from temp dir
 	require.NoError(t, err)
 	assert.Equal(t, "original", string(data))
+}
+
+func TestRead_RootsAllow(t *testing.T) {
+	fs, dir := newTestFS(t, autoDeny) // deny interactive — roots should bypass
+	tb := fs.Tools()
+
+	// Resolve real path to handle macOS /var -> /private/var symlinks.
+	realDir, err := filepath.EvalSymlinks(dir)
+	require.NoError(t, err)
+
+	filePath := filepath.Join(dir, "allowed.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte("allowed"), 0o600))
+
+	ctx := mcproots.WithRoots(context.Background(), []string{realDir})
+	tr := tb.Call(ctx, content.ToolCall{
+		ID:        "tc1",
+		Name:      "fs_read",
+		Arguments: mustJSON(t, pathInput{Path: filePath}),
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+	assert.Equal(t, "allowed", tr.Content)
+}
+
+func TestRead_RootsReject(t *testing.T) {
+	fs, dir := newTestFS(t, autoApprove)
+	tb := fs.Tools()
+
+	filePath := filepath.Join(dir, "secret.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte("secret"), 0o600))
+
+	// Roots that don't include the test directory.
+	ctx := mcproots.WithRoots(context.Background(), []string{"/some/other/dir"})
+	tr := tb.Call(ctx, content.ToolCall{
+		ID:        "tc1",
+		Name:      "fs_read",
+		Arguments: mustJSON(t, pathInput{Path: filePath}),
+	})
+
+	assert.True(t, tr.IsError)
+	assert.Contains(t, tr.Content, "outside client roots")
+}
+
+func TestRead_RootsEmptyRejectsAll(t *testing.T) {
+	fs, dir := newTestFS(t, autoApprove)
+	tb := fs.Tools()
+
+	filePath := filepath.Join(dir, "data.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte("data"), 0o600))
+
+	ctx := mcproots.WithRoots(context.Background(), []string{})
+	tr := tb.Call(ctx, content.ToolCall{
+		ID:        "tc1",
+		Name:      "fs_read",
+		Arguments: mustJSON(t, pathInput{Path: filePath}),
+	})
+
+	assert.True(t, tr.IsError)
+	assert.Contains(t, tr.Content, "outside client roots")
+}
+
+func TestRead_NilRootsFallsThrough(t *testing.T) {
+	fs, dir := newTestFS(t, autoApprove)
+	tb := fs.Tools()
+
+	filePath := filepath.Join(dir, "normal.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte("normal"), 0o600))
+
+	// No roots in context — should fall through to interactive flow.
+	tr := tb.Call(context.Background(), content.ToolCall{
+		ID:        "tc1",
+		Name:      "fs_read",
+		Arguments: mustJSON(t, pathInput{Path: filePath}),
+	})
+
+	assert.False(t, tr.IsError, tr.Content)
+	assert.Equal(t, "normal", tr.Content)
 }
 
 func mustJSON(t *testing.T, v any) string {

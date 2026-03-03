@@ -31,7 +31,9 @@ the file is never left in a partial state.
 
 **Filesystem directories:**
 - **`IsDirApproved(dir string) bool`** -- reports whether `dir` or any of its ancestors has been approved.
-- **`ApproveDir(dir string) error`** -- marks `dir` as approved and persists the change.
+- **`ApproveDir(dir string) error`** -- marks `dir` as approved and persists the change. Fires `OnDirApproved` callbacks if the directory is genuinely new.
+- **`ApprovedDirs() []string`** -- returns a snapshot of all approved directory paths.
+- **`OnDirApproved(fn func(dir string)) func()`** -- registers a callback fired when a new directory is approved. Returns an unsubscribe function. Not fired on re-approval of an already-approved directory.
 
 **Trusted commands:**
 - **`IsCommandTrusted(cmd string) bool`** -- reports whether a command has been trusted.

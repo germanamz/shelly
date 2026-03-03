@@ -27,6 +27,9 @@ import (
 	"github.com/germanamz/shelly/pkg/tasks"
 	"github.com/germanamz/shelly/pkg/tools/mcpclient"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
+
+	// MCP SDK for Root type used in roots wiring.
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Engine is the composition root that assembles all framework components from
@@ -216,6 +219,10 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 			httpTools := shellyhttp.New(permStore, e.responder.Ask)
 			e.toolboxes["http"] = httpTools.Tools()
 		}
+
+		// Seed MCP clients with currently-approved directories as roots,
+		// and dynamically propagate new approvals.
+		e.wireRoots(permStore)
 	}
 
 	// Register agent factories.
@@ -432,6 +439,32 @@ func (e *Engine) connectMCPClients(ctx context.Context, servers []MCPConfig, sta
 	}
 
 	return nil
+}
+
+// wireRoots seeds MCP clients with currently-approved directories as roots and
+// registers an observer that dynamically propagates new approvals.
+func (e *Engine) wireRoots(permStore *permissions.Store) {
+	if len(e.mcpClients) == 0 {
+		return
+	}
+
+	dirs := permStore.ApprovedDirs()
+	if len(dirs) > 0 {
+		roots := make([]*mcp.Root, len(dirs))
+		for i, d := range dirs {
+			roots[i] = mcpclient.DirToRoot(d)
+		}
+		for _, c := range e.mcpClients {
+			c.AddRoots(roots...)
+		}
+	}
+
+	permStore.OnDirApproved(func(dir string) {
+		root := mcpclient.DirToRoot(dir)
+		for _, c := range e.mcpClients {
+			c.AddRoots(root)
+		}
+	})
 }
 
 // Close cancels the engine context, shuts down MCP clients, and releases

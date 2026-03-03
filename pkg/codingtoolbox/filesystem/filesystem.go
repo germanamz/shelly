@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
+	"github.com/germanamz/shelly/pkg/mcproots"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
@@ -78,10 +79,34 @@ func (f *FS) Tools() *toolbox.ToolBox {
 // checkPermission ensures the directory of target is approved. It asks the user
 // if not yet approved. Concurrent calls for the same directory coalesce into a
 // single prompt so the user is never asked the same question multiple times.
+//
+// When MCP roots are present in the context, paths are checked against the root
+// list instead of the interactive permission flow.
 func (f *FS) checkPermission(ctx context.Context, target string) error {
 	abs, err := filepath.Abs(target)
 	if err != nil {
 		return fmt.Errorf("filesystem: resolve path: %w", err)
+	}
+
+	// When MCP roots are set, use them instead of the interactive flow.
+	if roots := mcproots.FromContext(ctx); roots != nil {
+		// Resolve symlinks so /var -> /private/var etc. are handled.
+		realAbs, symErr := filepath.EvalSymlinks(abs)
+		if symErr != nil {
+			// File may not exist yet (write/mkdir). Resolve parent instead.
+			parentReal, parentErr := filepath.EvalSymlinks(filepath.Dir(abs))
+			if parentErr == nil {
+				realAbs = filepath.Join(parentReal, filepath.Base(abs))
+			} else {
+				realAbs = abs
+			}
+		}
+
+		if !mcproots.IsPathAllowed(realAbs, roots) {
+			return fmt.Errorf("filesystem: path outside client roots: %s", abs)
+		}
+
+		return nil
 	}
 
 	dir := abs
