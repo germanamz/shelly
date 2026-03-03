@@ -3,6 +3,7 @@ package chatview
 import (
 	"testing"
 
+	"github.com/germanamz/shelly/cmd/shelly/internal/msgs"
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/chats/role"
@@ -11,7 +12,7 @@ import (
 
 func TestChatViewEmpty(t *testing.T) {
 	cv := New()
-	cv.SetWidth(80)
+	cv, _ = cv.Update(msgs.ChatViewSetWidthMsg{Width: 80})
 	view := cv.View()
 	// No live content — managed area is empty; logo is printed via tea.Println at startup.
 	assert.Empty(t, view)
@@ -19,8 +20,8 @@ func TestChatViewEmpty(t *testing.T) {
 
 func TestChatViewUserMessage(t *testing.T) {
 	cv := New()
-	cv.SetWidth(80)
-	cmd := cv.CommitUserMessage("hello world")
+	cv, _ = cv.Update(msgs.ChatViewSetWidthMsg{Width: 80})
+	cv, cmd := cv.Update(msgs.ChatViewCommitUserMsg{Text: "hello world"})
 
 	assert.True(t, cv.HasMessages)
 	assert.NotNil(t, cmd) // content emitted as tea.Println cmd
@@ -28,24 +29,24 @@ func TestChatViewUserMessage(t *testing.T) {
 
 func TestChatViewAssistantFinalAnswer(t *testing.T) {
 	cv := New()
-	cv.SetWidth(80)
+	cv, _ = cv.Update(msgs.ChatViewSetWidthMsg{Width: 80})
 
-	cv.StartAgent("assistant", "🤖", "")
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "assistant", Prefix: "🤖"})
 	msg := message.NewText("assistant", role.Assistant, "Here is my answer")
-	cv.AddMessage(msg)
-	cmd := cv.EndAgent("assistant", "")
+	cv, _ = cv.Update(msgs.ChatMessageMsg{Msg: msg})
+	_, cmd := cv.Update(msgs.AgentEndMsg{Agent: "assistant"})
 
 	assert.NotNil(t, cmd) // collapsed summary emitted as tea.Println cmd
 }
 
 func TestChatViewAssistantToolCalls(t *testing.T) {
 	cv := New()
-	cv.SetWidth(80)
+	cv, _ = cv.Update(msgs.ChatViewSetWidthMsg{Width: 80})
 
 	msg := message.New("assistant", role.Assistant,
 		content.ToolCall{ID: "tc-1", Name: "fs_read", Arguments: `{"path":"test.txt"}`},
 	)
-	cv.AddMessage(msg)
+	cv, _ = cv.Update(msgs.ChatMessageMsg{Msg: msg})
 
 	ac, ok := cv.agents["assistant"]
 	assert.True(t, ok)
@@ -54,19 +55,19 @@ func TestChatViewAssistantToolCalls(t *testing.T) {
 
 func TestChatViewToolResult(t *testing.T) {
 	cv := New()
-	cv.SetWidth(80)
+	cv, _ = cv.Update(msgs.ChatViewSetWidthMsg{Width: 80})
 
 	// Agent makes a tool call.
 	callMsg := message.New("assistant", role.Assistant,
 		content.ToolCall{ID: "tc-1", Name: "fs_read", Arguments: `{"path":"test.txt"}`},
 	)
-	cv.AddMessage(callMsg)
+	cv, _ = cv.Update(msgs.ChatMessageMsg{Msg: callMsg})
 
 	// Tool result arrives.
 	resultMsg := message.New("assistant", role.Tool,
 		content.ToolResult{ToolCallID: "tc-1", Content: "file contents", IsError: false},
 	)
-	cv.AddMessage(resultMsg)
+	cv, _ = cv.Update(msgs.ChatMessageMsg{Msg: resultMsg})
 
 	ac := cv.agents["assistant"]
 	tc, ok := ac.Items[0].(*ToolCallItem)
@@ -77,14 +78,14 @@ func TestChatViewToolResult(t *testing.T) {
 
 func TestChatViewParallelToolCalls(t *testing.T) {
 	cv := New()
-	cv.SetWidth(80)
+	cv, _ = cv.Update(msgs.ChatViewSetWidthMsg{Width: 80})
 
 	// Multiple calls of the same tool → grouped.
 	msg := message.New("assistant", role.Assistant,
 		content.ToolCall{ID: "tc-1", Name: "fs_read", Arguments: `{"path":"a.txt"}`},
 		content.ToolCall{ID: "tc-2", Name: "fs_read", Arguments: `{"path":"b.txt"}`},
 	)
-	cv.AddMessage(msg)
+	cv, _ = cv.Update(msgs.ChatMessageMsg{Msg: msg})
 
 	ac := cv.agents["assistant"]
 	assert.Len(t, ac.Items, 1) // single group
@@ -95,23 +96,23 @@ func TestChatViewParallelToolCalls(t *testing.T) {
 
 func TestChatViewStartEndAgent(t *testing.T) {
 	cv := New()
-	cv.SetWidth(80)
+	cv, _ = cv.Update(msgs.ChatViewSetWidthMsg{Width: 80})
 
-	cv.StartAgent("myAgent", "🤖", "")
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "myAgent", Prefix: "🤖"})
 	assert.Contains(t, cv.agents, "myAgent")
 	assert.Len(t, cv.agentOrder, 1)
 
-	cmd := cv.EndAgent("myAgent", "")
+	cv, cmd := cv.Update(msgs.AgentEndMsg{Agent: "myAgent"})
 	assert.NotContains(t, cv.agents, "myAgent")
 	assert.NotNil(t, cmd) // summary emitted as tea.Println cmd
 }
 
 func TestChatViewSubAgent(t *testing.T) {
 	cv := New()
-	cv.SetWidth(80)
+	cv, _ = cv.Update(msgs.ChatViewSetWidthMsg{Width: 80})
 
-	cv.StartAgent("parent", "🤖", "")
-	cv.StartAgent("child", "🦾", "parent")
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "parent", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "parent"})
 
 	// Child should be in subAgents, not top-level.
 	assert.NotContains(t, cv.agents, "child")
@@ -124,25 +125,25 @@ func TestChatViewSubAgent(t *testing.T) {
 	assert.True(t, ok)
 
 	// End child.
-	cv.EndAgent("child", "parent")
+	cv, _ = cv.Update(msgs.AgentEndMsg{Agent: "child", Parent: "parent"})
 	assert.NotContains(t, cv.subAgents, "child")
 }
 
 func TestChatViewIgnoreSystemAndUser(t *testing.T) {
 	cv := New()
-	cv.SetWidth(80)
+	cv, _ = cv.Update(msgs.ChatViewSetWidthMsg{Width: 80})
 
-	cmd := cv.AddMessage(message.NewText("sys", role.System, "system prompt"))
+	cv, cmd := cv.Update(msgs.ChatMessageMsg{Msg: message.NewText("sys", role.System, "system prompt")})
 	assert.Nil(t, cmd)
 
-	cmd = cv.AddMessage(message.NewText("user", role.User, "user message"))
+	_, cmd = cv.Update(msgs.ChatMessageMsg{Msg: message.NewText("user", role.User, "user message")})
 	assert.Nil(t, cmd)
 }
 
 func TestChatViewProcessingSpinner(t *testing.T) {
 	cv := New()
-	cv.SetWidth(80)
-	cv.SetProcessing(true)
+	cv, _ = cv.Update(msgs.ChatViewSetWidthMsg{Width: 80})
+	cv, _ = cv.Update(msgs.ChatViewSetProcessingMsg{Processing: true})
 
 	view := cv.View()
 	assert.Contains(t, view, cv.ProcessingMsg)
@@ -150,11 +151,11 @@ func TestChatViewProcessingSpinner(t *testing.T) {
 
 func TestChatViewClear(t *testing.T) {
 	cv := New()
-	cv.SetWidth(80)
-	cv.CommitUserMessage("hello")
-	cv.StartAgent("agent", "🤖", "")
+	cv, _ = cv.Update(msgs.ChatViewSetWidthMsg{Width: 80})
+	cv, _ = cv.Update(msgs.ChatViewCommitUserMsg{Text: "hello"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "agent", Prefix: "🤖"})
 
-	cv.Clear()
+	cv, _ = cv.Update(msgs.ChatViewClearMsg{})
 
 	assert.Empty(t, cv.agents)
 	assert.Empty(t, cv.subAgents)

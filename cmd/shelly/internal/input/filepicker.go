@@ -33,8 +33,30 @@ func NewFilePicker() FilePickerModel {
 	return FilePickerModel{maxShow: FilePickerMaxShow}
 }
 
-// Activate opens the picker at the given '@' position.
-func (fp *FilePickerModel) Activate(atPos int) tea.Cmd {
+// Update processes messages for the file picker.
+func (fp FilePickerModel) Update(msg tea.Msg) (FilePickerModel, tea.Cmd) {
+	switch msg := msg.(type) {
+	case msgs.FilePickerActivateMsg:
+		return fp.activate(msg.AtPos)
+	case msgs.FilePickerDismissMsg:
+		fp.dismiss()
+		return fp, nil
+	case msgs.FilePickerQueryMsg:
+		fp.setQuery(msg.Query)
+		return fp, nil
+	case msgs.FilePickerEntriesMsg:
+		fp.setEntries(msg.Entries)
+		return fp, nil
+	case tea.KeyPressMsg:
+		if !fp.Active {
+			return fp, nil
+		}
+		return fp.handleKey(msg)
+	}
+	return fp, nil
+}
+
+func (fp FilePickerModel) activate(atPos int) (FilePickerModel, tea.Cmd) {
 	fp.Active = true
 	fp.AtPos = atPos
 	fp.query = ""
@@ -42,29 +64,26 @@ func (fp *FilePickerModel) Activate(atPos int) tea.Cmd {
 	fp.filtered = nil
 	if len(fp.entries) > 0 {
 		fp.applyFilter()
-		return nil
+		return fp, nil
 	}
-	return DiscoverFilesCmd
+	return fp, DiscoverFilesCmd
 }
 
-// Dismiss closes the picker.
-func (fp *FilePickerModel) Dismiss() {
+func (fp *FilePickerModel) dismiss() {
 	fp.Active = false
 	fp.query = ""
 	fp.filtered = nil
 	fp.cursor = 0
 }
 
-// SetEntries caches the discovered file list and applies the current filter.
-func (fp *FilePickerModel) SetEntries(entries []string) {
+func (fp *FilePickerModel) setEntries(entries []string) {
 	fp.entries = entries
 	if fp.Active {
 		fp.applyFilter()
 	}
 }
 
-// SetQuery updates the filter query and re-filters.
-func (fp *FilePickerModel) SetQuery(q string) {
+func (fp *FilePickerModel) setQuery(q string) {
 	fp.query = q
 	fp.cursor = 0
 	fp.applyFilter()
@@ -78,32 +97,32 @@ func (fp *FilePickerModel) selected() string {
 	return fp.filtered[fp.cursor]
 }
 
-// HandleKey processes navigation keys while the picker is active.
-func (fp *FilePickerModel) HandleKey(msg tea.KeyPressMsg) (consumed bool, sel string) {
+// handleKey processes navigation keys while the picker is active.
+func (fp FilePickerModel) handleKey(msg tea.KeyPressMsg) (FilePickerModel, tea.Cmd) {
 	k := msg.Key()
 	switch k.Code {
 	case tea.KeyUp:
 		if fp.cursor > 0 {
 			fp.cursor--
 		}
-		return true, ""
+		return fp, nil
 	case tea.KeyDown:
 		if fp.cursor < len(fp.filtered)-1 {
 			fp.cursor++
 		}
-		return true, ""
+		return fp, nil
 	case tea.KeyEnter, tea.KeyTab:
 		sel := fp.selected()
 		if sel != "" {
-			fp.Dismiss()
-			return true, sel
+			fp.dismiss()
+			return fp, func() tea.Msg { return msgs.FilePickerSelectionMsg{Path: sel} }
 		}
-		return true, ""
+		return fp, nil
 	case tea.KeyEsc:
-		fp.Dismiss()
-		return true, ""
+		fp.dismiss()
+		return fp, nil
 	}
-	return false, ""
+	return fp, nil
 }
 
 // View renders the picker popup.

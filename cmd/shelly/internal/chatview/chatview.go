@@ -9,6 +9,7 @@ import (
 	lipgloss "charm.land/lipgloss/v2"
 
 	"github.com/germanamz/shelly/cmd/shelly/internal/format"
+	"github.com/germanamz/shelly/cmd/shelly/internal/msgs"
 	"github.com/germanamz/shelly/cmd/shelly/internal/styles"
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/chats/message"
@@ -50,9 +51,46 @@ func New() ChatViewModel {
 	}
 }
 
+// Update processes messages for the chat view.
+func (m ChatViewModel) Update(msg tea.Msg) (ChatViewModel, tea.Cmd) {
+	switch msg := msg.(type) {
+	case msgs.ChatMessageMsg:
+		cmd := m.addMessage(msg.Msg)
+		return m, cmd
+	case msgs.AgentStartMsg:
+		m.startAgent(msg.Agent, msg.Prefix, msg.Parent)
+		return m, nil
+	case msgs.AgentEndMsg:
+		cmd := m.endAgent(msg.Agent, msg.Parent)
+		return m, cmd
+	case msgs.ChatViewSetWidthMsg:
+		m.Width = msg.Width
+		return m, nil
+	case msgs.ChatViewSetProcessingMsg:
+		m.setProcessing(msg.Processing)
+		return m, nil
+	case msgs.ChatViewAdvanceSpinnersMsg:
+		m.advanceSpinners()
+		return m, nil
+	case msgs.ChatViewClearMsg:
+		m.clear()
+		return m, nil
+	case msgs.ChatViewFlushAllMsg:
+		cmd := m.flushAll()
+		return m, cmd
+	case msgs.ChatViewMarkSentMsg:
+		m.HasMessages = true
+		return m, nil
+	case msgs.ChatViewCommitUserMsg:
+		cmd := m.commitUserMessage(msg.Text)
+		return m, cmd
+	}
+	return m, nil
+}
+
 // View renders only the live (in-progress) agent content and spinner.
 // Committed content has already been printed to the terminal via tea.Println.
-func (m *ChatViewModel) View() string {
+func (m ChatViewModel) View() string {
 	var live strings.Builder
 
 	// Render active agent containers (live content).
@@ -79,18 +117,13 @@ func (m *ChatViewModel) View() string {
 	return live.String()
 }
 
-// SetWidth sets the render width used for content formatting.
-func (m *ChatViewModel) SetWidth(w int) {
-	m.Width = w
+// HasActiveChains returns true if any agent container is still in progress.
+func (m ChatViewModel) HasActiveChains() bool {
+	return len(m.agents) > 0
 }
 
-// MarkMessageSent records that content has been displayed.
-func (m *ChatViewModel) MarkMessageSent() {
-	m.HasMessages = true
-}
-
-// CommitUserMessage renders a user message and emits it as a tea.Println cmd.
-func (m *ChatViewModel) CommitUserMessage(text string) tea.Cmd {
+// commitUserMessage renders a user message and emits it as a tea.Println cmd.
+func (m *ChatViewModel) commitUserMessage(text string) tea.Cmd {
 	highlighted := highlightFilePaths(text)
 	userLine := "\n" + format.RenderUserMessage(highlighted)
 	m.HasMessages = true
@@ -120,8 +153,8 @@ func highlightFilePaths(text string) string {
 	return result.String()
 }
 
-// AddMessage processes a chat message. Final answers are emitted via tea.Println.
-func (m *ChatViewModel) AddMessage(msg message.Message) tea.Cmd {
+// addMessage processes a chat message. Final answers are emitted via tea.Println.
+func (m *ChatViewModel) addMessage(msg message.Message) tea.Cmd {
 	switch msg.Role {
 	case role.System, role.User:
 		return nil
@@ -242,8 +275,8 @@ func (m *ChatViewModel) getOrCreateContainer(agentName, prefix string) *AgentCon
 	return ac
 }
 
-// StartAgent creates or retrieves an agent container with the given prefix.
-func (m *ChatViewModel) StartAgent(agentName, prefix, parent string) {
+// startAgent creates or retrieves an agent container with the given prefix.
+func (m *ChatViewModel) startAgent(agentName, prefix, parent string) {
 	if parent != "" {
 		parentAC := m.resolveContainer(parent)
 		if parentAC == nil {
@@ -268,9 +301,9 @@ func (m *ChatViewModel) StartAgent(agentName, prefix, parent string) {
 	m.agentOrder = append(m.agentOrder, agentName)
 }
 
-// EndAgent collapses the named agent's container into a summary and emits it
+// endAgent collapses the named agent's container into a summary and emits it
 // via tea.Println so it persists in the terminal's scroll buffer.
-func (m *ChatViewModel) EndAgent(agentName, _ string) tea.Cmd {
+func (m *ChatViewModel) endAgent(agentName, _ string) tea.Cmd {
 	// Check if this is a nested sub-agent.
 	if sa, ok := m.subAgents[agentName]; ok {
 		sa.Container.Done = true
@@ -303,10 +336,10 @@ func (m *ChatViewModel) EndAgent(agentName, _ string) tea.Cmd {
 	return nil
 }
 
-// FlushAll ends all remaining agents and emits their collapsed summaries via
+// flushAll ends all remaining agents and emits their collapsed summaries via
 // tea.Println. Call this when the send completes to avoid stale live-view
 // content caused by AgentEndMsg arriving after SendCompleteMsg.
-func (m *ChatViewModel) FlushAll() tea.Cmd {
+func (m *ChatViewModel) flushAll() tea.Cmd {
 	var cmds []tea.Cmd
 
 	// End sub-agents first so their containers are marked Done.
@@ -343,29 +376,24 @@ func (m *ChatViewModel) FlushAll() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// SetProcessing sets the processing state and picks a random spinner message.
-func (m *ChatViewModel) SetProcessing(on bool) {
+// setProcessing sets the processing state and picks a random spinner message.
+func (m *ChatViewModel) setProcessing(on bool) {
 	m.Processing = on
 	if on {
 		m.ProcessingMsg = format.RandomThinkingMessage()
 	}
 }
 
-// AdvanceSpinners increments the spinner frame for all active containers.
-func (m *ChatViewModel) AdvanceSpinners() {
+// advanceSpinners increments the spinner frame for all active containers.
+func (m *ChatViewModel) advanceSpinners() {
 	m.SpinnerIdx++
 	for _, ac := range m.agents {
 		ac.AdvanceSpinners()
 	}
 }
 
-// HasActiveChains returns true if any agent container is still in progress.
-func (m *ChatViewModel) HasActiveChains() bool {
-	return len(m.agents) > 0
-}
-
-// Clear resets the chat view state.
-func (m *ChatViewModel) Clear() {
+// clear resets the chat view state.
+func (m *ChatViewModel) clear() {
 	m.agents = make(map[string]*AgentContainer)
 	m.subAgents = make(map[string]*SubAgentItem)
 	m.agentOrder = nil

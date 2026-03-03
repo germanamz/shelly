@@ -89,3 +89,95 @@ type FilePickerEntriesMsg struct {
 type TasksChangedMsg struct {
 	Tasks []tasks.Task
 }
+
+// --- Picker messages ---
+
+// FilePickerActivateMsg opens the file picker at the given '@' rune position.
+type FilePickerActivateMsg struct {
+	AtPos int
+}
+
+// FilePickerDismissMsg closes the file picker.
+type FilePickerDismissMsg struct{}
+
+// FilePickerQueryMsg updates the file picker filter query.
+type FilePickerQueryMsg struct {
+	Query string
+}
+
+// FilePickerSelectionMsg carries the selected file path from the file picker.
+type FilePickerSelectionMsg struct {
+	Path string
+}
+
+// CmdPickerActivateMsg opens the command picker at the given '/' rune position.
+type CmdPickerActivateMsg struct {
+	SlashPos int
+}
+
+// CmdPickerDismissMsg closes the command picker.
+type CmdPickerDismissMsg struct{}
+
+// CmdPickerQueryMsg updates the command picker filter query.
+type CmdPickerQueryMsg struct {
+	Query string
+}
+
+// CmdPickerSelectionMsg carries the selected command from the command picker.
+type CmdPickerSelectionMsg struct {
+	Command string
+}
+
+// --- ChatView messages ---
+
+// ChatViewSetWidthMsg sets the render width.
+type ChatViewSetWidthMsg struct {
+	Width int
+}
+
+// ChatViewSetProcessingMsg sets the processing state.
+type ChatViewSetProcessingMsg struct {
+	Processing bool
+}
+
+// ChatViewAdvanceSpinnersMsg increments spinner frames.
+type ChatViewAdvanceSpinnersMsg struct{}
+
+// ChatViewClearMsg resets the chat view state.
+type ChatViewClearMsg struct{}
+
+// ChatViewFlushAllMsg ends all remaining agents and emits their summaries.
+type ChatViewFlushAllMsg struct{}
+
+// ChatViewMarkSentMsg records that content has been displayed.
+type ChatViewMarkSentMsg struct{}
+
+// ChatViewCommitUserMsg renders a user message and emits it via tea.Println.
+type ChatViewCommitUserMsg struct {
+	Text string
+}
+
+// --- TaskPanel messages ---
+
+// TaskPanelSetWidthMsg sets the task panel render width.
+type TaskPanelSetWidthMsg struct {
+	Width int
+}
+
+// --- Input messages ---
+
+// InputEnableMsg enables the input box and focuses the textarea.
+type InputEnableMsg struct{}
+
+// InputResetMsg resets the input box (clears text, re-enables, dismisses pickers).
+type InputResetMsg struct{}
+
+// InputSetWidthMsg sets the input box width.
+type InputSetWidthMsg struct {
+	Width int
+}
+
+// InputSetTokenCountMsg updates the token counter display.
+type InputSetTokenCountMsg struct {
+	TokenCount string
+}

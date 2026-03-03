@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/germanamz/shelly/cmd/shelly/internal/msgs"
 	"github.com/germanamz/shelly/cmd/shelly/internal/styles"
 )
 
@@ -32,8 +33,28 @@ func NewCmdPicker() CmdPickerModel {
 	return CmdPickerModel{maxShow: CmdPickerMaxShow}
 }
 
-// Activate opens the picker at the given '/' position.
-func (cp *CmdPickerModel) Activate(slashPos int) {
+// Update processes messages for the command picker.
+func (cp CmdPickerModel) Update(msg tea.Msg) (CmdPickerModel, tea.Cmd) {
+	switch msg := msg.(type) {
+	case msgs.CmdPickerActivateMsg:
+		cp.activate(msg.SlashPos)
+		return cp, nil
+	case msgs.CmdPickerDismissMsg:
+		cp.dismiss()
+		return cp, nil
+	case msgs.CmdPickerQueryMsg:
+		cp.setQuery(msg.Query)
+		return cp, nil
+	case tea.KeyPressMsg:
+		if !cp.Active {
+			return cp, nil
+		}
+		return cp.handleKey(msg)
+	}
+	return cp, nil
+}
+
+func (cp *CmdPickerModel) activate(slashPos int) {
 	cp.Active = true
 	cp.SlashPos = slashPos
 	cp.query = ""
@@ -41,16 +62,14 @@ func (cp *CmdPickerModel) Activate(slashPos int) {
 	cp.applyFilter()
 }
 
-// Dismiss closes the picker.
-func (cp *CmdPickerModel) Dismiss() {
+func (cp *CmdPickerModel) dismiss() {
 	cp.Active = false
 	cp.query = ""
 	cp.filtered = nil
 	cp.cursor = 0
 }
 
-// SetQuery updates the filter query and re-filters.
-func (cp *CmdPickerModel) SetQuery(q string) {
+func (cp *CmdPickerModel) setQuery(q string) {
 	cp.query = q
 	cp.cursor = 0
 	cp.applyFilter()
@@ -64,32 +83,32 @@ func (cp *CmdPickerModel) selected() string {
 	return cp.filtered[cp.cursor]
 }
 
-// HandleKey processes navigation keys while the picker is active.
-func (cp *CmdPickerModel) HandleKey(msg tea.KeyPressMsg) (consumed bool, sel string) {
+// handleKey processes navigation keys while the picker is active.
+func (cp CmdPickerModel) handleKey(msg tea.KeyPressMsg) (CmdPickerModel, tea.Cmd) {
 	k := msg.Key()
 	switch k.Code {
 	case tea.KeyUp:
 		if cp.cursor > 0 {
 			cp.cursor--
 		}
-		return true, ""
+		return cp, nil
 	case tea.KeyDown:
 		if cp.cursor < len(cp.filtered)-1 {
 			cp.cursor++
 		}
-		return true, ""
+		return cp, nil
 	case tea.KeyEnter, tea.KeyTab:
 		sel := cp.selected()
 		if sel != "" {
-			cp.Dismiss()
-			return true, sel
+			cp.dismiss()
+			return cp, func() tea.Msg { return msgs.CmdPickerSelectionMsg{Command: sel} }
 		}
-		return true, ""
+		return cp, nil
 	case tea.KeyEsc:
-		cp.Dismiss()
-		return true, ""
+		cp.dismiss()
+		return cp, nil
 	}
-	return false, ""
+	return cp, nil
 }
 
 // View renders the command picker popup.

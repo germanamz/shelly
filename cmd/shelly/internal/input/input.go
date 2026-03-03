@@ -54,46 +54,97 @@ func New() InputModel {
 }
 
 func (m InputModel) Update(msg tea.Msg) (InputModel, tea.Cmd) {
+	// Handle lifecycle messages regardless of Enabled state.
+	switch msg := msg.(type) {
+	case msgs.InputEnableMsg:
+		m.Enabled = true
+		return m, m.textarea.Focus()
+	case msgs.InputResetMsg:
+		m.textarea.Reset()
+		m.textarea.SetHeight(InputMinHeight)
+		m.Enabled = true
+		m.FilePicker.Active = false
+		m.CmdPicker.Active = false
+		return m, nil
+	case msgs.InputSetWidthMsg:
+		m.width = msg.Width
+		innerWidth := max(msg.Width-4, 10)
+		m.textarea.SetWidth(innerWidth)
+		return m, nil
+	case msgs.InputSetTokenCountMsg:
+		m.TokenCount = msg.TokenCount
+		return m, nil
+	}
+
 	if !m.Enabled {
 		return m, nil
 	}
 
-	keyMsg, isKey := msg.(tea.KeyPressMsg)
+	// Handle picker selection messages from sub-models.
+	switch msg := msg.(type) {
+	case msgs.FilePickerSelectionMsg:
+		m.insertFileSelection(msg.Path)
+		return m, nil
+	case msgs.CmdPickerSelectionMsg:
+		m.textarea.Reset()
+		m.CmdPicker.Active = false
+		return m, func() tea.Msg { return msgs.InputSubmitMsg{Text: msg.Command} }
+	case tea.KeyPressMsg:
+		return m.handleKeyPress(msg)
+	}
 
+	// Forward non-key messages to textarea and pickers.
+	var cmd tea.Cmd
+	m.textarea, cmd = m.textarea.Update(msg)
+
+	var pickerCmd tea.Cmd
+	m.FilePicker, pickerCmd = m.FilePicker.Update(msg)
+	if pickerCmd != nil {
+		cmd = tea.Batch(cmd, pickerCmd)
+	}
+
+	return m, cmd
+}
+
+func isPickerNavKey(code rune) bool {
+	return code == tea.KeyUp || code == tea.KeyDown || code == tea.KeyEnter || code == tea.KeyTab || code == tea.KeyEsc
+}
+
+// handleKeyPress processes key presses, routing to pickers or textarea as appropriate.
+func (m InputModel) handleKeyPress(keyMsg tea.KeyPressMsg) (InputModel, tea.Cmd) {
 	// Route keys to file picker when active.
-	if isKey && m.FilePicker.Active {
-		consumed, sel := m.FilePicker.HandleKey(keyMsg)
-		if sel != "" {
-			m.insertFileSelection(sel)
-			return m, nil
+	if m.FilePicker.Active {
+		var cmd tea.Cmd
+		m.FilePicker, cmd = m.FilePicker.Update(keyMsg)
+		if cmd != nil {
+			return m, cmd
 		}
-		if consumed {
+		if isPickerNavKey(keyMsg.Key().Code) {
 			return m, nil
 		}
 	}
 
 	// Route keys to command picker when active.
-	if isKey && m.CmdPicker.Active {
-		consumed, sel := m.CmdPicker.HandleKey(keyMsg)
-		if sel != "" {
-			m.textarea.Reset()
-			m.CmdPicker.Dismiss()
-			return m, func() tea.Msg { return msgs.InputSubmitMsg{Text: sel} }
+	if m.CmdPicker.Active {
+		var cmd tea.Cmd
+		m.CmdPicker, cmd = m.CmdPicker.Update(keyMsg)
+		if cmd != nil {
+			return m, cmd
 		}
-		if consumed {
+		if isPickerNavKey(keyMsg.Key().Code) {
 			return m, nil
 		}
 	}
 
 	// Handle enter submission (Shift+Enter and Alt+Enter are consumed by the
 	// textarea's InsertNewline binding before reaching here).
-	if isKey && keyMsg.Key().Code == tea.KeyEnter && keyMsg.Key().Mod&tea.ModAlt == 0 && !m.FilePicker.Active && !m.CmdPicker.Active {
+	if keyMsg.Key().Code == tea.KeyEnter && keyMsg.Key().Mod&tea.ModAlt == 0 && !m.FilePicker.Active && !m.CmdPicker.Active {
 		text := strings.TrimSpace(m.textarea.Value())
 		if text != "" {
 			m.textarea.Reset()
 			m.textarea.SetHeight(InputMinHeight)
-			m.FilePicker.Dismiss()
-			m.CmdPicker.Dismiss()
+			m.FilePicker.Active = false
+			m.CmdPicker.Active = false
 			return m, func() tea.Msg { return msgs.InputSubmitMsg{Text: text} }
 		}
 		return m, nil
@@ -107,7 +158,7 @@ func (m InputModel) Update(msg tea.Msg) (InputModel, tea.Cmd) {
 	m.textarea.SetHeight(InputMaxHeight)
 
 	var cmd tea.Cmd
-	m.textarea, cmd = m.textarea.Update(msg)
+	m.textarea, cmd = m.textarea.Update(keyMsg)
 
 	// Auto-grow height based on visual lines (hard newlines + soft wraps).
 	lines := m.visualLineCount()
@@ -116,9 +167,7 @@ func (m InputModel) Update(msg tea.Msg) (InputModel, tea.Cmd) {
 
 	// Detect '@' or '/' insertion or update picker query.
 	newVal := m.textarea.Value()
-	if isKey {
-		cmd = m.updatePickerState(prevVal, newVal, cmd)
-	}
+	cmd = m.updatePickerState(prevVal, newVal, cmd)
 
 	return m, cmd
 }
@@ -134,9 +183,9 @@ func (m *InputModel) updatePickerState(prevVal, newVal string, existingCmd tea.C
 			for queryEnd < len(runes) && runes[queryEnd] != ' ' && runes[queryEnd] != '\n' {
 				queryEnd++
 			}
-			m.FilePicker.SetQuery(string(runes[queryStart:queryEnd]))
+			m.FilePicker, _ = m.FilePicker.Update(msgs.FilePickerQueryMsg{Query: string(runes[queryStart:queryEnd])})
 		} else {
-			m.FilePicker.Dismiss()
+			m.FilePicker, _ = m.FilePicker.Update(msgs.FilePickerDismissMsg{})
 		}
 		return existingCmd
 	}
@@ -150,9 +199,9 @@ func (m *InputModel) updatePickerState(prevVal, newVal string, existingCmd tea.C
 			for queryEnd < len(runes) && runes[queryEnd] != ' ' && runes[queryEnd] != '\n' {
 				queryEnd++
 			}
-			m.CmdPicker.SetQuery(string(runes[queryStart:queryEnd]))
+			m.CmdPicker, _ = m.CmdPicker.Update(msgs.CmdPickerQueryMsg{Query: string(runes[queryStart:queryEnd])})
 		} else {
-			m.CmdPicker.Dismiss()
+			m.CmdPicker, _ = m.CmdPicker.Update(msgs.CmdPickerDismissMsg{})
 		}
 		return existingCmd
 	}
@@ -161,7 +210,8 @@ func (m *InputModel) updatePickerState(prevVal, newVal string, existingCmd tea.C
 	if strings.Count(newVal, "@") > strings.Count(prevVal, "@") {
 		atIdx := strings.LastIndex(newVal, "@")
 		atRunePos := len([]rune(newVal[:atIdx]))
-		pickerCmd := m.FilePicker.Activate(atRunePos)
+		var pickerCmd tea.Cmd
+		m.FilePicker, pickerCmd = m.FilePicker.Update(msgs.FilePickerActivateMsg{AtPos: atRunePos})
 		if pickerCmd != nil {
 			return tea.Batch(existingCmd, pickerCmd)
 		}
@@ -170,7 +220,7 @@ func (m *InputModel) updatePickerState(prevVal, newVal string, existingCmd tea.C
 
 	// Detect '/' at start of input (command picker trigger).
 	if newVal == "/" && prevVal == "" {
-		m.CmdPicker.Activate(0)
+		m.CmdPicker, _ = m.CmdPicker.Update(msgs.CmdPickerActivateMsg{SlashPos: 0})
 		return existingCmd
 	}
 
@@ -236,12 +286,6 @@ func (m InputModel) viewInput() string {
 	border = border.Width(innerWidth)
 
 	return border.Render(m.textarea.View())
-}
-
-func (m *InputModel) SetWidth(w int) {
-	m.width = w
-	innerWidth := max(w-4, 10) // account for border padding
-	m.textarea.SetWidth(innerWidth)
 }
 
 // visualLineCount returns the number of visual lines the current text occupies,
@@ -317,18 +361,6 @@ func wordWrapLineCount(text string, width int) int {
 	}
 
 	return lines
-}
-
-func (m *InputModel) Enable() tea.Cmd {
-	return m.textarea.Focus()
-}
-
-func (m *InputModel) Reset() {
-	m.textarea.Reset()
-	m.textarea.SetHeight(InputMinHeight)
-	m.Enabled = true
-	m.FilePicker.Dismiss()
-	m.CmdPicker.Dismiss()
 }
 
 // ViewHeight returns the height of the input box area.
