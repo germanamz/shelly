@@ -309,10 +309,9 @@ func (f *FS) handleReadLines(ctx context.Context, input json.RawMessage) (string
 	}
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "[Lines %d-%d of %d]\n", startLine, endLine, totalLines)
-
+	fmt.Fprintf(&sb, "[Lines %d-%d of %d]\n", startLine, endLine, totalLines) //nolint:gosec // G705 false positive: writing to strings.Builder, not HTTP response
 	for i := startLine - 1; i < endLine; i++ {
-		fmt.Fprintf(&sb, "%6d→%s\n", i+1, lines[i])
+		fmt.Fprintf(&sb, "%6d→%s\n", i+1, lines[i]) //nolint:gosec // G705 false positive: writing to strings.Builder, not HTTP response
 	}
 
 	return sb.String(), nil
