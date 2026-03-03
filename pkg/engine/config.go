@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -46,6 +47,15 @@ type RateLimitConfig struct {
 	BaseDelay  string `yaml:"base_delay"`  // Initial backoff delay as a duration string (e.g. "1s", "500ms").
 }
 
+// BatchConfig controls batch API support for a provider.
+type BatchConfig struct {
+	Enabled       bool   `yaml:"enabled"`
+	CollectWindow string `yaml:"collect_window"` // Duration to wait for more requests before flushing (default "500ms").
+	PollInterval  string `yaml:"poll_interval"`  // Duration between batch status polls (default "5s").
+	Timeout       string `yaml:"timeout"`        // Maximum time to wait for batch results (default "1h").
+	MaxBatchSize  int    `yaml:"max_batch_size"` // Maximum requests per batch before auto-flush (default 100).
+}
+
 // ProviderConfig describes an LLM provider instance.
 type ProviderConfig struct {
 	Name          string          `yaml:"name"`
@@ -55,6 +65,7 @@ type ProviderConfig struct {
 	Model         string          `yaml:"model"`
 	ContextWindow *int            `yaml:"context_window"` // Max context tokens (nil = use provider default, 0 = no compaction).
 	RateLimit     RateLimitConfig `yaml:"rate_limit"`
+	Batch         BatchConfig     `yaml:"batch"`
 }
 
 // MCPConfig describes an MCP server to connect to.
@@ -197,6 +208,9 @@ func ExpandConfigStrings(cfg *Config) {
 		p.APIKey = os.ExpandEnv(p.APIKey)
 		p.Model = os.ExpandEnv(p.Model)
 		p.RateLimit.BaseDelay = os.ExpandEnv(p.RateLimit.BaseDelay)
+		p.Batch.CollectWindow = os.ExpandEnv(p.Batch.CollectWindow)
+		p.Batch.PollInterval = os.ExpandEnv(p.Batch.PollInterval)
+		p.Batch.Timeout = os.ExpandEnv(p.Batch.Timeout)
 	}
 
 	for i := range cfg.MCPServers {
@@ -317,12 +331,38 @@ func validateProviders(providers []ProviderConfig) (map[string]struct{}, error) 
 		if p.ContextWindow != nil && *p.ContextWindow < 0 {
 			return nil, fmt.Errorf("engine: config: provider %q: context_window must be >= 0", p.Name)
 		}
+		if err := validateBatchConfig(p); err != nil {
+			return nil, err
+		}
 		if _, dup := names[p.Name]; dup {
 			return nil, fmt.Errorf("engine: config: duplicate provider name %q", p.Name)
 		}
 		names[p.Name] = struct{}{}
 	}
 	return names, nil
+}
+
+func validateBatchConfig(p ProviderConfig) error {
+	if !p.Batch.Enabled {
+		return nil
+	}
+	for _, pair := range []struct {
+		field, value string
+	}{
+		{"collect_window", p.Batch.CollectWindow},
+		{"poll_interval", p.Batch.PollInterval},
+		{"timeout", p.Batch.Timeout},
+	} {
+		if pair.value != "" {
+			if _, err := time.ParseDuration(pair.value); err != nil {
+				return fmt.Errorf("engine: config: provider %q: batch.%s: %w", p.Name, pair.field, err)
+			}
+		}
+	}
+	if p.Batch.MaxBatchSize < 0 {
+		return fmt.Errorf("engine: config: provider %q: batch.max_batch_size must be >= 0", p.Name)
+	}
+	return nil
 }
 
 func validateMCPServers(servers []MCPConfig) (map[string]struct{}, error) {

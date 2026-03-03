@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/germanamz/shelly/pkg/modeladapter"
+	"github.com/germanamz/shelly/pkg/modeladapter/batch"
 	"github.com/germanamz/shelly/pkg/providers/anthropic"
 	"github.com/germanamz/shelly/pkg/providers/gemini"
 	"github.com/germanamz/shelly/pkg/providers/grok"
@@ -114,9 +115,99 @@ func newGemini(cfg ProviderConfig) (modeladapter.Completer, error) {
 	return gemini.New(baseURL, cfg.APIKey, cfg.Model), nil
 }
 
+// BatchSubmitterFactory creates a batch.Submitter from a ProviderConfig and
+// the already-built completer (used for request building).
+type BatchSubmitterFactory func(cfg ProviderConfig, completer modeladapter.Completer) (batch.Submitter, error)
+
+var (
+	batchFactoryMu sync.RWMutex
+	batchFactories = map[string]BatchSubmitterFactory{
+		"anthropic": newAnthropicBatchSubmitter,
+		"openai":    newOpenAIBatchSubmitter,
+		"grok":      newGrokBatchSubmitter,
+		// Gemini is excluded: its REST API does not offer a batch endpoint.
+		// Gemini batch is only available via Vertex AI Batch Prediction.
+	}
+)
+
+// RegisterBatchSubmitter registers a custom batch submitter factory under the
+// given provider kind. It can be called before New to extend the engine with
+// batch support for additional providers.
+func RegisterBatchSubmitter(kind string, factory BatchSubmitterFactory) {
+	batchFactoryMu.Lock()
+	defer batchFactoryMu.Unlock()
+
+	batchFactories[kind] = factory
+}
+
+func newAnthropicBatchSubmitter(_ ProviderConfig, completer modeladapter.Completer) (batch.Submitter, error) {
+	adapter, ok := completer.(*anthropic.Adapter)
+	if !ok {
+		return nil, fmt.Errorf("engine: anthropic batch: completer is not *anthropic.Adapter")
+	}
+	return anthropic.NewBatchSubmitter(adapter), nil
+}
+
+func newOpenAIBatchSubmitter(_ ProviderConfig, completer modeladapter.Completer) (batch.Submitter, error) {
+	adapter, ok := completer.(*openai.Adapter)
+	if !ok {
+		return nil, fmt.Errorf("engine: openai batch: completer is not *openai.Adapter")
+	}
+	return openai.NewBatchSubmitter(adapter), nil
+}
+
+func newGrokBatchSubmitter(_ ProviderConfig, completer modeladapter.Completer) (batch.Submitter, error) {
+	adapter, ok := completer.(*grok.GrokAdapter)
+	if !ok {
+		return nil, fmt.Errorf("engine: grok batch: completer is not *grok.GrokAdapter")
+	}
+	return grok.NewBatchSubmitter(adapter), nil
+}
+
+func buildBatchSubmitter(cfg ProviderConfig, completer modeladapter.Completer) (batch.Submitter, error) {
+	batchFactoryMu.RLock()
+	factory, ok := batchFactories[cfg.Kind]
+	batchFactoryMu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("engine: batch not supported for provider kind %q", cfg.Kind)
+	}
+	return factory(cfg, completer)
+}
+
+func parseBatchOpts(cfg BatchConfig) (batch.CollectorOpts, error) {
+	var opts batch.CollectorOpts
+	if cfg.CollectWindow != "" {
+		d, err := time.ParseDuration(cfg.CollectWindow)
+		if err != nil {
+			return opts, fmt.Errorf("batch collect_window: %w", err)
+		}
+		opts.CollectWindow = d
+	}
+	if cfg.PollInterval != "" {
+		d, err := time.ParseDuration(cfg.PollInterval)
+		if err != nil {
+			return opts, fmt.Errorf("batch poll_interval: %w", err)
+		}
+		opts.PollInterval = d
+	}
+	if cfg.Timeout != "" {
+		d, err := time.ParseDuration(cfg.Timeout)
+		if err != nil {
+			return opts, fmt.Errorf("batch timeout: %w", err)
+		}
+		opts.Timeout = d
+	}
+	if cfg.MaxBatchSize > 0 {
+		opts.MaxBatchSize = cfg.MaxBatchSize
+	}
+	return opts, nil
+}
+
 // buildCompleter creates a Completer from a ProviderConfig using the registered
 // factory for its Kind. If rate limiting is configured, the completer is wrapped
-// with a RateLimitedCompleter.
+// with a RateLimitedCompleter. If batch mode is enabled, the completer is
+// wrapped with a batch Collector before rate limiting.
 func buildCompleter(cfg ProviderConfig) (modeladapter.Completer, error) {
 	factory, ok := getFactory(cfg.Kind)
 	if !ok {
@@ -126,6 +217,21 @@ func buildCompleter(cfg ProviderConfig) (modeladapter.Completer, error) {
 	c, err := factory(cfg)
 	if err != nil {
 		return nil, err
+	}
+
+	// Wrap with batch collector if enabled. Rate limiting (below) wraps the
+	// Collector, so it throttles entry into Complete() but does not gate the
+	// background SubmitBatch/PollBatch HTTP calls made by the Collector.
+	if cfg.Batch.Enabled {
+		submitter, batchErr := buildBatchSubmitter(cfg, c)
+		if batchErr != nil {
+			return nil, batchErr
+		}
+		opts, optsErr := parseBatchOpts(cfg.Batch)
+		if optsErr != nil {
+			return nil, fmt.Errorf("engine: provider %q: %w", cfg.Name, optsErr)
+		}
+		c = batch.NewCollector(c, submitter, opts)
 	}
 
 	rl := cfg.RateLimit

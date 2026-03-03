@@ -9,15 +9,19 @@ import (
 type EventKind string
 
 const (
-	EventMessageAdded  EventKind = "message_added"
-	EventToolCallStart EventKind = "tool_call_start"
-	EventToolCallEnd   EventKind = "tool_call_end"
-	EventAgentStart    EventKind = "agent_start"
-	EventAgentEnd      EventKind = "agent_end"
-	EventAskUser       EventKind = "ask_user"
-	EventFileChange    EventKind = "file_change"
-	EventCompaction    EventKind = "compaction"
-	EventError         EventKind = "error"
+	EventMessageAdded   EventKind = "message_added"
+	EventToolCallStart  EventKind = "tool_call_start"
+	EventToolCallEnd    EventKind = "tool_call_end"
+	EventAgentStart     EventKind = "agent_start"
+	EventAgentEnd       EventKind = "agent_end"
+	EventAskUser        EventKind = "ask_user"
+	EventFileChange     EventKind = "file_change"
+	EventCompaction     EventKind = "compaction"
+	EventError          EventKind = "error"
+	EventBatchSubmitted EventKind = "batch_submitted"
+	EventBatchPolling   EventKind = "batch_polling"
+	EventBatchCompleted EventKind = "batch_completed"
+	EventBatchFallback  EventKind = "batch_fallback"
 )
 
 // Event is an immutable notification of engine activity.

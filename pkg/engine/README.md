@@ -411,6 +411,7 @@ reply, _ := session.Send(ctx, input)
 - `pkg/codingtoolbox/permissions` -- shared permission store
 - `pkg/codingtoolbox/search` -- search tools
 - `pkg/modeladapter` -- Completer interface, rate-limited completer wrapper
+- `pkg/modeladapter/batch` -- Batch Collector decorator, Submitter interface
 - `pkg/projectctx` -- project context loading
 - `pkg/providers/anthropic`, `pkg/providers/openai`, `pkg/providers/grok`, `pkg/providers/gemini` -- LLM providers
 - `pkg/shellydir` -- `.shelly/` directory path resolution and bootstrapping
