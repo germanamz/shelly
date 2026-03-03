@@ -171,7 +171,6 @@ agents:
       - name: git
         tools: [git_status, git_diff]  # tool whitelist
       - http
-      - browser
       - state
       - tasks
       - notes
@@ -557,7 +556,6 @@ Tools that interact with the local environment use a shared `permissions.Store`:
 - **Filesystem:** Directory-level approval (parent approval covers children); symlink resolution checks both logical and real paths
 - **Exec:** Command-level trust (trusting `git` allows all `git` invocations)
 - **HTTP:** Domain-level trust
-- **Browser:** Domain-level trust for navigation
 
 Permission choices: "yes" (single use), "trust" (permanent for session), "no" (deny).
 
@@ -632,22 +630,7 @@ Concurrent writes are serialized via per-path mutex. Two-path operations (move, 
 - Redirect validation rejects untrusted domains and private IPs
 - 1MB response body cap, 60-second timeout
 
-### 9.8 Browser Tools
-
-
-| Tool                 | Description                                                   |
-| -------------------- | ------------------------------------------------------------- |
-| `browser_search`     | DuckDuckGo search (no domain trust required)                  |
-| `browser_navigate`   | Navigate to URL (domain trust check)                          |
-| `browser_click`      | Click element on page                                         |
-| `browser_type`       | Type text into element                                        |
-| `browser_extract`    | Extract text content (strips scripts/styles, 100KB cap)       |
-| `browser_screenshot` | Take screenshot (viewport, full_page, or element; base64 PNG) |
-
-
-Headless Chrome via chromedp. Incognito mode, GPU disabled. Lazy startup with auto-restart on context cancel. 30-second timeout per operation.
-
-### 9.9 Notes Tools
+### 9.8 Notes Tools
 
 
 | Tool         | Description                                       |
@@ -659,7 +642,7 @@ Headless Chrome via chromedp. Incognito mode, GPU disabled. Lazy startup with au
 
 Notes are stored in `.shelly/local/notes/`. Name validation (`^[a-zA-Z0-9_-]+$`) prevents path traversal. Notes survive context compaction for persistent cross-agent communication.
 
-### 9.10 Ask Tool
+### 9.9 Ask Tool
 
 
 | Tool       | Description                                            |
@@ -669,7 +652,7 @@ Notes are stored in `.shelly/local/notes/`. Name validation (`^[a-zA-Z0-9_-]+$`)
 
 Questions are auto-incremented (`q-1`, `q-2`, ...). `OnAskFunc` callback notifies the frontend. Supports blocking programmatic questions via `Ask(ctx, text, options[])`.
 
-### 9.11 State Tools
+### 9.10 State Tools
 
 
 | Tool              | Description                   |
@@ -681,7 +664,7 @@ Questions are auto-incremented (`q-1`, `q-2`, ...). `OnAskFunc` callback notifie
 
 Thread-safe key-value store (blackboard pattern). Values stored as `json.RawMessage`. Supports blocking `Watch(ctx, key)` for inter-agent coordination.
 
-### 9.12 Task Tools
+### 9.11 Task Tools
 
 
 | Tool                | Description                                                 |
@@ -698,14 +681,14 @@ Status flow: `pending` → `in_progress` → `completed` / `failed`. Blocking de
 
 **Unclaimed task timeout:** `WatchCompleted` (and the `{ns}_tasks_watch` tool) enforces a 15-second timeout for unclaimed tasks. If a watched task remains in `pending` status with no assignee for longer than the timeout, the watch returns an error instead of blocking indefinitely. The timeout resets whenever the task acquires an assignee, so it only triggers when no agent is available to claim the task. This prevents the entry agent from hanging when tasks are created on the board but no worker agent exists to process them (e.g., when `max_delegation_depth` is 0 and the `delegate` tool is not injected).
 
-### 9.13 Toolbox Assignment
+### 9.12 Toolbox Assignment
 
 - Each agent declares its `toolboxes` list in YAML config
 - Toolbox entries can be plain strings (all tools) or objects with `tools` whitelist
 - `ask` toolbox is always implicitly included
 - At delegation, child agents use only their own configured toolboxes (no inheritance from parent)
 
-**Built-in toolbox names:** `ask`, `filesystem`, `exec`, `search`, `git`, `http`, `browser`, `state`, `tasks`, `notes`
+**Built-in toolbox names:** `ask`, `filesystem`, `exec`, `search`, `git`, `http`, `state`, `tasks`, `notes`
 
 ---
 
@@ -1108,7 +1091,7 @@ All tools that interact with the local environment require explicit user approva
 
 - Filesystem: directory-level (parent covers children)
 - Exec: command-level
-- HTTP/Browser: domain-level
+- HTTP: domain-level
 
 ### 18.2 SSRF Protection
 
@@ -1122,7 +1105,6 @@ HTTP tool blocks private IP ranges at both DNS resolution and connection time. R
 | File read               | 10MB        |
 | Command output          | 1MB         |
 | HTTP response body      | 1MB         |
-| Browser text extraction | 100KB       |
 | Search results          | 100 entries |
 | File picker entries     | 1000        |
 

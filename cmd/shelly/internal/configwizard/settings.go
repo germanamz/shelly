@@ -29,7 +29,6 @@ func newSettingsScreen(cfg *engine.Config, _ []string) *settingsScreen {
 	entryField := NewSelectField("Entry Agent", agentNames)
 	permFileField := NewTextField("Permissions File", "e.g. permissions.json", false)
 	gitWorkDirField := NewTextField("Git Work Dir", "e.g. .", false)
-	headlessField := NewBoolField("Browser Headless")
 
 	// Context window fields — one per known provider kind.
 	anthropicCWField := NewIntField("Anthropic Context Window", "default: 200000", false)
@@ -47,9 +46,6 @@ func newSettingsScreen(cfg *engine.Config, _ []string) *settingsScreen {
 	if cfg.Git.WorkDir != "" {
 		gitWorkDirField.SetValue(cfg.Git.WorkDir)
 	}
-	if cfg.Browser.Headless {
-		headlessField.SetValue("true")
-	}
 	if v, ok := cfg.DefaultContextWindows["anthropic"]; ok {
 		anthropicCWField.SetValue(strconv.Itoa(v))
 	}
@@ -64,7 +60,7 @@ func newSettingsScreen(cfg *engine.Config, _ []string) *settingsScreen {
 	}
 
 	form := NewFormModel("Settings", []FormField{
-		entryField, permFileField, gitWorkDirField, headlessField,
+		entryField, permFileField, gitWorkDirField,
 		anthropicCWField, openaiCWField, grokCWField, geminiCWField,
 	})
 
@@ -95,14 +91,11 @@ func (s *settingsScreen) applySettings() {
 	}
 	s.cfg.Filesystem.PermissionsFile = s.form.Fields[1].Value()
 	s.cfg.Git.WorkDir = s.form.Fields[2].Value()
-	if f, ok := s.form.Fields[3].(*BoolField); ok {
-		s.cfg.Browser.Headless = f.BoolValue()
-	}
 
 	// Apply context window fields.
 	cwKinds := []string{"anthropic", "openai", "grok", "gemini"}
 	for i, kind := range cwKinds {
-		if f, ok := s.form.Fields[4+i].(*IntField); ok {
+		if f, ok := s.form.Fields[3+i].(*IntField); ok {
 			if v, set := f.IntValue(); set {
 				if s.cfg.DefaultContextWindows == nil {
 					s.cfg.DefaultContextWindows = make(map[string]int)

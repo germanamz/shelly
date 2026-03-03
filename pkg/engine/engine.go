@@ -12,7 +12,6 @@ import (
 	"github.com/germanamz/shelly/pkg/agent"
 	"github.com/germanamz/shelly/pkg/agentctx"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/ask"
-	shellybrowser "github.com/germanamz/shelly/pkg/codingtoolbox/browser"
 	shellyexec "github.com/germanamz/shelly/pkg/codingtoolbox/exec"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/filesystem"
 	shellygit "github.com/germanamz/shelly/pkg/codingtoolbox/git"
@@ -43,7 +42,6 @@ type Engine struct {
 	completers     map[string]modeladapter.Completer
 	toolboxes      map[string]*toolbox.ToolBox
 	mcpClients     []*mcpclient.MCPClient
-	browserToolbox *shellybrowser.Browser
 	dir            shellydir.Dir
 	projectCtx     projectctx.Context
 	knowledgeStale bool
@@ -161,7 +159,7 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 	}
 
 	// Create permission-gated tools only if referenced by at least one agent.
-	permToolboxes := []string{"filesystem", "exec", "search", "git", "http", "browser"}
+	permToolboxes := []string{"filesystem", "exec", "search", "git", "http"}
 	needsPerm := false
 	for _, name := range permToolboxes {
 		if _, ok := refs[name]; ok {
@@ -217,16 +215,6 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		if _, ok := refs["http"]; ok {
 			httpTools := shellyhttp.New(permStore, e.responder.Ask)
 			e.toolboxes["http"] = httpTools.Tools()
-		}
-
-		if _, ok := refs["browser"]; ok {
-			var browserOpts []shellybrowser.Option
-			if cfg.Browser.Headless {
-				browserOpts = append(browserOpts, shellybrowser.WithHeadless())
-			}
-			bt := shellybrowser.New(permStore, e.responder.Ask, browserOpts...)
-			e.toolboxes["browser"] = bt.Tools()
-			e.browserToolbox = bt
 		}
 	}
 
@@ -464,10 +452,6 @@ func (e *Engine) Close() error {
 			e.cancel()
 		}
 
-		if e.browserToolbox != nil {
-			e.browserToolbox.Close()
-		}
-
 		for _, c := range e.mcpClients {
 			if err := c.Close(); err != nil && firstErr == nil {
 				firstErr = err
@@ -501,7 +485,6 @@ var builtinToolboxNames = map[string]struct{}{
 	"search":     {},
 	"git":        {},
 	"http":       {},
-	"browser":    {},
 	"notes":      {},
 }
 

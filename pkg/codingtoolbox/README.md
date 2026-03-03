@@ -7,7 +7,6 @@ Built-in coding tools that give agents controlled access to the local environmen
 ```
 codingtoolbox/
 ├── ask/           ask_user tool — prompts the user and blocks until a response
-├── browser/       browser_search, browser_navigate, browser_click, browser_type, browser_extract, browser_screenshot — headless Chrome automation
 ├── filesystem/    fs_read, fs_write, fs_edit, fs_list, fs_delete, fs_move, fs_copy, fs_stat, fs_diff, fs_patch, fs_mkdir
 ├── exec/          exec_run — permission-gated command execution
 ├── search/        search_content, search_files — permission-gated content/file search
@@ -18,7 +17,7 @@ codingtoolbox/
 └── defaults/      Default toolbox builder — merges built-in toolboxes into one
 ```
 
-**Dependency graph**: `permissions` is shared by `filesystem`, `exec`, `search`, `git`, `http`, and `browser`. All tool packages depend on `pkg/tools/toolbox` for the `Tool` and `ToolBox` types. `defaults` merges multiple toolboxes into a single one that every agent receives.
+**Dependency graph**: `permissions` is shared by `filesystem`, `exec`, `search`, `git`, and `http`. All tool packages depend on `pkg/tools/toolbox` for the `Tool` and `ToolBox` types. `defaults` merges multiple toolboxes into a single one that every agent receives.
 
 ## Sub-packages
 
@@ -31,17 +30,6 @@ The `Ask` method can be called programmatically by other packages (e.g. `filesys
 **Exported types**: `Question`, `OnAskFunc`, `Responder`.
 **Constructor**: `NewResponder(onAsk OnAskFunc) *Responder`.
 **Methods**: `Respond(questionID, response string) error`, `Ask(ctx, text string, options []string) (string, error)`, `Tools() *toolbox.ToolBox`.
-
-### `browser` -- Browser Automation
-
-Permission-gated tools for headless Chrome automation via chromedp. Provides web search (DuckDuckGo -- no domain trust required), page navigation with text extraction, element clicking, text input, content extraction by CSS selector, and screenshots (viewport, full page, or element). Chrome is started lazily on first tool use via `ensureBrowser` and runs in incognito mode with GPU disabled. Domain trust is shared with the `http` package via the permissions store.
-
-Extracted text has scripts, styles, noscript, and SVG elements stripped, with whitespace collapsed. Text output is capped at 100KB. Each browser operation uses a 30-second timeout.
-
-**Exported types**: `AskFunc`, `Option`, `Browser`.
-**Constructor**: `New(store *permissions.Store, askFn AskFunc, opts ...Option) *Browser`.
-**Options**: `WithHeadless()` -- enables headless Chrome mode.
-**Methods**: `Tools() *toolbox.ToolBox`, `Close()` -- shuts down the Chrome process.
 
 ### `filesystem` -- File Access
 
@@ -126,7 +114,7 @@ Merges multiple `*toolbox.ToolBox` instances into a single one. Later entries ov
 ## Use Cases
 
 - **Agent composition**: `pkg/engine` creates instances of each tool sub-package, then uses `defaults.New` to merge them into a single toolbox wired into every agent.
-- **Permission gating**: All environment-interacting tools (filesystem, exec, search, git, http, browser) share a single `permissions.Store` so that approvals are consistent across tool categories.
+- **Permission gating**: All environment-interacting tools (filesystem, exec, search, git, http) share a single `permissions.Store` so that approvals are consistent across tool categories.
 - **User interaction**: The `ask` package provides a blocking question/response mechanism used both as a standalone tool and internally by other packages for permission prompts.
 - **Session trust**: The `filesystem` package supports per-session trust so users can approve all file changes in a session without repeated prompts.
 - **Context persistence**: The `notes` package gives agents a way to persist information that survives context compaction.

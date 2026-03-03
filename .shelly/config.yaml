@@ -75,7 +75,12 @@ providers:
         poll_interval: ""
         timeout: ""
         max_batch_size: 0
-mcp_servers: []
+mcp_servers:
+    - name: playwright
+      command: npx
+      args:
+        - -y
+        - '@anthropic-ai/mcp-playwright'
 agents:
     - name: lead
       description: Stakeholder who owns the outcome, evaluates reports, and makes strategic decisions
@@ -255,6 +260,4 @@ filesystem:
     permissions_file: ""
 git:
     work_dir: ""
-browser:
-    headless: false
 default_context_windows: {}

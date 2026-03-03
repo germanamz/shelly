@@ -3,6 +3,11 @@ template:
   description: Minimal single-agent assistant with Anthropic provider
 
 config:
+  mcp_servers:
+    - name: playwright
+      command: npx
+      args: ["-y", "@anthropic-ai/mcp-playwright"]
+
   providers:
     - name: default
       kind: anthropic
@@ -12,13 +17,17 @@ config:
   agents:
     - name: assistant
       description: A helpful assistant
-      instructions: You are a helpful assistant. Be concise and accurate.
+      instructions: >-
+        You are a helpful assistant. Be concise and accurate. You have access to
+        Playwright browser tools — use them to browse the internet for up-to-date
+        research, documentation lookups, and verifying information when needed.
       provider: default
       toolboxes:
         - filesystem
         - exec
         - search
         - git
+        - playwright
       skills:
         - project-indexer
       effects:
