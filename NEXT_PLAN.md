@@ -8,7 +8,7 @@ Detailed phased plan for refactoring the Shelly codebase to follow Go best pract
 
 Low-risk changes that reduce maintenance burden without altering behavior.
 
-### 1.1 Extract shared OpenAI-compatible provider base
+### 1.1 Extract shared OpenAI-compatible provider base ✅
 
 **Problem:** `providers/openai/` and `providers/grok/` share ~200 lines of near-identical code: wire types (`apiMessage`, `apiToolCall`, `apiFunction`, `apiChoice`, `apiUsage`), message conversion logic, response parsing, and the entire batch implementation (`uploadFile`, `downloadResults`, `parseResultsJSONL`, `convertResult`).
 
