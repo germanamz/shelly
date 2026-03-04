@@ -17,6 +17,7 @@ import (
 
 	"github.com/germanamz/shelly/pkg/agentctx"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
+	"github.com/google/uuid"
 )
 
 // Status represents the lifecycle state of a task.
@@ -67,7 +68,6 @@ type Store struct {
 	signal   chan struct{}
 	changeCh chan struct{}
 	tasks    map[string]*Task
-	nextID   int
 }
 
 // init ensures internal structures are allocated.
@@ -103,7 +103,7 @@ func (s *Store) Changes() <-chan struct{} {
 
 // Create adds a new task to the board with status "pending" and returns its
 // auto-generated ID. The following fields are always overridden by Create:
-//   - ID: auto-assigned as "task-N" (sequential).
+//   - ID: auto-assigned as "task-<uuid>" (globally unique).
 //   - Status: forced to StatusPending regardless of the supplied value.
 //
 // Callers must not set Status to a non-zero value or Assignee to a non-empty
@@ -121,8 +121,7 @@ func (s *Store) Create(task Task) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.nextID++
-	task.ID = fmt.Sprintf("task-%d", s.nextID)
+	task.ID = "task-" + uuid.New().String()
 	task.Status = StatusPending
 
 	// Validate blocked_by IDs exist and are not self-referential.

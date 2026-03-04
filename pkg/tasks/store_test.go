@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -27,7 +28,7 @@ func TestCreate(t *testing.T) {
 	s := &Store{}
 
 	id := mustCreate(t, s, Task{Title: "do something"})
-	assert.Equal(t, "task-1", id)
+	assert.True(t, strings.HasPrefix(id, "task-"))
 
 	task, ok := s.Get(id)
 	require.True(t, ok)
@@ -35,16 +36,16 @@ func TestCreate(t *testing.T) {
 	assert.Equal(t, StatusPending, task.Status)
 }
 
-func TestCreateSequentialIDs(t *testing.T) {
+func TestCreateUniqueIDs(t *testing.T) {
 	s := &Store{}
 
 	id1 := mustCreate(t, s, Task{Title: "first"})
 	id2 := mustCreate(t, s, Task{Title: "second"})
 	id3 := mustCreate(t, s, Task{Title: "third"})
 
-	assert.Equal(t, "task-1", id1)
-	assert.Equal(t, "task-2", id2)
-	assert.Equal(t, "task-3", id3)
+	assert.NotEqual(t, id1, id2)
+	assert.NotEqual(t, id2, id3)
+	assert.NotEqual(t, id1, id3)
 }
 
 func TestCreateRejectsNonPendingStatus(t *testing.T) {
@@ -69,12 +70,13 @@ func TestCreateAllowsZeroStatusAndEmptyAssignee(t *testing.T) {
 	// Zero-value Status ("") and empty Assignee should be fine.
 	id, err := s.Create(Task{Title: "ok task"})
 	require.NoError(t, err)
-	assert.Equal(t, "task-1", id)
+	assert.True(t, strings.HasPrefix(id, "task-"))
 
 	// Explicit StatusPending should also be fine.
 	id2, err := s.Create(Task{Title: "also ok", Status: StatusPending})
 	require.NoError(t, err)
-	assert.Equal(t, "task-2", id2)
+	assert.True(t, strings.HasPrefix(id2, "task-"))
+	assert.NotEqual(t, id, id2)
 }
 
 func TestGetNotFound(t *testing.T) {
@@ -87,15 +89,15 @@ func TestGetNotFound(t *testing.T) {
 func TestGetReturnsCopy(t *testing.T) {
 	s := &Store{}
 
-	mustCreate(t, s, Task{Title: "blocker"})
-	mustCreate(t, s, Task{Title: "original", BlockedBy: []string{"task-1"}})
+	blockerID := mustCreate(t, s, Task{Title: "blocker"})
+	taskID := mustCreate(t, s, Task{Title: "original", BlockedBy: []string{blockerID}})
 
-	cp, _ := s.Get("task-2")
+	cp, _ := s.Get(taskID)
 	cp.BlockedBy[0] = "mutated"
 
-	original, _ := s.Get("task-2")
+	original, _ := s.Get(taskID)
 	assert.Equal(t, "original", original.Title)
-	assert.Equal(t, []string{"task-1"}, original.BlockedBy)
+	assert.Equal(t, []string{blockerID}, original.BlockedBy)
 }
 
 func TestListAll(t *testing.T) {
@@ -106,8 +108,6 @@ func TestListAll(t *testing.T) {
 
 	tasks := s.List(Filter{})
 	assert.Len(t, tasks, 2)
-	assert.Equal(t, "task-1", tasks[0].ID)
-	assert.Equal(t, "task-2", tasks[1].ID)
 }
 
 func TestListFilterByStatus(t *testing.T) {
@@ -140,8 +140,8 @@ func TestListFilterByAssignee(t *testing.T) {
 func TestListFilterByBlocked(t *testing.T) {
 	s := &Store{}
 
-	mustCreate(t, s, Task{Title: "blocker"})
-	mustCreate(t, s, Task{Title: "blocked", BlockedBy: []string{"task-1"}})
+	blockerID := mustCreate(t, s, Task{Title: "blocker"})
+	mustCreate(t, s, Task{Title: "blocked", BlockedBy: []string{blockerID}})
 
 	notBlocked := false
 	tasks := s.List(Filter{Blocked: &notBlocked})
@@ -241,8 +241,8 @@ func TestClaimSameAgentIdempotent(t *testing.T) {
 func TestClaimBlocked(t *testing.T) {
 	s := &Store{}
 
-	mustCreate(t, s, Task{Title: "blocker"})
-	id := mustCreate(t, s, Task{Title: "blocked", BlockedBy: []string{"task-1"}})
+	blockerID := mustCreate(t, s, Task{Title: "blocker"})
+	id := mustCreate(t, s, Task{Title: "blocked", BlockedBy: []string{blockerID}})
 
 	err := s.Claim(id, "worker")
 	require.Error(t, err)
@@ -323,8 +323,8 @@ func TestReassignTerminal(t *testing.T) {
 func TestReassignBlocked(t *testing.T) {
 	s := &Store{}
 
-	mustCreate(t, s, Task{Title: "blocker"})
-	id := mustCreate(t, s, Task{Title: "blocked", BlockedBy: []string{"task-1"}})
+	blockerID := mustCreate(t, s, Task{Title: "blocker"})
+	id := mustCreate(t, s, Task{Title: "blocked", BlockedBy: []string{blockerID}})
 
 	err := s.Reassign(id, "worker")
 	require.Error(t, err)
@@ -344,16 +344,16 @@ func TestReassignNotFound(t *testing.T) {
 func TestIsBlocked(t *testing.T) {
 	s := &Store{}
 
-	mustCreate(t, s, Task{Title: "blocker"})
-	mustCreate(t, s, Task{Title: "blocked", BlockedBy: []string{"task-1"}})
+	blockerID := mustCreate(t, s, Task{Title: "blocker"})
+	blockedID := mustCreate(t, s, Task{Title: "blocked", BlockedBy: []string{blockerID}})
 
-	assert.True(t, s.IsBlocked("task-2"))
+	assert.True(t, s.IsBlocked(blockedID))
 
 	// Complete the blocker.
 	completed := StatusCompleted
-	require.NoError(t, s.Update("task-1", Update{Status: &completed}))
+	require.NoError(t, s.Update(blockerID, Update{Status: &completed}))
 
-	assert.False(t, s.IsBlocked("task-2"))
+	assert.False(t, s.IsBlocked(blockedID))
 }
 
 func TestCreateRejectsNonexistentBlockedBy(t *testing.T) {
@@ -551,9 +551,13 @@ func TestToolCreate(t *testing.T) {
 	ctx := agentctx.WithAgentName(context.Background(), "orchestrator")
 	result, err := tool.Handler(ctx, json.RawMessage(`{"title":"research X","description":"find info"}`))
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"id":"task-1"}`, result)
 
-	task, ok := s.Get("task-1")
+	var res map[string]string
+	require.NoError(t, json.Unmarshal([]byte(result), &res))
+	id := res["id"]
+	assert.True(t, strings.HasPrefix(id, "task-"))
+
+	task, ok := s.Get(id)
 	require.True(t, ok)
 	assert.Equal(t, "research X", task.Title)
 	assert.Equal(t, "find info", task.Description)
@@ -611,13 +615,13 @@ func TestToolListWithFilter(t *testing.T) {
 func TestToolGet(t *testing.T) {
 	s := &Store{}
 
-	mustCreate(t, s, Task{Title: "my task"})
+	id := mustCreate(t, s, Task{Title: "my task"})
 
 	tb := s.Tools("ns")
 	tool, ok := tb.Get("ns_tasks_get")
 	require.True(t, ok)
 
-	result, err := tool.Handler(context.Background(), json.RawMessage(`{"id":"task-1"}`))
+	result, err := tool.Handler(context.Background(), json.RawMessage(fmt.Sprintf(`{"id":%q}`, id)))
 	require.NoError(t, err)
 
 	var task Task
@@ -638,18 +642,18 @@ func TestToolGetNotFound(t *testing.T) {
 func TestToolClaim(t *testing.T) {
 	s := &Store{}
 
-	mustCreate(t, s, Task{Title: "task"})
+	id := mustCreate(t, s, Task{Title: "task"})
 
 	tb := s.Tools("ns")
 	tool, ok := tb.Get("ns_tasks_claim")
 	require.True(t, ok)
 
 	ctx := agentctx.WithAgentName(context.Background(), "worker-1")
-	result, err := tool.Handler(ctx, json.RawMessage(`{"id":"task-1"}`))
+	result, err := tool.Handler(ctx, json.RawMessage(fmt.Sprintf(`{"id":%q}`, id)))
 	require.NoError(t, err)
 	assert.Equal(t, "ok", result)
 
-	task, _ := s.Get("task-1")
+	task, _ := s.Get(id)
 	assert.Equal(t, "worker-1", task.Assignee)
 	assert.Equal(t, StatusInProgress, task.Status)
 }
@@ -657,17 +661,17 @@ func TestToolClaim(t *testing.T) {
 func TestToolUpdate(t *testing.T) {
 	s := &Store{}
 
-	mustCreate(t, s, Task{Title: "task"})
+	id := mustCreate(t, s, Task{Title: "task"})
 
 	tb := s.Tools("ns")
 	tool, ok := tb.Get("ns_tasks_update")
 	require.True(t, ok)
 
-	result, err := tool.Handler(context.Background(), json.RawMessage(`{"id":"task-1","status":"completed"}`))
+	result, err := tool.Handler(context.Background(), json.RawMessage(fmt.Sprintf(`{"id":%q,"status":"completed"}`, id)))
 	require.NoError(t, err)
 	assert.Equal(t, "ok", result)
 
-	task, _ := s.Get("task-1")
+	task, _ := s.Get(id)
 	assert.Equal(t, StatusCompleted, task.Status)
 }
 
@@ -684,7 +688,7 @@ func TestToolWatch(t *testing.T) {
 	completed := StatusCompleted
 	require.NoError(t, s.Update(id, Update{Status: &completed}))
 
-	result, err := tool.Handler(context.Background(), json.RawMessage(`{"id":"task-1"}`))
+	result, err := tool.Handler(context.Background(), json.RawMessage(fmt.Sprintf(`{"id":%q}`, id)))
 	require.NoError(t, err)
 
 	var task Task

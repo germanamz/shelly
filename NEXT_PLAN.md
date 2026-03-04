@@ -71,33 +71,18 @@ Address unbounded growth issues that are safe at current scale but become proble
 
 ---
 
-## Phase 3 — Task Store Resilience
+## Phase 3 — Task Store Resilience ✅ COMPLETE
 
-### 3.1 Use UUID-based task IDs
+### 3.1 Use UUID-based task IDs ✅
 
-**Problem:** `tasks.Store` uses sequential IDs (`task-1`, `task-2`, ...) from a `nextID` counter that starts at 0 on each `Store` construction. If the store is recreated (process restart, new session), IDs restart and may collide with previously emitted IDs that agents still reference.
+**Status:** Complete. Implemented Option A (UUID).
 
-**Current code:**
-```go
-s.nextID++
-task.ID = fmt.Sprintf("task-%d", s.nextID)
-```
-
-**Solution:** Replace sequential IDs with UUIDs or ULIDs for global uniqueness:
-
-**Option A (UUID):** Use `google/uuid` to generate `task-<uuid>` IDs. The project may already have a UUID dependency.
-
-**Option B (ULID):** Use ULIDs for sortable, human-readable IDs that preserve creation order while being globally unique.
-
-**Option C (Seeded counter):** On `Store` construction, scan existing tasks and set `nextID` to `max(existing IDs) + 1`. This avoids adding a dependency but only works if the store is seeded from a snapshot.
-
-Recommend **Option A** unless task persistence across sessions is not currently planned, in which case this can remain deferred.
-
-**Files to modify:**
-- `pkg/tasks/store.go` — change ID generation
-- `pkg/tasks/store_test.go` — update assertions (no longer `task-1`, `task-2`)
-
-**Risks:** Low. Tests that assert exact ID strings need updating, but the functional behavior is unchanged.
+**What was done:**
+- Replaced sequential `nextID` counter with `google/uuid` — IDs are now `task-<uuid>` (globally unique)
+- Removed `nextID` field from `Store` struct
+- Updated all tests to use returned IDs instead of hardcoded `task-1`, `task-2` strings
+- Renamed `TestCreateSequentialIDs` to `TestCreateUniqueIDs` — verifies uniqueness instead of sequence
+- Updated README.md to document UUID-based IDs
 
 ---
 
@@ -107,6 +92,6 @@ Recommend **Option A** unless task persistence across sessions is not currently 
 |-------|--------|------|--------|--------|
 | 1 — Schema validation | ✅ Complete | None | Low-Med | Medium — catches schema bugs at test time |
 | 2 — Long-running robustness | ✅ Complete | Low-Med | Medium | High — prevents OOM and mutation bugs |
-| 3 — Task store resilience | Pending | Low | Low | Low — only matters if task persistence is added |
+| 3 — Task store resilience | ✅ Complete | Low | Low | Low — prevents ID collisions across sessions |
 
-Phases 1 and 2 are complete. Phase 3 can be deferred until task persistence becomes a requirement.
+All phases are complete.

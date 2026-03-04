@@ -79,7 +79,7 @@ A thread-safe task board. The zero value is ready to use. Internally uses `sync.
 
 ### Core Operations
 
-- **`Create(task Task) (string, error)`** -- adds a new task with auto-generated sequential ID (`task-1`, `task-2`, ...) and forces status to `pending`. Returns an error if the caller sets `Status` to a non-pending value, provides an `Assignee` (use `Claim` or `Reassign` after creation), lists a `BlockedBy` ID that does not exist in the store, or includes a self-referential `BlockedBy` entry.
+- **`Create(task Task) (string, error)`** -- adds a new task with auto-generated UUID-based ID (`task-<uuid>`) and forces status to `pending`. Returns an error if the caller sets `Status` to a non-pending value, provides an `Assignee` (use `Claim` or `Reassign` after creation), lists a `BlockedBy` ID that does not exist in the store, or includes a self-referential `BlockedBy` entry.
 - **`Get(id string) (Task, bool)`** -- returns a deep copy of the task with the given ID, or `false` if not found.
 - **`List(filter Filter) []Task`** -- returns tasks matching the filter, sorted by ID. Supports filtering by status, assignee, and blocked state.
 - **`Update(id string, upd Update) error`** -- applies a partial update to the task. Validates status values. Metadata is merged into existing metadata. Does not validate `BlockedBy` IDs.
@@ -105,7 +105,7 @@ Returns a `ToolBox` with six tools namespaced under the given prefix:
 
 | Tool | Input | Output |
 |------|-------|--------|
-| `{ns}_tasks_create` | `{title, description?, blocked_by?, metadata?}` | `{"id":"task-1"}` |
+| `{ns}_tasks_create` | `{title, description?, blocked_by?, metadata?}` | `{"id":"task-<uuid>"}` |
 | `{ns}_tasks_list` | `{status?, assignee?, blocked?}` | JSON array of tasks |
 | `{ns}_tasks_get` | `{id}` | Full task JSON |
 | `{ns}_tasks_claim` | `{id}` | `"ok"` |
