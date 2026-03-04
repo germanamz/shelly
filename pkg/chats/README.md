@@ -74,8 +74,7 @@ The `Sender` field identifies who produced the message (e.g., an agent name), ma
 - `(c *Chat) At(index int) message.Message` -- returns the message at the given index (panics if out of range)
 - `(c *Chat) Last() (message.Message, bool)` -- returns the most recent message, or zero value and `false` if empty
 - `(c *Chat) Messages() []message.Message` -- returns a deep copy of all messages (Parts slices and Metadata maps are independently copied so callers cannot mutate conversation data)
-- `(c *Chat) Each(fn func(int, message.Message) bool)` -- iterates over messages with early-stop support; holds the read lock for the duration, so `fn` must not call other `Chat` methods (deadlock risk)
-- `(c *Chat) BySender(sender string) []message.Message` -- returns all messages from the given sender
+- `(c *Chat) BySender(sender string) []message.Message` -- returns deep copies of all messages from the given sender
 - `(c *Chat) SystemPrompt() string` -- returns the text content of the first system-role message, or empty string if none
 - `(c *Chat) Since(offset int) []message.Message` -- returns a copy of messages starting from the given offset; returns nil if offset is out of range or negative
 - `(c *Chat) Wait(ctx context.Context, n int) (int, error)` -- blocks until the chat contains more than `n` messages or the context is cancelled; returns the current message count
@@ -210,13 +209,12 @@ practical.Append(message.NewText("practical", role.Assistant, "I suggest 'goasse
 ```go
 func toOpenAI(c *chat.Chat) []openai.Message {
     var out []openai.Message
-    c.Each(func(_ int, m message.Message) bool {
+    for _, m := range c.Messages() {
         out = append(out, openai.Message{
             Role:    m.Role.String(),
             Content: m.TextContent(),
         })
-        return true
-    })
+    }
     return out
 }
 ```

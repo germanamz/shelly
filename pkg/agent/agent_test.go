@@ -207,17 +207,16 @@ func TestRunToolNotFound(t *testing.T) {
 
 	// Check that a tool-not-found error was appended to chat.
 	var foundError bool
-	a.Chat().Each(func(_ int, m message.Message) bool {
+	for _, m := range a.Chat().Messages() {
 		if m.Role == role.Tool {
 			for _, p := range m.Parts {
 				if tr, ok := p.(content.ToolResult); ok && tr.IsError {
 					foundError = true
-					return false
+					break
 				}
 			}
 		}
-		return true
-	})
+	}
 	assert.True(t, foundError)
 }
 
@@ -592,17 +591,15 @@ func TestListAgents(t *testing.T) {
 
 	// Check that the list_agents result contains the workers (not self).
 	var listResult string
-	a.Chat().Each(func(_ int, m message.Message) bool {
+	for _, m := range a.Chat().Messages() {
 		if m.Role == role.Tool {
 			for _, p := range m.Parts {
 				if tr, ok := p.(content.ToolResult); ok && !tr.IsError {
 					listResult = tr.Content
-					return false
 				}
 			}
 		}
-		return true
-	})
+	}
 
 	assert.Contains(t, listResult, "worker-a")
 	assert.Contains(t, listResult, "worker-b")
@@ -649,17 +646,15 @@ func TestSpawnAgents(t *testing.T) {
 
 	// Check spawn results.
 	var spawnResultStr string
-	a.Chat().Each(func(_ int, m message.Message) bool {
+	for _, m := range a.Chat().Messages() {
 		if m.Role == role.Tool {
 			for _, p := range m.Parts {
 				if tr, ok := p.(content.ToolResult); ok && !tr.IsError {
 					spawnResultStr = tr.Content
-					return false
 				}
 			}
 		}
-		return true
-	})
+	}
 
 	assert.Contains(t, spawnResultStr, "result-a")
 	assert.Contains(t, spawnResultStr, "result-b")
@@ -732,17 +727,15 @@ func TestSpawnAgentsResilientErrors(t *testing.T) {
 
 	// Check that worker-a result is present and worker-b has an error.
 	var spawnResultStr string
-	a.Chat().Each(func(_ int, m message.Message) bool {
+	for _, m := range a.Chat().Messages() {
 		if m.Role == role.Tool {
 			for _, p := range m.Parts {
 				if tr, ok := p.(content.ToolResult); ok && !tr.IsError {
 					spawnResultStr = tr.Content
-					return false
 				}
 			}
 		}
-		return true
-	})
+	}
 
 	assert.Contains(t, spawnResultStr, "result-a")
 	assert.Contains(t, spawnResultStr, "worker-b exploded")
@@ -814,17 +807,15 @@ func TestDelegateChildUsesOwnToolboxesOnly(t *testing.T) {
 
 	// Parse the delegate result to inspect child outcomes.
 	var delegateResultStr string
-	a.Chat().Each(func(_ int, m message.Message) bool {
+	for _, m := range a.Chat().Messages() {
 		if m.Role == role.Tool {
 			for _, p := range m.Parts {
 				if tr, ok := p.(content.ToolResult); ok && !tr.IsError {
 					delegateResultStr = tr.Content
-					return false
 				}
 			}
 		}
-		return true
-	})
+	}
 
 	// The child should have completed (it got "done" as final reply).
 	assert.Contains(t, delegateResultStr, "done")
@@ -892,18 +883,17 @@ func TestTaskCompleteNotAvailableAtTopLevel(t *testing.T) {
 
 	// Should have a tool-not-found error in chat for task_complete.
 	var foundError bool
-	a.Chat().Each(func(_ int, m message.Message) bool {
+	for _, m := range a.Chat().Messages() {
 		if m.Role == role.Tool {
 			for _, p := range m.Parts {
 				if tr, ok := p.(content.ToolResult); ok && tr.IsError {
 					assert.Contains(t, tr.Content, "tool not found: task_complete")
 					foundError = true
-					return false
+					break
 				}
 			}
 		}
-		return true
-	})
+	}
 	assert.True(t, foundError)
 	assert.Nil(t, a.CompletionResult())
 }

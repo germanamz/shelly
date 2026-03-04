@@ -106,7 +106,7 @@ Changes that fix API inconsistencies and improve type safety.
 
 **Risks:** Low. Package-scoped rename with limited external references.
 
-### 2.4 Remove or rethink `Chat.Each()`
+### 2.4 Remove or rethink `Chat.Each()` ✅
 
 **Problem:** `Chat.Each()` holds the read lock during iteration and explicitly warns that `fn` must not call other `Chat` methods (deadlock risk). Meanwhile, `Messages()` already returns a safe deep copy. `Each()` provides marginal value over `for _, m := range c.Messages()` while introducing a footgun.
 

@@ -37,8 +37,7 @@ Key mapping details:
   schema, a default `{"type":"object"}` is used.
 - An empty `choices` array in the response is treated as an error.
 - Rate limit headers are parsed via `modeladapter.ParseOpenAIRateLimitHeaders`.
-- Messages are converted using `chat.Each()` for iteration rather than
-  `chat.Messages()`.
+- Messages are converted using `chat.Messages()` for iteration.
 
 ## Exported API
 

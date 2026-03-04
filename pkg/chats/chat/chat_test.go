@@ -83,38 +83,6 @@ func TestChat_Messages_ReturnsCopy(t *testing.T) {
 	assert.Equal(t, "hello", c.At(0).TextContent())
 }
 
-func TestChat_Each(t *testing.T) {
-	c := New(
-		message.NewText("alice", role.User, "a"),
-		message.NewText("bot", role.Assistant, "b"),
-		message.NewText("alice", role.User, "c"),
-	)
-
-	var visited []string
-	c.Each(func(_ int, m message.Message) bool {
-		visited = append(visited, m.TextContent())
-		return true
-	})
-
-	assert.Equal(t, []string{"a", "b", "c"}, visited)
-}
-
-func TestChat_Each_EarlyStop(t *testing.T) {
-	c := New(
-		message.NewText("alice", role.User, "a"),
-		message.NewText("bot", role.Assistant, "b"),
-		message.NewText("alice", role.User, "c"),
-	)
-
-	var visited []string
-	c.Each(func(_ int, m message.Message) bool {
-		visited = append(visited, m.TextContent())
-		return len(visited) < 2
-	})
-
-	assert.Equal(t, []string{"a", "b"}, visited)
-}
-
 func TestChat_BySender(t *testing.T) {
 	c := New(
 		message.NewText("alice", role.User, "hello"),

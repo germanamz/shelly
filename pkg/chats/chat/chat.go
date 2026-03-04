@@ -119,20 +119,6 @@ func (c *Chat) Messages() []message.Message {
 	return cp
 }
 
-// Each iterates over messages, calling fn for each one. If fn returns false,
-// iteration stops early. The read lock is held for the entire iteration; fn
-// must not call other Chat methods or a deadlock will occur.
-func (c *Chat) Each(fn func(int, message.Message) bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	for i, m := range c.messages {
-		if !fn(i, m) {
-			return
-		}
-	}
-}
-
 // BySender returns deep copies of all messages from the given sender.
 func (c *Chat) BySender(sender string) []message.Message {
 	c.mu.RLock()

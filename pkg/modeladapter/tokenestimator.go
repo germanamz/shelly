@@ -3,7 +3,6 @@ package modeladapter
 import (
 	"github.com/germanamz/shelly/pkg/chats/chat"
 	"github.com/germanamz/shelly/pkg/chats/content"
-	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/chats/role"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
@@ -39,9 +38,9 @@ func (e TokenEstimator) EstimateChat(c *chat.Chat) int {
 		tokens += charsToTokens(len(sp)) + perMessageOverhead
 	}
 
-	c.Each(func(_ int, m message.Message) bool {
+	for _, m := range c.Messages() {
 		if m.Role == role.System {
-			return true // already counted above as system prompt
+			continue // already counted above as system prompt
 		}
 
 		tokens += perMessageOverhead
@@ -56,9 +55,7 @@ func (e TokenEstimator) EstimateChat(c *chat.Chat) int {
 				tokens += charsToTokens(len(v.ToolCallID) + len(v.Content))
 			}
 		}
-
-		return true
-	})
+	}
 
 	return tokens
 }
