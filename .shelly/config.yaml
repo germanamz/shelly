@@ -80,7 +80,7 @@ mcp_servers:
       command: npx
       args:
         - -y
-        - '@anthropic-ai/mcp-playwright'
+        - '@playwright/mcp'
 agents:
     - name: lead
       description: Stakeholder who owns the outcome, evaluates reports, and makes strategic decisions
