@@ -258,8 +258,8 @@ func (a *Agent) run(ctx context.Context) (message.Message, error) {
 	// Collect all toolboxes (user + orchestration).
 	toolboxes := a.allToolBoxes()
 
-	// Collect tool declarations from all toolboxes for the completer.
-	tools := deduplicateTools(toolboxes)
+	// Collect tool declarations and a handler map from all toolboxes.
+	tools, handlers := deduplicateTools(toolboxes)
 
 	// Reset effects that track per-run state so they behave correctly across
 	// multiple Run() calls on a long-lived session agent.
@@ -319,7 +319,7 @@ func (a *Agent) run(ctx context.Context) (message.Message, error) {
 		for idx, tc := range calls {
 			wg.Go(func() {
 				a.emitEvent(ctx, "tool_call_start", ToolCallEventData{ToolName: tc.Name, CallID: tc.ID})
-				results[idx] = callTool(ctx, toolboxes, tc)
+				results[idx] = callTool(ctx, handlers, tc)
 				a.emitEvent(ctx, "tool_call_end", ToolCallEventData{ToolName: tc.Name, CallID: tc.ID})
 			})
 		}
@@ -442,32 +442,28 @@ func (a *Agent) hasNotesTools() bool {
 	return false
 }
 
-// callTool searches all toolboxes for the named tool and executes it.
-func callTool(ctx context.Context, toolboxes []*toolbox.ToolBox, tc content.ToolCall) content.ToolResult {
-	for _, tb := range toolboxes {
-		t, ok := tb.Get(tc.Name)
-		if !ok {
-			continue
-		}
-
-		result, err := t.Handler(ctx, json.RawMessage(tc.Arguments))
-		if err != nil {
-			return content.ToolResult{
-				ToolCallID: tc.ID,
-				Content:    err.Error(),
-				IsError:    true,
-			}
-		}
-
+// callTool looks up the named tool in the pre-built handler map and executes it.
+func callTool(ctx context.Context, handlers map[string]toolbox.Handler, tc content.ToolCall) content.ToolResult {
+	handler, ok := handlers[tc.Name]
+	if !ok {
 		return content.ToolResult{
 			ToolCallID: tc.ID,
-			Content:    result,
+			Content:    fmt.Sprintf("tool not found: %s", tc.Name),
+			IsError:    true,
+		}
+	}
+
+	result, err := handler(ctx, json.RawMessage(tc.Arguments))
+	if err != nil {
+		return content.ToolResult{
+			ToolCallID: tc.ID,
+			Content:    err.Error(),
+			IsError:    true,
 		}
 	}
 
 	return content.ToolResult{
 		ToolCallID: tc.ID,
-		Content:    fmt.Sprintf("tool not found: %s", tc.Name),
-		IsError:    true,
+		Content:    result,
 	}
 }

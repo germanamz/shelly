@@ -190,7 +190,7 @@ type registrationContext struct {
 
 Optimize hot paths and reduce complexity in agent orchestration.
 
-### 4.1 O(1) tool dispatch in the ReAct loop
+### 4.1 O(1) tool dispatch in the ReAct loop ✅
 
 **Problem:** `callTool` in `pkg/agent/agent.go` iterates through all toolboxes linearly for each tool call: `for _, tb := range toolboxes { if t := tb.Get(name); t != nil { ... } }`. For typical configurations (5-10 toolboxes, 30-50 tools total) this is fast, but it's an unnecessary O(n) per dispatch.
 
