@@ -224,7 +224,7 @@ func TestObservationMaskEffect_SkipsAlreadyMasked(t *testing.T) {
 	toolMsg := message.New("", role.Tool,
 		content.ToolResult{ToolCallID: "c1", Content: "[tool result for read_file: already masked]"},
 	)
-	toolMsg.SetMeta(obsMaskMetaKey, true)
+	message.SetMeta(&toolMsg, obsMaskMetaKey, true)
 
 	c := chat.New(
 		message.NewText("", role.System, "sys"),

@@ -12,6 +12,7 @@ import (
 
 	"github.com/germanamz/shelly/pkg/agent"
 	"github.com/germanamz/shelly/pkg/chats/content"
+	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/chats/role"
 	"github.com/germanamz/shelly/pkg/modeladapter"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
@@ -214,7 +215,7 @@ func (e *OffloadEffect) offload(ic agent.IterationContext) error {
 		}
 
 		if offloaded {
-			msgs[i].SetMeta(offloadMetaKey, true)
+			message.SetMeta(&msgs[i], offloadMetaKey, true)
 			modified = true
 		}
 	}

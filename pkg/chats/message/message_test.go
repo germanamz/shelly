@@ -71,8 +71,8 @@ func TestMessage_ToolCalls_None(t *testing.T) {
 func TestMessage_SetMeta_GetMeta(t *testing.T) {
 	msg := NewText("alice", role.User, "hello")
 
-	msg.SetMeta("model", "gpt-4")
-	msg.SetMeta("tokens", 42)
+	SetMeta(&msg,"model", "gpt-4")
+	SetMeta(&msg,"tokens", 42)
 
 	v, ok := msg.GetMeta("model")
 	assert.True(t, ok)
@@ -94,8 +94,8 @@ func TestMessage_GetMeta_Missing(t *testing.T) {
 func TestMessage_SetMeta_Overwrite(t *testing.T) {
 	msg := NewText("alice", role.User, "hello")
 
-	msg.SetMeta("key", "old")
-	msg.SetMeta("key", "new")
+	SetMeta(&msg,"key", "old")
+	SetMeta(&msg,"key", "new")
 
 	v, ok := msg.GetMeta("key")
 	assert.True(t, ok)

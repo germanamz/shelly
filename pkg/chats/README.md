@@ -127,8 +127,8 @@ c.Append(assistantMsg, toolMsg)
 
 ```go
 msg := message.NewText("bot", role.Assistant, "Hello!")
-msg.SetMeta("model", "claude-sonnet-4-5-20250929")
-msg.SetMeta("tokens", 12)
+message.SetMeta(&msg, "model", "claude-sonnet-4-5-20250929")
+message.SetMeta(&msg, "tokens", 12)
 
 model, _ := msg.GetMeta("model") // "claude-sonnet-4-5-20250929"
 ```

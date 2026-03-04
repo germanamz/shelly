@@ -66,7 +66,7 @@ Both `openai.Adapter` and `grok.Adapter` then compose with `openaicompat` functi
 
 Changes that fix API inconsistencies and improve type safety.
 
-### 2.1 Fix `Message` receiver consistency
+### 2.1 Fix `Message` receiver consistency ✅
 
 **Problem:** `message.Message` uses value receivers everywhere except `SetMeta()` which uses a pointer receiver. This creates a footgun: calling `SetMeta` on a value copy silently discards the mutation from the caller's perspective. The README explicitly warns about this but the inconsistency is a design flaw.
 

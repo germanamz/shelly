@@ -55,7 +55,10 @@ func (m Message) ToolCalls() []content.ToolCall {
 
 // SetMeta sets a metadata key-value pair on the message.
 // It initializes the Metadata map if nil.
-func (m *Message) SetMeta(key string, value any) {
+// This is a free function (not a method) so callers must explicitly pass
+// a pointer, making the mutation visible and avoiding the footgun of
+// calling a pointer-receiver method on a value copy.
+func SetMeta(m *Message, key string, value any) {
 	if m.Metadata == nil {
 		m.Metadata = make(map[string]any)
 	}

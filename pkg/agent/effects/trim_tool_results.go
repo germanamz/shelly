@@ -111,7 +111,7 @@ func (e *TrimToolResultsEffect) trimMessage(m *message.Message) bool {
 	}
 
 	if trimmed {
-		m.SetMeta(trimmedMetaKey, true)
+		message.SetMeta(m, trimmedMetaKey, true)
 	}
 
 	return trimmed

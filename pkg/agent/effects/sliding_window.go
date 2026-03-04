@@ -241,7 +241,7 @@ func (e *SlidingWindowEffect) manage(ctx context.Context, ic agent.IterationCont
 			}
 
 			if trimmed {
-				mediumMsgs[i].SetMeta("sw_trimmed", true)
+				message.SetMeta(&mediumMsgs[i], "sw_trimmed", true)
 			}
 		}
 

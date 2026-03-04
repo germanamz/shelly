@@ -129,7 +129,7 @@ func (e *ObservationMaskEffect) mask(ic agent.IterationContext) {
 		}
 
 		if masked {
-			msgs[i].SetMeta(obsMaskMetaKey, true)
+			message.SetMeta(&msgs[i], obsMaskMetaKey, true)
 			modified = true
 		}
 	}
