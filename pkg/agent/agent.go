@@ -65,6 +65,7 @@ type Options struct {
 	ReflectionDir          string        // Directory for failure reflection notes (empty = disabled).
 	DisableBehavioralHints bool          // When true, omits the <behavioral_constraints> section from the system prompt.
 	EventFunc              EventFunc     // Optional callback for fine-grained loop events (tool calls, message added).
+	ProviderLabel          string        // Display label for the provider (e.g. "anthropic/claude-sonnet-4").
 }
 
 // delegationConfig groups fields used by the delegation handler.
@@ -99,6 +100,7 @@ type Agent struct {
 	toolboxes     []*toolbox.ToolBox
 	registry      *Registry
 	prefix        string
+	providerLabel string
 	maxIterations int
 	middleware    []Middleware
 	effects       []Effect
@@ -119,6 +121,7 @@ func New(name, description, instructions string, completer modeladapter.Complete
 		completer:     completer,
 		chat:          chat.New(),
 		prefix:        opts.Prefix,
+		providerLabel: opts.ProviderLabel,
 		maxIterations: opts.MaxIterations,
 		middleware:    opts.Middleware,
 		effects:       opts.Effects,
@@ -178,6 +181,9 @@ func (a *Agent) Prefix() string {
 	}
 	return "🤖"
 }
+
+// ProviderLabel returns the display label for the agent's provider.
+func (a *Agent) ProviderLabel() string { return a.providerLabel }
 
 // Chat returns the agent's chat.
 func (a *Agent) Chat() *chat.Chat { return a.chat }

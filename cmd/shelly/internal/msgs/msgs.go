@@ -18,9 +18,10 @@ type ChatMessageMsg struct {
 
 // AgentStartMsg signals that the named agent started its ReAct loop.
 type AgentStartMsg struct {
-	Agent  string
-	Prefix string // display prefix (e.g. "🤖", "📝")
-	Parent string // parent agent name (empty for top-level)
+	Agent         string
+	Prefix        string // display prefix (e.g. "🤖", "📝")
+	Parent        string // parent agent name (empty for top-level)
+	ProviderLabel string // provider display label (e.g. "anthropic/claude-sonnet-4")
 }
 
 // AgentEndMsg signals that the named agent finished its ReAct loop.

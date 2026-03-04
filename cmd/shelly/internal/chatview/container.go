@@ -23,33 +23,35 @@ func colorStyle(hexColor string) lipgloss.Style {
 
 // AgentContainer accumulates display items for one agent while it's processing.
 type AgentContainer struct {
-	Agent       string
-	Prefix      string // configurable emoji prefix (e.g. "🤖", "📝", "🦾")
-	Items       []DisplayItem
-	CallIndex   map[string]*ToolCallItem // callID → ToolCallItem for O(1) lookup
-	StartTime   time.Time
-	EndTime     time.Time // frozen when Done is set
-	SpinMsg     string    // random message picked once at creation, used for initial spinner
-	MaxShow     int       // 0 = show all (root), >0 = windowed (sub-agent)
-	Done        bool
-	FrameIdx    int
-	Color       string // hex color string, e.g. "#0969da"; empty means top-level default
-	FinalAnswer string
+	Agent         string
+	Prefix        string // configurable emoji prefix (e.g. "🤖", "📝", "🦾")
+	ProviderLabel string // provider display label (e.g. "anthropic/claude-sonnet-4")
+	Items         []DisplayItem
+	CallIndex     map[string]*ToolCallItem // callID → ToolCallItem for O(1) lookup
+	StartTime     time.Time
+	EndTime       time.Time // frozen when Done is set
+	SpinMsg       string    // random message picked once at creation, used for initial spinner
+	MaxShow       int       // 0 = show all (root), >0 = windowed (sub-agent)
+	Done          bool
+	FrameIdx      int
+	Color         string // hex color string, e.g. "#0969da"; empty means top-level default
+	FinalAnswer   string
 }
 
 // NewAgentContainer creates a new container for the given agent.
-func NewAgentContainer(agentName, prefix string, maxShow int, color string) *AgentContainer {
+func NewAgentContainer(agentName, prefix string, maxShow int, color, providerLabel string) *AgentContainer {
 	if prefix == "" {
 		prefix = "🤖"
 	}
 	return &AgentContainer{
-		Agent:     agentName,
-		Prefix:    prefix,
-		CallIndex: make(map[string]*ToolCallItem),
-		StartTime: time.Now(),
-		SpinMsg:   format.RandomThinkingMessage(),
-		MaxShow:   maxShow,
-		Color:     color,
+		Agent:         agentName,
+		Prefix:        prefix,
+		ProviderLabel: providerLabel,
+		CallIndex:     make(map[string]*ToolCallItem),
+		StartTime:     time.Now(),
+		SpinMsg:       format.RandomThinkingMessage(),
+		MaxShow:       maxShow,
+		Color:         color,
 	}
 }
 
@@ -183,8 +185,12 @@ func (ac *AgentContainer) View(width int) string {
 			prefix = "🤖"
 		}
 		frame := format.SpinnerFrames[ac.FrameIdx%len(format.SpinnerFrames)]
+		label := ac.Agent
+		if ac.ProviderLabel != "" {
+			label += " (" + ac.ProviderLabel + ")"
+		}
 		return fmt.Sprintf("%s %s is thinking... %s\n",
-			prefix, ac.Agent, styles.SpinnerStyle.Render(frame))
+			prefix, label, styles.SpinnerStyle.Render(frame))
 	}
 
 	items := ac.Items
@@ -219,8 +225,13 @@ func (ac *AgentContainer) CollapsedSummary() string {
 
 	headerStyle := colorStyle(ac.Color)
 
+	label := ac.Agent
+	if ac.ProviderLabel != "" {
+		label += " (" + ac.ProviderLabel + ")"
+	}
+
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "%s\n", headerStyle.Render(fmt.Sprintf("%s %s", prefix, ac.Agent)))
+	fmt.Fprintf(&sb, "%s\n", headerStyle.Render(fmt.Sprintf("%s %s", prefix, label)))
 
 	// Include collapsed subagent summaries so the last message from each
 	// subagent remains visible after the parent collapses.

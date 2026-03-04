@@ -16,11 +16,26 @@ import (
 	"github.com/germanamz/shelly/pkg/modeladapter"
 )
 
+// ProviderInfo holds the provider kind and model for display purposes.
+type ProviderInfo struct {
+	Kind  string // Provider type (anthropic, openai, grok, gemini).
+	Model string // Model identifier.
+}
+
+// Label returns a display string like "anthropic/claude-sonnet-4".
+func (p ProviderInfo) Label() string {
+	if p.Kind == "" {
+		return ""
+	}
+	return p.Kind + "/" + p.Model
+}
+
 // Session represents one interactive conversation. It owns a chat and an agent
 // instance. Only one Send call may be active at a time.
 type Session struct {
 	id           string
 	agent        *agent.Agent
+	providerInfo ProviderInfo
 	lifecycle    sessionLifecycle
 	events       *EventBus
 	responder    *ask.Responder
@@ -52,6 +67,9 @@ func (s *Session) Chat() *chat.Chat { return s.agent.Chat() }
 // Completer returns the session's underlying completer for usage reporting.
 func (s *Session) Completer() modeladapter.Completer { return s.agent.Completer() }
 
+// ProviderInfo returns the session's provider metadata.
+func (s *Session) ProviderInfo() ProviderInfo { return s.providerInfo }
+
 // Send appends a text message from the user and runs the agent's ReAct loop.
 // It returns the agent's reply. Only one Send may be active per session.
 func (s *Session) Send(ctx context.Context, text string) (message.Message, error) {
@@ -72,7 +90,7 @@ func (s *Session) SendParts(ctx context.Context, parts ...content.Part) (message
 	}
 	defer s.release()
 
-	s.events.publish(EventAgentStart, s.id, s.agent.Name(), agent.AgentEventData{Prefix: s.agent.Prefix()})
+	s.events.publish(EventAgentStart, s.id, s.agent.Name(), agent.AgentEventData{Prefix: s.agent.Prefix(), ProviderLabel: s.agent.ProviderLabel()})
 
 	ctx = withSessionID(ctx, s.id)
 	ctx = agentctx.WithAgentName(ctx, s.agent.Name())
@@ -83,11 +101,11 @@ func (s *Session) SendParts(ctx context.Context, parts ...content.Part) (message
 	reply, err := s.agent.Run(ctx)
 	if err != nil {
 		s.events.publish(EventError, s.id, s.agent.Name(), err)
-		s.events.publish(EventAgentEnd, s.id, s.agent.Name(), agent.AgentEventData{Prefix: s.agent.Prefix()})
+		s.events.publish(EventAgentEnd, s.id, s.agent.Name(), agent.AgentEventData{Prefix: s.agent.Prefix(), ProviderLabel: s.agent.ProviderLabel()})
 		return message.Message{}, err
 	}
 
-	s.events.publish(EventAgentEnd, s.id, s.agent.Name(), agent.AgentEventData{Prefix: s.agent.Prefix()})
+	s.events.publish(EventAgentEnd, s.id, s.agent.Name(), agent.AgentEventData{Prefix: s.agent.Prefix(), ProviderLabel: s.agent.ProviderLabel()})
 
 	return reply, nil
 }

@@ -18,6 +18,7 @@ type registrationContext struct {
 	desc          string
 	instr         string
 	prefix        string
+	providerLabel string
 	completer     modeladapter.Completer
 	toolboxes     []*toolbox.ToolBox
 	skills        []skill.Skill
@@ -101,11 +102,14 @@ func (e *Engine) buildRegistrationContext(ac AgentConfig) (registrationContext, 
 		taskBoard = &taskBoardAdapter{store: e.taskStore}
 	}
 
+	providerLabel := e.resolveProviderInfo(ac.Name).Label()
+
 	return registrationContext{
 		name:          ac.Name,
 		desc:          ac.Description,
 		instr:         ac.Instructions,
 		prefix:        ac.Prefix,
+		providerLabel: providerLabel,
 		completer:     completer,
 		toolboxes:     tbs,
 		skills:        skills,
@@ -276,6 +280,7 @@ func (e *Engine) registerFactory(rc registrationContext) error {
 			EventFunc:          rc.eventFunc,
 			ReflectionDir:      rc.reflectionDir,
 			Prefix:             rc.prefix,
+			ProviderLabel:      rc.providerLabel,
 			TaskBoard:          rc.taskBoard,
 		}
 

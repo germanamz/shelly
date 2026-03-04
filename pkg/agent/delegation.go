@@ -16,9 +16,10 @@ import (
 
 // AgentEventData carries metadata about an agent lifecycle event.
 type AgentEventData struct {
-	Prefix  string // Display prefix (e.g. "🤖", "📝").
-	Parent  string // Name of the parent agent (empty for top-level).
-	Summary string // Completion summary (populated on agent_end events).
+	Prefix        string // Display prefix (e.g. "🤖", "📝").
+	Parent        string // Name of the parent agent (empty for top-level).
+	Summary       string // Completion summary (populated on agent_end events).
+	ProviderLabel string // Provider display label (e.g. "anthropic/claude-sonnet-4").
 }
 
 // orchestrationToolBox builds a ToolBox containing the built-in orchestration
@@ -155,13 +156,13 @@ func delegateTool(a *Agent) toolbox.Tool {
 					}
 
 					if eventNotifier != nil {
-						eventNotifier(ctx, "agent_start", child.name, AgentEventData{Prefix: child.Prefix(), Parent: a.name})
+						eventNotifier(ctx, "agent_start", child.name, AgentEventData{Prefix: child.Prefix(), Parent: a.name, ProviderLabel: child.ProviderLabel()})
 					}
 
 					reply, err := child.Run(ctx)
 
 					if eventNotifier != nil {
-						endData := AgentEventData{Prefix: child.Prefix(), Parent: a.name}
+						endData := AgentEventData{Prefix: child.Prefix(), Parent: a.name, ProviderLabel: child.ProviderLabel()}
 						if cr := child.CompletionResult(); cr != nil && cr.Summary != "" {
 							endData.Summary = cr.Summary
 						} else {

@@ -167,6 +167,7 @@ func (e *Engine) NewSession(agentName string) (*Session, error) {
 	id := fmt.Sprintf("session-%d", e.nextID)
 
 	s := newSession(id, a, e, e.events, e.responder)
+	s.providerInfo = e.resolveProviderInfo(agentName)
 
 	e.sessions[id] = s
 	e.mu.Unlock()
@@ -196,6 +197,27 @@ func (e *Engine) RemoveSession(id string) bool {
 		delete(e.sessions, id)
 	}
 	return ok
+}
+
+// resolveProviderInfo looks up the ProviderConfig for the given agent and
+// returns a ProviderInfo with Kind and Model.
+func (e *Engine) resolveProviderInfo(agentName string) ProviderInfo {
+	var providerName string
+	for _, ac := range e.cfg.Agents {
+		if ac.Name == agentName {
+			providerName = ac.Provider
+			break
+		}
+	}
+	if providerName == "" && len(e.cfg.Providers) > 0 {
+		providerName = e.cfg.Providers[0].Name
+	}
+	for _, pc := range e.cfg.Providers {
+		if pc.Name == providerName {
+			return ProviderInfo{Kind: pc.Kind, Model: pc.Model}
+		}
+	}
+	return ProviderInfo{}
 }
 
 // sessionLifecycle is the subset of Engine that Session needs for coordinating

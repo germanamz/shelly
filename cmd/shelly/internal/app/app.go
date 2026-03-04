@@ -340,11 +340,18 @@ func (m AppModel) statusBar() string {
 	if panel := m.taskPanel.View(); panel != "" {
 		parts = append(parts, panel)
 	}
+	var segments []string
+	if label := m.sess.ProviderInfo().Label(); label != "" {
+		segments = append(segments, label)
+	}
 	if m.tokenCount != "" {
-		status := fmt.Sprintf(" %s tokens", m.tokenCount)
-		if m.cacheInfo != "" {
-			status += " | " + m.cacheInfo
-		}
+		segments = append(segments, m.tokenCount+" tokens")
+	}
+	if m.cacheInfo != "" {
+		segments = append(segments, m.cacheInfo)
+	}
+	if len(segments) > 0 {
+		status := " " + strings.Join(segments, " | ")
 		parts = append(parts, styles.StatusStyle.Render(status))
 	}
 	if len(parts) == 0 {
