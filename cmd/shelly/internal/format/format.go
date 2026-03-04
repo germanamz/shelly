@@ -87,7 +87,7 @@ func RenderMarkdown(text string) string {
 	if err != nil {
 		return text
 	}
-	return strings.TrimRight(out, "\n")
+	return strings.Trim(out, "\n")
 }
 
 // Truncate returns s shortened to at most n runes, with "..." appended if
