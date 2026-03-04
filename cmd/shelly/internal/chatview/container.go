@@ -13,10 +13,10 @@ import (
 )
 
 // colorStyle returns a lipgloss style with the given hex color as foreground,
-// falling back to AnswerPrefixStyle if the color is empty.
+// falling back to ColorFg if the color is empty.
 func colorStyle(hexColor string) lipgloss.Style {
 	if hexColor == "" {
-		return styles.AnswerPrefixStyle
+		return lipgloss.NewStyle().Foreground(styles.ColorFg)
 	}
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(hexColor))
 }
@@ -180,17 +180,13 @@ func (ac *AgentContainer) findCallByID(callID string) *ToolCallItem {
 func (ac *AgentContainer) View(width int) string {
 	if len(ac.Items) == 0 && !ac.Done {
 		// Show "thinking..." when no items yet.
-		prefix := ac.Prefix
-		if prefix == "" {
-			prefix = "🤖"
-		}
 		frame := format.SpinnerFrames[ac.FrameIdx%len(format.SpinnerFrames)]
 		label := ac.Agent
 		if ac.ProviderLabel != "" {
 			label += " (" + ac.ProviderLabel + ")"
 		}
 		return fmt.Sprintf("%s %s is thinking... %s\n",
-			prefix, label, styles.SpinnerStyle.Render(frame))
+			ac.Prefix, label, styles.SpinnerStyle.Render(frame))
 	}
 
 	items := ac.Items
@@ -214,7 +210,7 @@ func (ac *AgentContainer) View(width int) string {
 	if !ac.Done && !ac.hasLiveItems() {
 		frame := format.SpinnerFrames[ac.FrameIdx%len(format.SpinnerFrames)]
 		fmt.Fprintf(&sb, "%s %s is thinking... %s\n",
-			ac.prefixOrDefault(), ac.Agent, styles.SpinnerStyle.Render(frame))
+			ac.Prefix, ac.Agent, styles.SpinnerStyle.Render(frame))
 	}
 
 	return sb.String()
@@ -227,11 +223,6 @@ func (ac *AgentContainer) CollapsedSummary() string {
 		end = time.Now()
 	}
 	elapsed := format.FmtDuration(end.Sub(ac.StartTime))
-	prefix := ac.Prefix
-	if prefix == "" {
-		prefix = "🤖"
-	}
-
 	headerStyle := colorStyle(ac.Color)
 
 	label := ac.Agent
@@ -240,7 +231,7 @@ func (ac *AgentContainer) CollapsedSummary() string {
 	}
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "%s\n", headerStyle.Render(fmt.Sprintf("%s %s", prefix, label)))
+	fmt.Fprintf(&sb, "%s\n", headerStyle.Render(fmt.Sprintf("%s %s", ac.Prefix, label)))
 
 	// Include collapsed subagent summaries so the last message from each
 	// subagent remains visible after the parent collapses.
@@ -274,14 +265,6 @@ func (ac *AgentContainer) CollapsedSummary() string {
 		fmt.Fprintf(&sb, " %s%s", styles.TreeCorner, styles.DimStyle.Render(fmt.Sprintf("Finished in %s", elapsed)))
 	}
 	return sb.String()
-}
-
-// prefixOrDefault returns the container's prefix or the default "🤖".
-func (ac *AgentContainer) prefixOrDefault() string {
-	if ac.Prefix == "" {
-		return "🤖"
-	}
-	return ac.Prefix
 }
 
 // hasLiveItems returns true if any item in the container is still in progress.

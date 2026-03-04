@@ -11,15 +11,6 @@ import (
 	"github.com/germanamz/shelly/cmd/shelly/internal/styles"
 )
 
-// agentColorStyle returns a lipgloss style for an agent name header.
-// If hexColor is empty, it falls back to styles.ColorFg foreground (no bold).
-func agentColorStyle(hexColor string) lipgloss.Style {
-	if hexColor == "" {
-		return lipgloss.NewStyle().Foreground(styles.ColorFg)
-	}
-	return lipgloss.NewStyle().Foreground(lipgloss.Color(hexColor))
-}
-
 // DisplayItem is the interface for all renderable message types.
 type DisplayItem interface {
 	View(width int) string
@@ -43,7 +34,7 @@ func (m *ThinkingItem) View(width int) string {
 		prefix = "🤖"
 	}
 
-	header := agentColorStyle(m.Color).Render(fmt.Sprintf("%s %s", prefix, m.Agent))
+	header := colorStyle(m.Color).Render(fmt.Sprintf("%s %s", prefix, m.Agent))
 
 	rendered := format.RenderMarkdown(m.Text)
 	var sb strings.Builder
@@ -302,38 +293,8 @@ type SubAgentItem struct {
 }
 
 func (m *SubAgentItem) View(width int) string {
-	prefix := m.Container.Prefix
-	if prefix == "" {
-		prefix = "🤖"
-	}
-
 	if m.Container.Done {
-		end := m.Container.EndTime
-		if end.IsZero() {
-			end = time.Now()
-		}
-		elapsed := format.FmtDuration(end.Sub(m.Container.StartTime))
-		headerStyle := agentColorStyle(m.Container.Color)
-		var sb strings.Builder
-		fmt.Fprintf(&sb, "%s\n", headerStyle.Render(fmt.Sprintf("%s %s", prefix, m.Container.Agent)))
-		if m.Container.FinalAnswer != "" {
-			rendered := format.RenderMarkdown(m.Container.FinalAnswer)
-			lines := strings.Split(rendered, "\n")
-			for len(lines) > 0 && lines[len(lines)-1] == "" {
-				lines = lines[:len(lines)-1]
-			}
-			for i, line := range lines {
-				if i == 0 {
-					fmt.Fprintf(&sb, " %s%s\n", styles.TreeCorner, line)
-				} else {
-					fmt.Fprintf(&sb, "   %s\n", line)
-				}
-			}
-			fmt.Fprintf(&sb, "   %s", styles.DimStyle.Render(fmt.Sprintf("Finished in %s", elapsed)))
-		} else {
-			fmt.Fprintf(&sb, " %s%s", styles.TreeCorner, styles.DimStyle.Render(fmt.Sprintf("Finished in %s", elapsed)))
-		}
-		return sb.String()
+		return m.Container.CollapsedSummary()
 	}
 
 	var sb strings.Builder
@@ -344,12 +305,12 @@ func (m *SubAgentItem) View(width int) string {
 	// Show "is thinking..." when the container has no items yet.
 	if len(items) == 0 {
 		fmt.Fprintf(&sb, "%s %s is thinking... %s",
-			prefix, m.Container.Agent, styles.SpinnerStyle.Render(frame))
+			m.Container.Prefix, m.Container.Agent, styles.SpinnerStyle.Render(frame))
 		return sb.String()
 	}
 
 	fmt.Fprintf(&sb, "%s %s\n",
-		agentColorStyle(m.Container.Color).Render(fmt.Sprintf("%s %s", prefix, m.Container.Agent)),
+		colorStyle(m.Container.Color).Render(fmt.Sprintf("%s %s", m.Container.Prefix, m.Container.Agent)),
 		styles.SpinnerStyle.Render(frame),
 	)
 	if m.Container.MaxShow > 0 && len(items) > m.Container.MaxShow {
