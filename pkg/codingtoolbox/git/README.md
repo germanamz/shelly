@@ -11,11 +11,10 @@ Command execution is gated by the shared permissions store using the command tru
 ### Types
 
 - **`Git`** -- provides git tools with permission gating. All commands run in a configurable working directory.
-- **`AskFunc`** -- `func(ctx context.Context, question string, options []string) (string, error)` callback for permission prompts.
 
 ### Functions
 
-- **`New(store *permissions.Store, askFn AskFunc, workDir string) *Git`** -- creates a Git that checks the given permissions store for trusted commands and prompts the user via askFn when git is not yet trusted. `workDir` sets the working directory for all git subprocess invocations.
+- **`New(store *permissions.Store, askFn codingtoolbox.AskFunc, workDir string) *Git`** -- creates a Git that checks the given permissions store for trusted commands and prompts the user via askFn when git is not yet trusted. `workDir` sets the working directory for all git subprocess invocations.
 
 ### Methods on Git
 
@@ -43,7 +42,7 @@ Only built-in git format names are allowed: `oneline`, `short`, `medium`, `full`
 
 ## Output Limits
 
-All git commands capture stdout/stderr with a 1MB cap via `limitedBuffer`.
+All git commands capture stdout/stderr with a 1MB cap via `codingtoolbox.LimitedBuffer`.
 
 ## Usage
 

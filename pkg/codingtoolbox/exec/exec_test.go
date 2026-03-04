@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/germanamz/shelly/pkg/chats/content"
+	"github.com/germanamz/shelly/pkg/codingtoolbox"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,7 +25,7 @@ func autoDeny(_ context.Context, _ string, _ []string) (string, error) {
 	return "no", nil
 }
 
-func newTestExec(t *testing.T, askFn AskFunc) (*Exec, *permissions.Store) {
+func newTestExec(t *testing.T, askFn codingtoolbox.AskFunc) (*Exec, *permissions.Store) {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -123,28 +124,6 @@ func TestRun_EmptyCommand(t *testing.T) {
 
 	assert.True(t, tr.IsError)
 	assert.Contains(t, tr.Content, "command is required")
-}
-
-func TestLimitedBuffer(t *testing.T) {
-	var buf limitedBuffer
-
-	// Write within limit.
-	n, err := buf.Write([]byte("hello"))
-	require.NoError(t, err)
-	assert.Equal(t, 5, n)
-	assert.Equal(t, "hello", buf.String())
-	assert.Equal(t, 5, buf.Len())
-
-	// Write beyond limit — total reported write count should equal input size.
-	big := make([]byte, maxBufferSize+100)
-	for i := range big {
-		big[i] = 'x'
-	}
-
-	n, err = buf.Write(big)
-	require.NoError(t, err)
-	assert.Equal(t, len(big), n)
-	assert.Equal(t, maxBufferSize, buf.Len())
 }
 
 func TestRun_CommandNotFound(t *testing.T) {

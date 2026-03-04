@@ -19,11 +19,10 @@ The package includes multiple layers of protection against Server-Side Request F
 ### Types
 
 - **`HTTP`** -- provides HTTP tools with permission gating. Manages an `http.Client` with a 60-second timeout and the safe transport.
-- **`AskFunc`** -- `func(ctx context.Context, question string, options []string) (string, error)` callback for permission prompts.
 
 ### Functions
 
-- **`New(store *permissions.Store, askFn AskFunc) *HTTP`** -- creates an HTTP that checks the given permissions store for trusted domains and prompts the user when a domain is not yet trusted.
+- **`New(store *permissions.Store, askFn codingtoolbox.AskFunc) *HTTP`** -- creates an HTTP that checks the given permissions store for trusted domains and prompts the user when a domain is not yet trusted.
 
 ### Methods on HTTP
 

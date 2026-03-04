@@ -17,7 +17,15 @@ codingtoolbox/
 └── defaults/      Default toolbox builder — merges built-in toolboxes into one
 ```
 
-**Dependency graph**: `permissions` is shared by `filesystem`, `exec`, `search`, `git`, and `http`. All tool packages depend on `pkg/tools/toolbox` for the `Tool` and `ToolBox` types. `defaults` merges multiple toolboxes into a single one that every agent receives.
+**Dependency graph**: `permissions` is shared by `filesystem`, `exec`, `search`, `git`, and `http`. All permission-gated sub-packages depend on the root `codingtoolbox` package for shared types (`AskFunc`, `Approver`, `LimitedBuffer`). All tool packages depend on `pkg/tools/toolbox` for the `Tool` and `ToolBox` types. `defaults` merges multiple toolboxes into a single one that every agent receives.
+
+## Shared Types
+
+The root `codingtoolbox` package provides three types shared by all permission-gated sub-packages:
+
+- **`AskFunc`** — callback signature `func(ctx, question, options) (string, error)` for prompting the user. Injected via constructors and wired from `ask.Responder.Ask` by the engine.
+- **`Approver`** — coalesces concurrent permission checks for the same key. Only one goroutine runs the approval function; others wait. Supports `Shared` vs non-shared outcomes (exec uses non-shared for one-time "yes" approvals).
+- **`LimitedBuffer`** — `io.Writer` that silently discards writes beyond a configurable cap. Used by `exec` and `git` to capture subprocess output without unbounded memory growth.
 
 ## Sub-packages
 
@@ -39,19 +47,19 @@ File-modifying operations (`fs_write`, `fs_edit`, `fs_patch`, `fs_delete`, `fs_m
 
 The `fs_read` tool caps file reads at 10MB. The `fs_read_lines` tool reads a specific line range (offset + limit) and returns numbered output (`N→content`) with a `[Lines X-Y of Z]` header — useful for inspecting large files without loading the full content. The `fs_edit` tool requires the `old_text` to appear exactly once. The `fs_patch` tool applies multiple find-and-replace hunks sequentially in one atomic operation. Concurrent writes to the same file are serialized via a per-path `FileLocker`. Two-path operations (`fs_move`, `fs_copy`) use `LockPair`/`UnlockPair` with consistent ordering to avoid deadlocks.
 
-**Exported types**: `AskFunc`, `NotifyFunc`, `FS`, `FileLocker`, `SessionTrust`.
-**Constructor**: `New(store *permissions.Store, askFn AskFunc, notifyFn NotifyFunc) *FS`.
+**Exported types**: `NotifyFunc`, `FS`, `FileLocker`, `SessionTrust`.
+**Constructor**: `New(store *permissions.Store, askFn codingtoolbox.AskFunc, notifyFn NotifyFunc) *FS`.
 **Helpers**: `NewFileLocker() *FileLocker`, `WithSessionTrust(ctx, st *SessionTrust) context.Context`.
 **Methods**: `Tools() *toolbox.ToolBox`.
 
 ### `exec` -- Command Execution
 
-Permission-gated tool for running CLI commands. Users can approve once ("yes") or "trust" a command (program name) for all future invocations without being prompted again. Trusted commands are persisted to the shared permissions store. Commands are executed directly via `os/exec` (no shell interpretation). Stdout/stderr are captured with a 1MB cap via `limitedBuffer`.
+Permission-gated tool for running CLI commands. Users can approve once ("yes") or "trust" a command (program name) for all future invocations without being prompted again. Trusted commands are persisted to the shared permissions store. Commands are executed directly via `os/exec` (no shell interpretation). Stdout/stderr are captured with a 1MB cap via `codingtoolbox.LimitedBuffer`.
 
 Concurrent permission prompts for the same command are coalesced: when a prompt is in-flight, subsequent callers wait for its result. One-time approvals ("yes") are not coalesced since they apply to specific arguments. An optional `OnExecFunc` callback notifies the frontend when a trusted command is about to execute.
 
-**Exported types**: `AskFunc`, `OnExecFunc`, `Option`, `Exec`.
-**Constructor**: `New(store *permissions.Store, askFn AskFunc, opts ...Option) *Exec`.
+**Exported types**: `OnExecFunc`, `Option`, `Exec`.
+**Constructor**: `New(store *permissions.Store, askFn codingtoolbox.AskFunc, opts ...Option) *Exec`.
 **Options**: `WithOnExec(fn OnExecFunc)` -- callback for trusted command display.
 **Methods**: `Tools() *toolbox.ToolBox`.
 
@@ -61,8 +69,8 @@ Permission-gated tools for searching file contents by regex (`search_content`) a
 
 Content search skips binary files (UTF-8 validity check on the first 512 bytes) and caps total matched content at 1MB. Both tools default to 100 max results. File search supports `**` patterns via a custom `matchDoublestar` implementation. `search_content` accepts an optional `context_lines` field: when > 0, each match includes a `context` field with the surrounding N lines formatted as `" N→content"` (match line prefixed with `>`), avoiding a follow-up `fs_read_lines` in many cases.
 
-**Exported types**: `AskFunc`, `Search`.
-**Constructor**: `New(store *permissions.Store, askFn AskFunc) *Search`.
+**Exported types**: `Search`.
+**Constructor**: `New(store *permissions.Store, askFn codingtoolbox.AskFunc) *Search`.
 **Methods**: `Tools() *toolbox.ToolBox`.
 
 ### `git` -- Git Operations
@@ -71,8 +79,8 @@ Permission-gated tools for git status, diff, log, and commit. Uses command trust
 
 Log format is restricted to built-in git format names (oneline, short, medium, full, fuller, reference, email, raw) to prevent metadata exfiltration via custom format strings. Default is 10 commits in oneline format. The diff tool rejects absolute paths and path traversal (`..`). The commit tool supports staging specific files or all tracked changes (`-a`), with path traversal protection on staged file paths. Commit messages must not start with `-`.
 
-**Exported types**: `AskFunc`, `Git`.
-**Constructor**: `New(store *permissions.Store, askFn AskFunc, workDir string) *Git`.
+**Exported types**: `Git`.
+**Constructor**: `New(store *permissions.Store, askFn codingtoolbox.AskFunc, workDir string) *Git`.
 **Methods**: `Tools() *toolbox.ToolBox`.
 
 ### `http` -- HTTP Requests
@@ -81,8 +89,8 @@ Permission-gated tool for making HTTP requests. Uses domain trust from the share
 
 Includes SSRF protection: private/loopback IP ranges (127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, ::1/128, fc00::/7, fe80::/10) are blocked at both DNS resolution time and connection time via a custom `safeTransport` with a validating `DialContext`. Redirects to untrusted domains are rejected via `CheckRedirect`. The client has a 60-second overall timeout.
 
-**Exported types**: `AskFunc`, `HTTP`.
-**Constructor**: `New(store *permissions.Store, askFn AskFunc) *HTTP`.
+**Exported types**: `HTTP`.
+**Constructor**: `New(store *permissions.Store, askFn codingtoolbox.AskFunc) *HTTP`.
 **Methods**: `Tools() *toolbox.ToolBox`.
 
 ### `notes` -- Persistent Notes

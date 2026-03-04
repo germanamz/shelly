@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/germanamz/shelly/pkg/chats/content"
+	"github.com/germanamz/shelly/pkg/codingtoolbox"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
 	"github.com/germanamz/shelly/pkg/mcproots"
 	"github.com/stretchr/testify/assert"
@@ -27,13 +28,13 @@ func autoDeny(_ context.Context, _ string, _ []string) (string, error) {
 // noopNotify discards notifications.
 func noopNotify(_ context.Context, _ string) {}
 
-func newTestFS(t *testing.T, askFn AskFunc) (*FS, string) {
+func newTestFS(t *testing.T, askFn codingtoolbox.AskFunc) (*FS, string) {
 	t.Helper()
 
 	return newTestFSWithNotify(t, askFn, noopNotify)
 }
 
-func newTestFSWithNotify(t *testing.T, askFn AskFunc, notifyFn NotifyFunc) (*FS, string) {
+func newTestFSWithNotify(t *testing.T, askFn codingtoolbox.AskFunc, notifyFn NotifyFunc) (*FS, string) {
 	t.Helper()
 
 	dir := t.TempDir()

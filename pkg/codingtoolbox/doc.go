@@ -11,4 +11,8 @@
 //   - [github.com/germanamz/shelly/pkg/codingtoolbox/notes] — persistent note-taking tools surviving context compaction
 //   - [github.com/germanamz/shelly/pkg/codingtoolbox/permissions] — shared permissions store for filesystem, exec, search, git, and http
 //   - [github.com/germanamz/shelly/pkg/codingtoolbox/defaults] — default toolbox builder that merges built-in toolboxes
+//
+// The root package also provides shared types used across permission-gated
+// sub-packages: [AskFunc] (user prompt callback), [Approver] (concurrent
+// permission coalescing), and [LimitedBuffer] (capped io.Writer).
 package codingtoolbox

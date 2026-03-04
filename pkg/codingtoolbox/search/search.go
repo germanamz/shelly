@@ -11,34 +11,23 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 	"unicode/utf8"
 
+	"github.com/germanamz/shelly/pkg/codingtoolbox"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
-// AskFunc asks the user a question and blocks until a response is received.
-type AskFunc func(ctx context.Context, question string, options []string) (string, error)
-
-// pendingResult holds the outcome of a single in-flight permission prompt so
-// that concurrent callers waiting on the same directory can share the result.
-type pendingResult struct {
-	done chan struct{}
-	err  error
-}
-
 // Search provides search tools with permission gating.
 type Search struct {
-	store      *permissions.Store
-	ask        AskFunc
-	pendingMu  sync.Mutex
-	pendingDir map[string]*pendingResult
+	store    *permissions.Store
+	ask      codingtoolbox.AskFunc
+	approver *codingtoolbox.Approver
 }
 
 // New creates a Search backed by the given shared permissions store.
-func New(store *permissions.Store, askFn AskFunc) *Search {
-	return &Search{store: store, ask: askFn, pendingDir: make(map[string]*pendingResult)}
+func New(store *permissions.Store, askFn codingtoolbox.AskFunc) *Search {
+	return &Search{store: store, ask: askFn, approver: codingtoolbox.NewApprover()}
 }
 
 // Tools returns a ToolBox containing the search tools.
@@ -71,45 +60,16 @@ func (s *Search) checkPermission(ctx context.Context, dir string) error {
 		}
 	}
 
-	// Fast path: already approved (no lock contention).
-	if s.store.IsDirApproved(abs) {
-		return nil
-	}
-
-	s.pendingMu.Lock()
-	// Re-check after acquiring lock — another goroutine may have approved.
-	if s.store.IsDirApproved(abs) {
-		s.pendingMu.Unlock()
-		return nil
-	}
-
-	// If a prompt is already in-flight for this dir, wait for its result.
-	if pr, ok := s.pendingDir[abs]; ok {
-		s.pendingMu.Unlock()
-		<-pr.done
-
-		if pr.err != nil {
-			return pr.err
-		}
-
-		return nil // Permission was granted (either "yes" or "trust")
-	}
-
-	// We are the first — create a pending entry and release the lock.
-	pr := &pendingResult{done: make(chan struct{})}
-	s.pendingDir[abs] = pr
-	s.pendingMu.Unlock()
-
-	// Ask the user (blocking).
-	pr.err = s.askAndApproveDir(ctx, abs)
-
-	// Signal waiters and clean up.
-	close(pr.done)
-	s.pendingMu.Lock()
-	delete(s.pendingDir, abs)
-	s.pendingMu.Unlock()
-
-	return pr.err
+	return s.approver.Ensure(ctx, abs,
+		func() bool { return s.store.IsDirApproved(abs) },
+		func(ctx context.Context) codingtoolbox.ApprovalOutcome {
+			return codingtoolbox.ApprovalOutcome{
+				Err:    s.askAndApproveDir(ctx, abs),
+				Shared: true,
+			}
+		},
+		nil,
+	)
 }
 
 // askAndApproveDir prompts the user and approves the directory on "yes".

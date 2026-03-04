@@ -4,18 +4,17 @@ Package `search` provides tools for searching file contents and finding files by
 
 ## Permission Model
 
-Directory access is gated by the shared permissions store, using the same directory-approval model as the `filesystem` package. Concurrent permission prompts for the same directory are coalesced via a `pendingResult` map so the user is never asked the same question multiple times.
+Directory access is gated by the shared permissions store, using the same directory-approval model as the `filesystem` package. Concurrent permission prompts for the same directory are coalesced via a `codingtoolbox.Approver` so the user is never asked the same question multiple times.
 
 ## Exported API
 
 ### Types
 
 - **`Search`** -- provides search tools with permission gating.
-- **`AskFunc`** -- `func(ctx context.Context, question string, options []string) (string, error)` callback for permission prompts.
 
 ### Functions
 
-- **`New(store *permissions.Store, askFn AskFunc) *Search`** -- creates a Search backed by the given shared permissions store.
+- **`New(store *permissions.Store, askFn codingtoolbox.AskFunc) *Search`** -- creates a Search backed by the given shared permissions store.
 
 ### Methods on Search
 
@@ -52,7 +51,7 @@ s := search.New(permStore, askFn)
 tb := s.Tools() // *toolbox.ToolBox with 2 search tools
 ```
 
-The `AskFunc` callback is called whenever permission for a new directory is needed. The user is prompted with `["yes", "no"]` options.
+The `codingtoolbox.AskFunc` callback is called whenever permission for a new directory is needed. The user is prompted with `["yes", "no"]` options.
 
 ## Dependencies
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/germanamz/shelly/pkg/chats/content"
+	"github.com/germanamz/shelly/pkg/codingtoolbox"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -37,7 +38,7 @@ func mustJSON(t *testing.T, v any) string {
 	return string(data)
 }
 
-func newTestHTTP(t *testing.T, askFn AskFunc) (*HTTP, *permissions.Store) {
+func newTestHTTP(t *testing.T, askFn codingtoolbox.AskFunc) (*HTTP, *permissions.Store) {
 	t.Helper()
 
 	dir := t.TempDir()

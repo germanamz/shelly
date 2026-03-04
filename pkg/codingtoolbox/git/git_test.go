@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/germanamz/shelly/pkg/chats/content"
+	"github.com/germanamz/shelly/pkg/codingtoolbox"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -68,7 +69,7 @@ func initRepo(t *testing.T) string {
 	return dir
 }
 
-func newTestGit(t *testing.T, askFn AskFunc, workDir string) (*Git, *permissions.Store) {
+func newTestGit(t *testing.T, askFn codingtoolbox.AskFunc, workDir string) (*Git, *permissions.Store) {
 	t.Helper()
 
 	permDir := t.TempDir()
@@ -280,26 +281,6 @@ func TestDenied(t *testing.T) {
 
 	assert.True(t, tr.IsError)
 	assert.Contains(t, tr.Content, "permission denied")
-}
-
-func TestLimitedBuffer(t *testing.T) {
-	var buf limitedBuffer
-
-	n, err := buf.Write([]byte("hello"))
-	require.NoError(t, err)
-	assert.Equal(t, 5, n)
-	assert.Equal(t, "hello", buf.String())
-	assert.Equal(t, 5, buf.Len())
-
-	big := make([]byte, maxBufferSize+100)
-	for i := range big {
-		big[i] = 'x'
-	}
-
-	n, err = buf.Write(big)
-	require.NoError(t, err)
-	assert.Equal(t, len(big), n)
-	assert.Equal(t, maxBufferSize, buf.Len())
 }
 
 func TestTrust(t *testing.T) {

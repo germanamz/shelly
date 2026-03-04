@@ -23,14 +23,13 @@ Session trust is managed by the **`SessionTrust`** type and propagated via `cont
 ### Types
 
 - **`FS`** -- provides filesystem tools with permission gating. Embeds a `FileLocker` for per-path concurrency safety.
-- **`AskFunc`** -- `func(ctx context.Context, question string, options []string) (string, error)` callback for permission and confirmation prompts.
 - **`NotifyFunc`** -- `func(ctx context.Context, message string)` non-blocking callback for displaying file changes when the session is trusted.
 - **`FileLocker`** -- provides per-path mutual exclusion for filesystem operations. Lazily allocates a mutex for each path on first use.
 - **`SessionTrust`** -- tracks whether the user has opted to trust all file changes for the current session. Thread-safe.
 
 ### Functions
 
-- **`New(store *permissions.Store, askFn AskFunc, notifyFn NotifyFunc) *FS`** -- creates an FS backed by the given shared permissions store.
+- **`New(store *permissions.Store, askFn codingtoolbox.AskFunc, notifyFn NotifyFunc) *FS`** -- creates an FS backed by the given shared permissions store.
 - **`NewFileLocker() *FileLocker`** -- creates a new FileLocker (used internally by `New`).
 - **`WithSessionTrust(ctx context.Context, st *SessionTrust) context.Context`** -- returns a new context carrying the given SessionTrust.
 
@@ -83,7 +82,7 @@ st := &filesystem.SessionTrust{}
 ctx := filesystem.WithSessionTrust(context.Background(), st)
 ```
 
-The `AskFunc` callback is called whenever permission for a new directory is needed or a file change requires confirmation. The `NotifyFunc` callback is called for non-blocking display of file changes when the session is trusted.
+The `codingtoolbox.AskFunc` callback is called whenever permission for a new directory is needed or a file change requires confirmation. The `NotifyFunc` callback is called for non-blocking display of file changes when the session is trusted.
 
 ## Dependencies
 

@@ -14,8 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
+	"github.com/germanamz/shelly/pkg/codingtoolbox"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
 	"github.com/germanamz/shelly/pkg/mcproots"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
@@ -31,34 +31,23 @@ func fileMode(path string) fs.FileMode {
 	return info.Mode().Perm()
 }
 
-// AskFunc asks the user a question and blocks until a response is received.
-type AskFunc func(ctx context.Context, question string, options []string) (string, error)
-
-// pendingResult holds the outcome of a single in-flight permission prompt so
-// that concurrent callers waiting on the same directory can share the result.
-type pendingResult struct {
-	done chan struct{}
-	err  error
-}
-
 // FS provides filesystem tools with permission gating.
 type FS struct {
-	store      *permissions.Store
-	ask        AskFunc
-	notify     NotifyFunc
-	locker     *FileLocker
-	pendingMu  sync.Mutex
-	pendingDir map[string]*pendingResult
+	store    *permissions.Store
+	ask      codingtoolbox.AskFunc
+	notify   NotifyFunc
+	locker   *FileLocker
+	approver *codingtoolbox.Approver
 }
 
 // New creates an FS backed by the given shared permissions store.
-func New(store *permissions.Store, askFn AskFunc, notifyFn NotifyFunc) *FS {
+func New(store *permissions.Store, askFn codingtoolbox.AskFunc, notifyFn NotifyFunc) *FS {
 	return &FS{
-		store:      store,
-		ask:        askFn,
-		notify:     notifyFn,
-		locker:     NewFileLocker(),
-		pendingDir: make(map[string]*pendingResult),
+		store:    store,
+		ask:      askFn,
+		notify:   notifyFn,
+		locker:   NewFileLocker(),
+		approver: codingtoolbox.NewApprover(),
 	}
 }
 
@@ -145,39 +134,16 @@ func (f *FS) checkPermission(ctx context.Context, target string) error {
 }
 
 func (f *FS) approveDir(ctx context.Context, dir string) error {
-	if f.store.IsDirApproved(dir) {
-		return nil
-	}
-
-	f.pendingMu.Lock()
-	if f.store.IsDirApproved(dir) {
-		f.pendingMu.Unlock()
-		return nil
-	}
-
-	if pr, ok := f.pendingDir[dir]; ok {
-		f.pendingMu.Unlock()
-		<-pr.done
-
-		if pr.err != nil {
-			return pr.err
-		}
-
-		return nil // Permission was granted (either "yes" or "trust")
-	}
-
-	pr := &pendingResult{done: make(chan struct{})}
-	f.pendingDir[dir] = pr
-	f.pendingMu.Unlock()
-
-	pr.err = f.askAndApproveDir(ctx, dir)
-
-	close(pr.done)
-	f.pendingMu.Lock()
-	delete(f.pendingDir, dir)
-	f.pendingMu.Unlock()
-
-	return pr.err
+	return f.approver.Ensure(ctx, dir,
+		func() bool { return f.store.IsDirApproved(dir) },
+		func(ctx context.Context) codingtoolbox.ApprovalOutcome {
+			return codingtoolbox.ApprovalOutcome{
+				Err:    f.askAndApproveDir(ctx, dir),
+				Shared: true,
+			}
+		},
+		nil,
+	)
 }
 
 // askAndApproveDir prompts the user and approves the directory on "yes".
