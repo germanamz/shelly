@@ -15,14 +15,15 @@ import (
 
 // Store manages permission grants persisted to a JSON file.
 type Store struct {
-	mu         sync.RWMutex
-	writeMu    sync.Mutex
-	dirs       map[string]struct{}
-	commands   map[string]struct{}
-	domains    map[string]struct{}
-	filePath   string
-	listenerMu sync.Mutex
-	onDirAdd   []func(string)
+	mu           sync.RWMutex
+	writeMu      sync.Mutex
+	dirs         map[string]struct{}
+	commands     map[string]struct{}
+	domains      map[string]struct{}
+	filePath     string
+	listenerMu   sync.Mutex
+	dirListeners map[uint64]func(string)
+	nextListenID uint64
 }
 
 // fileFormat is the JSON structure written to disk.
@@ -42,10 +43,11 @@ func New(filePath string) (*Store, error) {
 	}
 
 	s := &Store{
-		dirs:     make(map[string]struct{}),
-		commands: make(map[string]struct{}),
-		domains:  make(map[string]struct{}),
-		filePath: abs,
+		dirs:         make(map[string]struct{}),
+		commands:     make(map[string]struct{}),
+		domains:      make(map[string]struct{}),
+		filePath:     abs,
+		dirListeners: make(map[uint64]func(string)),
 	}
 
 	if err := s.load(); err != nil {
@@ -149,13 +151,14 @@ func (s *Store) ApprovedDirs() []string {
 // for directories that are re-approved (already in the set).
 func (s *Store) OnDirApproved(fn func(dir string)) func() {
 	s.listenerMu.Lock()
-	idx := len(s.onDirAdd)
-	s.onDirAdd = append(s.onDirAdd, fn)
+	id := s.nextListenID
+	s.nextListenID++
+	s.dirListeners[id] = fn
 	s.listenerMu.Unlock()
 
 	return func() {
 		s.listenerMu.Lock()
-		s.onDirAdd[idx] = nil
+		delete(s.dirListeners, id)
 		s.listenerMu.Unlock()
 	}
 }
@@ -164,14 +167,14 @@ func (s *Store) OnDirApproved(fn func(dir string)) func() {
 func (s *Store) fireDirCallbacks(dir string) {
 	s.listenerMu.Lock()
 	// Snapshot listeners under lock to avoid holding it during callbacks.
-	listeners := make([]func(string), len(s.onDirAdd))
-	copy(listeners, s.onDirAdd)
+	listeners := make([]func(string), 0, len(s.dirListeners))
+	for _, fn := range s.dirListeners {
+		listeners = append(listeners, fn)
+	}
 	s.listenerMu.Unlock()
 
 	for _, fn := range listeners {
-		if fn != nil {
-			fn(dir)
-		}
+		fn(dir)
 	}
 }
 

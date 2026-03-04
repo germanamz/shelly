@@ -273,7 +273,7 @@ func (tb *ToolBox) Filter(names []string) *ToolBox {
 
 **Risks:** Medium. Behavioral change — could break callers that rely on `[]string{}` meaning "all tools." Requires careful audit.
 
-### 5.3 Fix permissions store listener cleanup
+### 5.3 Fix permissions store listener cleanup ✅
 
 **Problem:** `permissions.Store.OnDirApproved()` returns an unsubscribe function that sets the listener slot to `nil` rather than removing it from the slice. Over many subscribe/unsubscribe cycles in a long-running session, the listener slice grows unboundedly with nil entries.
 

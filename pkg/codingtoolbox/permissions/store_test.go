@@ -195,6 +195,25 @@ func TestOnDirApproved_Unsubscribe(t *testing.T) {
 	assert.Equal(t, 1, callCount, "callback should not fire after unsubscribe")
 }
 
+func TestOnDirApproved_UnsubscribeCleansUp(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(filepath.Join(dir, "perms.json"))
+	require.NoError(t, err)
+
+	var unsubs []func()
+	for range 100 {
+		unsubs = append(unsubs, s.OnDirApproved(func(string) {}))
+	}
+
+	for _, u := range unsubs {
+		u()
+	}
+
+	s.listenerMu.Lock()
+	assert.Empty(t, s.dirListeners, "unsubscribed listeners should be fully removed")
+	s.listenerMu.Unlock()
+}
+
 func TestOnDirApproved_ConcurrentSafety(t *testing.T) {
 	dir := t.TempDir()
 	s, err := New(filepath.Join(dir, "perms.json"))
