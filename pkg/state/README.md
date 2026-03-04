@@ -24,19 +24,19 @@ A thread-safe key-value store. The zero value is ready to use (no constructor ne
 
 ### Core Operations
 
-- **`Get(key string) (any, bool)`** -- returns the value for key and whether it was found. Values of type `json.RawMessage` or `[]byte` are deep-copied to prevent callers from mutating stored data.
-- **`Set(key string, value any)`** -- stores a value under key and notifies any goroutines blocked in `Watch`.
+- **`Get(key string) (json.RawMessage, bool)`** -- returns a deep copy of the value for key and whether it was found.
+- **`Set(key string, value json.RawMessage)`** -- stores a deep copy of the value under key and notifies any goroutines blocked in `Watch`.
 - **`Delete(key string)`** -- removes a key and notifies any goroutines blocked in `Watch`.
 - **`Keys() []string`** -- returns a sorted slice of all keys in the store.
-- **`Snapshot() map[string]any`** -- returns a copy of the entire store. Values of type `json.RawMessage` or `[]byte` are deep-copied to prevent aliasing.
+- **`Snapshot() map[string]json.RawMessage`** -- returns a deep copy of the entire store.
 
 ### Blocking Watch
 
 ```go
-func (s *Store) Watch(ctx context.Context, key string) (any, error)
+func (s *Store) Watch(ctx context.Context, key string) (json.RawMessage, error)
 ```
 
-Blocks until the specified key exists in the store or the context is cancelled. Uses a signal channel pattern (close + recreate on `Set`/`Delete`) for efficient notification without polling.
+Blocks until the specified key exists in the store or the context is cancelled. Returns a deep copy of the value. Uses a signal channel pattern (close + recreate on `Set`/`Delete`) for efficient notification without polling.
 
 ### Tool Integration
 
@@ -61,12 +61,12 @@ Values stored via tools are `json.RawMessage`, keeping them in their original JS
 ```go
 store := &state.Store{} // zero value is ready to use
 
-store.Set("key", "value")
-v, ok := store.Get("key")
+store.Set("key", json.RawMessage(`"value"`))
+v, ok := store.Get("key")          // v is json.RawMessage (deep copy)
 store.Delete("key")
-keys := store.Keys()          // sorted
-snap := store.Snapshot()       // shallow copy (byte slices deep-copied)
-v, err := store.Watch(ctx, "key") // blocks until key exists or ctx done
+keys := store.Keys()                // sorted
+snap := store.Snapshot()             // deep copy of all values
+v, err := store.Watch(ctx, "key")   // blocks until key exists or ctx done
 ```
 
 ### Agent Sharing Findings

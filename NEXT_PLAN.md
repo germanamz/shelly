@@ -28,46 +28,20 @@ Catch malformed tool schemas at test time rather than at LLM invocation time.
 
 ---
 
-## Phase 2 — Robustness for Long-Running Sessions
+## Phase 2 — Robustness for Long-Running Sessions ✅ COMPLETE
 
 Address unbounded growth issues that are safe at current scale but become problems in long-running or batch sessions.
 
-### 2.1 Cap `usage.Tracker` history
+### 2.1 Cap `usage.Tracker` history ✅
 
-**Problem:** `usage.Tracker` in `pkg/modeladapter/usage/usage.go` appends every `TokenCount` to an unbounded `[]TokenCount` slice. `Total()` does an O(n) scan on every call. In long-running batch sessions with thousands of LLM calls, this wastes memory and CPU.
+**Status:** Complete. Implemented Option A (running total + ring buffer).
 
-**Current code:**
-```go
-func (t *Tracker) Add(tc TokenCount) {
-    t.mu.Lock()
-    defer t.mu.Unlock()
-    t.entries = append(t.entries, tc)  // grows forever
-}
-```
-
-**Solution:** Add a configurable rolling window or running total:
-
-**Option A (Running total + recent window):** Maintain a `total TokenCount` that accumulates as entries arrive. Keep only the last N entries (e.g., 100) for `Last()` and per-entry inspection. `Total()` returns the running total in O(1). This preserves the `Last()` API while bounding memory.
-
-```go
-type Tracker struct {
-    mu      sync.Mutex
-    total   TokenCount        // running accumulator
-    entries []TokenCount      // ring buffer, last N entries
-    head    int               // ring buffer position
-    count   int               // total entries ever added
-}
-```
-
-**Option B (Simple cap):** Add a `Compact()` method that merges all entries into a single total and resets the slice. Callers (e.g., the engine) can call this periodically.
-
-Recommend **Option A** — it's self-maintaining and requires no caller coordination.
-
-**Files to modify:**
-- `pkg/modeladapter/usage/usage.go` — implement bounded tracking
-- `pkg/modeladapter/usage/usage_test.go` — test ring buffer behavior
-
-**Risks:** Low. Internal change. The `Total()` and `Last()` APIs remain the same. `Count()` may need to return the actual total count vs. the entries-in-buffer count — clarify semantics.
+**What was done:**
+- Replaced unbounded `[]TokenCount` slice with a fixed-size ring buffer (default 128 entries)
+- Added running `total TokenCount` accumulator — `Total()` now returns in O(1)
+- Made buffer size configurable via `WithCapacity` option
+- `Last()` returns the most recent entry from the ring buffer
+- `Count()` returns the total number of entries ever added
 
 ### 2.2 Add size cap to `projectctx.LoadExternal` ✅
 
@@ -79,39 +53,21 @@ Recommend **Option A** — it's self-maintaining and requires no caller coordina
 - Threaded the setting through `Load` → `LoadExternal` → `readFileContent`
 - Added `TestReadFileContent_OversizedFile` and `TestLoadExternal_OversizedFileIsTruncated` tests
 
-### 2.3 Make `state.Store` enforce JSON-only values
+### 2.3 Make `state.Store` enforce JSON-only values ✅
 
-**Problem:** `state.Store` accepts `any` as values in its Go API, but all tool-layer usage stores `json.RawMessage`. The `copyValue` function only deep-copies `json.RawMessage` and `[]byte` — all other types are shared references, creating potential mutation bugs.
+**Status:** Complete. Implemented Option A (strict typing).
 
-**Solution:** Restrict the `Set` method to accept only JSON-serializable values by enforcing `json.RawMessage`:
-
-**Option A (Strict):** Change `Set(key string, value any)` to `Set(key string, value json.RawMessage)`. This is a breaking API change but enforces correctness.
-
-**Option B (Validate):** Keep the `any` signature but marshal/unmarshal non-`json.RawMessage` values on `Set` to ensure deep-copy safety and JSON compatibility:
-
-```go
-func (s *Store) Set(key string, value any) error {
-    switch v := value.(type) {
-    case json.RawMessage:
-        s.data[key] = slices.Clone(v)
-    default:
-        b, err := json.Marshal(v)
-        if err != nil { return err }
-        s.data[key] = json.RawMessage(b)
-    }
-}
-```
-
-Recommend **Option A** if audit shows all callers already use `json.RawMessage`. Otherwise, **Option B** for backwards compatibility.
-
-**Analysis step:** Audit all callers of `Store.Set()` to determine which option is viable.
-
-**Files to modify:**
-- `pkg/state/store.go` — enforce JSON-only values
-- `pkg/state/store_test.go` — update tests
-- Callers of `Set()` — adapt if signature changes
-
-**Risks:** Medium for Option A (breaking change). Low for Option B (additive behavior).
+**What was done:**
+- Changed `Set(key string, value any)` to `Set(key string, value json.RawMessage)` — enforces JSON-only values at compile time
+- Changed `Get` return type from `(any, bool)` to `(json.RawMessage, bool)`
+- Changed `Watch` return type from `(any, error)` to `(json.RawMessage, error)`
+- Changed `Snapshot` return type from `map[string]any` to `map[string]json.RawMessage`
+- Changed internal `data` map from `map[string]any` to `map[string]json.RawMessage`
+- `Set` now deep-copies input via `slices.Clone` to prevent caller mutations
+- Removed `copyValue` helper — `slices.Clone` on `json.RawMessage` handles all deep-copy needs
+- Added `TestSetDeepCopiesInput` to verify input isolation
+- Updated all tests to use `json.RawMessage` values
+- Audit confirmed the only non-test caller (`handleSet`) already used `json.RawMessage`
 
 ---
 
@@ -150,7 +106,7 @@ Recommend **Option A** unless task persistence across sessions is not currently 
 | Phase | Status | Risk | Effort | Impact |
 |-------|--------|------|--------|--------|
 | 1 — Schema validation | ✅ Complete | None | Low-Med | Medium — catches schema bugs at test time |
-| 2 — Long-running robustness | Pending | Low-Med | Medium | High — prevents OOM and mutation bugs |
+| 2 — Long-running robustness | ✅ Complete | Low-Med | Medium | High — prevents OOM and mutation bugs |
 | 3 — Task store resilience | Pending | Low | Low | Low — only matters if task persistence is added |
 
-Phase 1 is complete. Phase 2 items can be done independently in any order. Phase 3 can be deferred until task persistence becomes a requirement.
+Phases 1 and 2 are complete. Phase 3 can be deferred until task persistence becomes a requirement.

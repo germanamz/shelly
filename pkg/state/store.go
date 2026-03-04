@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 
@@ -17,44 +18,47 @@ import (
 )
 
 // Store is a thread-safe key-value store. The zero value is ready to use.
+// All values are stored as json.RawMessage to guarantee deep-copy safety and
+// JSON compatibility.
 type Store struct {
 	mu     sync.RWMutex
 	once   sync.Once
 	signal chan struct{}
-	data   map[string]any
+	data   map[string]json.RawMessage
 }
 
 // init ensures internal structures are allocated.
 func (s *Store) init() {
 	s.once.Do(func() {
-		s.data = make(map[string]any)
+		s.data = make(map[string]json.RawMessage)
 		s.signal = make(chan struct{})
 	})
 }
 
 // Get returns the value for key and whether it was found.
-// If the value is a json.RawMessage or []byte, a deep copy is returned
-// to prevent callers from mutating the stored byte slice.
-func (s *Store) Get(key string) (any, bool) {
+// The returned json.RawMessage is a deep copy to prevent callers from
+// mutating the stored byte slice.
+func (s *Store) Get(key string) (json.RawMessage, bool) {
 	s.init()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	v, ok := s.data[key]
 	if !ok {
-		return v, false
+		return nil, false
 	}
 
-	return copyValue(v), true
+	return slices.Clone(v), true
 }
 
 // Set stores a value under key and notifies any goroutines blocked in Watch.
-func (s *Store) Set(key string, value any) {
+// The value is deep-copied to prevent callers from mutating stored data.
+func (s *Store) Set(key string, value json.RawMessage) {
 	s.init()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.data[key] = value
+	s.data[key] = slices.Clone(value)
 	close(s.signal)
 	s.signal = make(chan struct{})
 }
@@ -86,44 +90,23 @@ func (s *Store) Keys() []string {
 	return keys
 }
 
-// Snapshot returns a copy of the entire store. Values that are
-// json.RawMessage or []byte are deep-copied to prevent aliasing.
-func (s *Store) Snapshot() map[string]any {
+// Snapshot returns a deep copy of the entire store.
+func (s *Store) Snapshot() map[string]json.RawMessage {
 	s.init()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	cp := make(map[string]any, len(s.data))
+	cp := make(map[string]json.RawMessage, len(s.data))
 	for k, v := range s.data {
-		cp[k] = copyValue(v)
+		cp[k] = slices.Clone(v)
 	}
 
 	return cp
 }
 
-// copyValue returns a deep copy of v if it is a json.RawMessage or []byte,
-// otherwise it returns v unchanged. Only json.RawMessage and []byte are
-// deep-copied; all other types (including slices, maps, and pointers) are
-// returned as shared references. Callers storing mutable aggregate types
-// should be aware that mutations will affect the stored value.
-func copyValue(v any) any {
-	switch raw := v.(type) {
-	case json.RawMessage:
-		cp := make(json.RawMessage, len(raw))
-		copy(cp, raw)
-		return cp
-	case []byte:
-		cp := make([]byte, len(raw))
-		copy(cp, raw)
-		return cp
-	default:
-		return v
-	}
-}
-
 // Watch blocks until key exists in the store or ctx is cancelled.
-// It returns the value when found, or an error if the context is done.
-func (s *Store) Watch(ctx context.Context, key string) (any, error) {
+// It returns a deep copy of the value when found, or an error if the context is done.
+func (s *Store) Watch(ctx context.Context, key string) (json.RawMessage, error) {
 	s.init()
 
 	for {
@@ -133,7 +116,7 @@ func (s *Store) Watch(ctx context.Context, key string) (any, error) {
 		s.mu.RUnlock()
 
 		if ok {
-			return copyValue(v), nil
+			return slices.Clone(v), nil
 		}
 
 		select {
@@ -196,12 +179,7 @@ func (s *Store) handleGet(_ context.Context, input json.RawMessage) (string, err
 		return "", errors.New("key not found")
 	}
 
-	b, err := json.Marshal(v)
-	if err != nil {
-		return "", fmt.Errorf("failed to encode value: %w", err)
-	}
-
-	return string(b), nil
+	return string(v), nil
 }
 
 func (s *Store) handleSet(_ context.Context, input json.RawMessage) (string, error) {

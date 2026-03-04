@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -14,11 +15,11 @@ import (
 func TestGetSetBasic(t *testing.T) {
 	s := &Store{}
 
-	s.Set("foo", "bar")
+	s.Set("foo", json.RawMessage(`"bar"`))
 
 	v, ok := s.Get("foo")
 	require.True(t, ok)
-	assert.Equal(t, "bar", v)
+	assert.JSONEq(t, `"bar"`, string(v))
 }
 
 func TestGetMissing(t *testing.T) {
@@ -31,18 +32,18 @@ func TestGetMissing(t *testing.T) {
 func TestSetOverwrite(t *testing.T) {
 	s := &Store{}
 
-	s.Set("k", 1)
-	s.Set("k", 2)
+	s.Set("k", json.RawMessage(`1`))
+	s.Set("k", json.RawMessage(`2`))
 
 	v, ok := s.Get("k")
 	require.True(t, ok)
-	assert.Equal(t, 2, v)
+	assert.JSONEq(t, `2`, string(v))
 }
 
 func TestDelete(t *testing.T) {
 	s := &Store{}
 
-	s.Set("k", "v")
+	s.Set("k", json.RawMessage(`"v"`))
 	s.Delete("k")
 
 	_, ok := s.Get("k")
@@ -58,9 +59,9 @@ func TestDeleteNonexistent(t *testing.T) {
 func TestKeys(t *testing.T) {
 	s := &Store{}
 
-	s.Set("b", 1)
-	s.Set("a", 2)
-	s.Set("c", 3)
+	s.Set("b", json.RawMessage(`1`))
+	s.Set("a", json.RawMessage(`2`))
+	s.Set("c", json.RawMessage(`3`))
 
 	keys := s.Keys()
 	assert.Equal(t, []string{"a", "b", "c"}, keys)
@@ -74,14 +75,16 @@ func TestKeysEmpty(t *testing.T) {
 func TestSnapshot(t *testing.T) {
 	s := &Store{}
 
-	s.Set("x", 10)
-	s.Set("y", 20)
+	s.Set("x", json.RawMessage(`10`))
+	s.Set("y", json.RawMessage(`20`))
 
 	snap := s.Snapshot()
-	assert.Equal(t, map[string]any{"x": 10, "y": 20}, snap)
+	assert.JSONEq(t, `10`, string(snap["x"]))
+	assert.JSONEq(t, `20`, string(snap["y"]))
+	assert.Len(t, snap, 2)
 
 	// Mutating snapshot should not affect store.
-	snap["z"] = 30
+	snap["z"] = json.RawMessage(`30`)
 	_, ok := s.Get("z")
 	assert.False(t, ok)
 }
@@ -95,13 +98,26 @@ func TestGetDeepCopiesRawMessage(t *testing.T) {
 	v, ok := s.Get("raw")
 	require.True(t, ok)
 
-	got := v.(json.RawMessage)
 	// Mutate the returned copy.
-	got[0] = 'X'
+	v[0] = 'X'
 
 	// Original in store should be unchanged.
 	v2, _ := s.Get("raw")
-	assert.JSONEq(t, `{"key":"value"}`, string(v2.(json.RawMessage)))
+	assert.JSONEq(t, `{"key":"value"}`, string(v2))
+}
+
+func TestSetDeepCopiesInput(t *testing.T) {
+	s := &Store{}
+
+	original := json.RawMessage(`{"key":"value"}`)
+	s.Set("raw", original)
+
+	// Mutate the original slice after Set.
+	original[0] = 'X'
+
+	// Stored value should be unchanged.
+	v, _ := s.Get("raw")
+	assert.JSONEq(t, `{"key":"value"}`, string(v))
 }
 
 func TestSnapshotDeepCopiesRawMessage(t *testing.T) {
@@ -111,39 +127,22 @@ func TestSnapshotDeepCopiesRawMessage(t *testing.T) {
 	s.Set("raw", original)
 
 	snap := s.Snapshot()
-	got := snap["raw"].(json.RawMessage)
+	got := snap["raw"]
 	// Mutate the snapshot copy.
 	got[0] = 'X'
 
 	// Original in store should be unchanged.
 	v, _ := s.Get("raw")
-	assert.JSONEq(t, `{"key":"value"}`, string(v.(json.RawMessage)))
-}
-
-func TestGetDeepCopiesByteSlice(t *testing.T) {
-	s := &Store{}
-
-	original := []byte("hello")
-	s.Set("bytes", original)
-
-	v, ok := s.Get("bytes")
-	require.True(t, ok)
-
-	got := v.([]byte)
-	got[0] = 'X'
-
-	// Original in store should be unchanged.
-	v2, _ := s.Get("bytes")
-	assert.Equal(t, []byte("hello"), v2.([]byte))
+	assert.JSONEq(t, `{"key":"value"}`, string(v))
 }
 
 func TestWatchKeyExists(t *testing.T) {
 	s := &Store{}
-	s.Set("ready", "yes")
+	s.Set("ready", json.RawMessage(`"yes"`))
 
 	v, err := s.Watch(context.Background(), "ready")
 	require.NoError(t, err)
-	assert.Equal(t, "yes", v)
+	assert.JSONEq(t, `"yes"`, string(v))
 }
 
 func TestWatchBlocksUntilSet(t *testing.T) {
@@ -153,7 +152,7 @@ func TestWatchBlocksUntilSet(t *testing.T) {
 	defer cancel()
 
 	done := make(chan struct{})
-	var result any
+	var result json.RawMessage
 	var watchErr error
 
 	go func() {
@@ -162,11 +161,11 @@ func TestWatchBlocksUntilSet(t *testing.T) {
 	}()
 
 	time.Sleep(50 * time.Millisecond)
-	s.Set("later", 42)
+	s.Set("later", json.RawMessage(`42`))
 
 	<-done
 	require.NoError(t, watchErr)
-	assert.Equal(t, 42, result)
+	assert.JSONEq(t, `42`, string(result))
 }
 
 func TestWatchCancelledContext(t *testing.T) {
@@ -199,7 +198,7 @@ func TestConcurrentReadWrite(t *testing.T) {
 	// Writers
 	for i := range 50 {
 		wg.Go(func() {
-			s.Set("key", i)
+			s.Set("key", json.RawMessage(fmt.Sprintf(`%d`, i)))
 		})
 	}
 
@@ -227,7 +226,7 @@ func TestConcurrentSetDelete(t *testing.T) {
 	for i := range 100 {
 		wg.Go(func() {
 			if i%2 == 0 {
-				s.Set("toggle", i)
+				s.Set("toggle", json.RawMessage(fmt.Sprintf(`%d`, i)))
 			} else {
 				s.Delete("toggle")
 			}
@@ -275,13 +274,13 @@ func TestToolsSet(t *testing.T) {
 
 	v, ok := s.Get("x")
 	require.True(t, ok)
-	assert.JSONEq(t, `42`, string(v.(json.RawMessage)))
+	assert.JSONEq(t, `42`, string(v))
 }
 
 func TestToolsList(t *testing.T) {
 	s := &Store{}
-	s.Set("a", 1)
-	s.Set("b", 2)
+	s.Set("a", json.RawMessage(`1`))
+	s.Set("b", json.RawMessage(`2`))
 
 	tb := s.Tools("ns")
 	tool, ok := tb.Get("ns_state_list")
