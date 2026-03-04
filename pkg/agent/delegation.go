@@ -151,12 +151,25 @@ func runDelegateTask(ctx context.Context, a *Agent, t delegateTask) delegateResu
 		}
 	}
 
-	notifier := a.events.notifier
-	if notifier != nil {
-		notifier(ctx, "agent_start", child.name, AgentEventData{Prefix: child.Prefix(), Parent: a.name, ProviderLabel: child.ProviderLabel(), Task: t.Task})
+	// Wrap with a cancellable context so the TUI can cancel individual sub-agents.
+	childCtx, childCancel := context.WithCancel(ctx)
+	defer childCancel()
+
+	if a.events.cancelRegistrar != nil {
+		a.events.cancelRegistrar(child.name, childCancel)
+		defer func() {
+			if a.events.cancelUnregistrar != nil {
+				a.events.cancelUnregistrar(child.name)
+			}
+		}()
 	}
 
-	reply, runErr := child.Run(ctx)
+	notifier := a.events.notifier
+	if notifier != nil {
+		notifier(childCtx, "agent_start", child.name, AgentEventData{Prefix: child.Prefix(), Parent: a.name, ProviderLabel: child.ProviderLabel(), Task: t.Task})
+	}
+
+	reply, runErr := child.Run(childCtx)
 
 	if notifier != nil {
 		endData := AgentEventData{Prefix: child.Prefix(), Parent: a.name, ProviderLabel: child.ProviderLabel()}
@@ -220,6 +233,8 @@ func buildDelegateChild(a *Agent, t delegateTask) (*Agent, error) {
 	child.registry = a.registry
 	child.events.notifier = a.events.notifier
 	child.events.eventFunc = a.events.eventFunc
+	child.events.cancelRegistrar = a.events.cancelRegistrar
+	child.events.cancelUnregistrar = a.events.cancelUnregistrar
 	child.delegation.reflectionDir = a.delegation.reflectionDir
 	child.delegation.taskBoard = a.delegation.taskBoard
 

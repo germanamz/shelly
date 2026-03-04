@@ -17,11 +17,12 @@ import (
 
 // Question represents a question posed to the user by an agent.
 type Question struct {
-	ID          string   `json:"id"`
-	Text        string   `json:"text"`
-	Options     []string `json:"options,omitempty"`
-	Header      string   `json:"header,omitempty"`      // short tab label (single word)
-	MultiSelect bool     `json:"multiSelect,omitempty"` // true = checkboxes, false = single choice
+	ID            string   `json:"id"`
+	Text          string   `json:"text"`
+	Options       []string `json:"options,omitempty"`
+	Header        string   `json:"header,omitempty"`        // short tab label (single word)
+	MultiSelect   bool     `json:"multiSelect,omitempty"`   // true = checkboxes, false = single choice
+	MaxSelections int      `json:"maxSelections,omitempty"` // max picks for multi-select (0 = unlimited)
 }
 
 // OnAskFunc is called when a new question is posed. Implementations should
@@ -78,10 +79,11 @@ func (r *Responder) Tools() *toolbox.ToolBox {
 }
 
 type askInput struct {
-	Question    string   `json:"question" desc:"The question to ask the user"`
-	Options     []string `json:"options,omitempty" desc:"Optional list of choices for the user to select from"`
-	Header      string   `json:"header,omitempty" desc:"Short tab label for the question (single word, e.g. Auth, Style)"`
-	MultiSelect bool     `json:"multiSelect,omitempty" desc:"When true the user can select multiple options (checkboxes). Defaults to false (single choice)."`
+	Question      string   `json:"question" desc:"The question to ask the user"`
+	Options       []string `json:"options,omitempty" desc:"Optional list of choices for the user to select from"`
+	Header        string   `json:"header,omitempty" desc:"Short tab label for the question (single word, e.g. Auth, Style)"`
+	MultiSelect   bool     `json:"multiSelect,omitempty" desc:"When true the user can select multiple options (checkboxes). Defaults to false (single choice)."`
+	MaxSelections int      `json:"maxSelections,omitempty" desc:"Maximum number of options the user can select in multi-select mode (0 = unlimited)."`
 }
 
 func (r *Responder) askUserTool() toolbox.Tool {
@@ -152,10 +154,11 @@ func (r *Responder) handleAsk(ctx context.Context, input json.RawMessage) (strin
 	}
 
 	resp, err := r.askQuestion(ctx, Question{
-		Text:        in.Question,
-		Options:     in.Options,
-		Header:      in.Header,
-		MultiSelect: in.MultiSelect,
+		Text:          in.Question,
+		Options:       in.Options,
+		Header:        in.Header,
+		MultiSelect:   in.MultiSelect,
+		MaxSelections: in.MaxSelections,
 	})
 	if err != nil {
 		return "", fmt.Errorf("ask_user: %w", err)

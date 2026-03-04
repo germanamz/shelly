@@ -33,6 +33,13 @@ type EventNotifier func(ctx context.Context, kind string, agentName string, data
 // (tool_call_start, tool_call_end, message_added).
 type EventFunc func(ctx context.Context, kind string, data any)
 
+// CancelRegistrar registers a context.CancelFunc for a named child agent so
+// that the engine (or TUI) can cancel individual sub-agents.
+type CancelRegistrar func(name string, cancel context.CancelFunc)
+
+// CancelUnregistrar removes a previously registered cancel function.
+type CancelUnregistrar func(name string)
+
 // ToolCallEventData carries metadata for tool_call_start / tool_call_end events.
 type ToolCallEventData struct {
 	ToolName string `json:"tool_name"`
@@ -54,19 +61,21 @@ type TaskBoard interface {
 
 // Options configures an Agent.
 type Options struct {
-	MaxIterations          int           // ReAct loop limit (0 = unlimited).
-	MaxDelegationDepth     int           // Max tree depth for delegation (0 = cannot delegate).
-	Skills                 []skill.Skill // Procedures the agent knows.
-	Middleware             []Middleware  // Applied around Run().
-	Effects                []Effect      // Per-iteration hooks run inside the ReAct loop.
-	Context                string        // Project context injected into the system prompt.
-	EventNotifier          EventNotifier // Publishes sub-agent lifecycle events.
-	Prefix                 string        // Display prefix (emoji + label) for the TUI.
-	TaskBoard              TaskBoard     // Optional task board for automatic task lifecycle during delegation.
-	ReflectionDir          string        // Directory for failure reflection notes (empty = disabled).
-	DisableBehavioralHints bool          // When true, omits the <behavioral_constraints> section from the system prompt.
-	EventFunc              EventFunc     // Optional callback for fine-grained loop events (tool calls, message added).
-	ProviderLabel          string        // Display label for the provider (e.g. "anthropic/claude-sonnet-4").
+	MaxIterations          int               // ReAct loop limit (0 = unlimited).
+	MaxDelegationDepth     int               // Max tree depth for delegation (0 = cannot delegate).
+	Skills                 []skill.Skill     // Procedures the agent knows.
+	Middleware             []Middleware      // Applied around Run().
+	Effects                []Effect          // Per-iteration hooks run inside the ReAct loop.
+	Context                string            // Project context injected into the system prompt.
+	EventNotifier          EventNotifier     // Publishes sub-agent lifecycle events.
+	Prefix                 string            // Display prefix (emoji + label) for the TUI.
+	TaskBoard              TaskBoard         // Optional task board for automatic task lifecycle during delegation.
+	ReflectionDir          string            // Directory for failure reflection notes (empty = disabled).
+	DisableBehavioralHints bool              // When true, omits the <behavioral_constraints> section from the system prompt.
+	EventFunc              EventFunc         // Optional callback for fine-grained loop events (tool calls, message added).
+	CancelRegistrar        CancelRegistrar   // Registers child-agent cancel funcs for external cancellation.
+	CancelUnregistrar      CancelUnregistrar // Unregisters child-agent cancel funcs.
+	ProviderLabel          string            // Display label for the provider (e.g. "anthropic/claude-sonnet-4").
 }
 
 // delegationConfig groups fields used by the delegation handler.
@@ -85,8 +94,10 @@ type promptConfig struct {
 
 // eventConfig groups fields used for event emission.
 type eventConfig struct {
-	notifier  EventNotifier
-	eventFunc EventFunc
+	notifier          EventNotifier
+	eventFunc         EventFunc
+	cancelRegistrar   CancelRegistrar
+	cancelUnregistrar CancelUnregistrar
 }
 
 // Agent is the unified agent type. It runs a ReAct loop, can delegate to other
@@ -137,8 +148,10 @@ func New(name, description, instructions string, completer modeladapter.Complete
 			disableBehavioralHints: opts.DisableBehavioralHints,
 		},
 		events: eventConfig{
-			notifier:  opts.EventNotifier,
-			eventFunc: opts.EventFunc,
+			notifier:          opts.EventNotifier,
+			eventFunc:         opts.EventFunc,
+			cancelRegistrar:   opts.CancelRegistrar,
+			cancelUnregistrar: opts.CancelUnregistrar,
 		},
 	}
 }

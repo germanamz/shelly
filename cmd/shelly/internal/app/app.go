@@ -29,6 +29,12 @@ const (
 	StateAskUser
 )
 
+// askSet groups questions from a single agent for sequential presentation.
+type askSet struct {
+	agent     string
+	questions []msgs.AskUserMsg
+}
+
 // AppModel is the root bubbletea v2 model.
 type AppModel struct {
 	ctx            context.Context
@@ -38,7 +44,8 @@ type AppModel struct {
 	chatView       chatview.ChatViewModel
 	inputBox       input.InputModel
 	taskPanel      taskpanel.TaskPanelModel
-	askQueue       []msgs.AskUserMsg
+	askSets        []askSet
+	askActiveAgent string
 	askActive      *askprompt.AskBatchModel
 	askBatching    bool
 	state          State
@@ -373,7 +380,19 @@ func (m *AppModel) recalcViewportHeight() {
 }
 
 func (m *AppModel) handleAskUser(msg msgs.AskUserMsg) (tea.Model, tea.Cmd) {
-	m.askQueue = append(m.askQueue, msg)
+	// Group into per-agent sets.
+	agentName := msg.Agent
+	found := false
+	for i := range m.askSets {
+		if m.askSets[i].agent == agentName {
+			m.askSets[i].questions = append(m.askSets[i].questions, msg)
+			found = true
+			break
+		}
+	}
+	if !found {
+		m.askSets = append(m.askSets, askSet{agent: agentName, questions: []msgs.AskUserMsg{msg}})
+	}
 
 	if m.askActive != nil {
 		return m, nil
@@ -391,13 +410,17 @@ func (m *AppModel) handleAskUser(msg msgs.AskUserMsg) (tea.Model, tea.Cmd) {
 
 func (m *AppModel) drainAskBatch() (tea.Model, tea.Cmd) {
 	m.askBatching = false
-	if len(m.askQueue) == 0 {
+	if len(m.askSets) == 0 {
 		return m, nil
 	}
 
-	batch := askprompt.NewAskBatch(m.askQueue, m.width)
+	// Pop the first set.
+	set := m.askSets[0]
+	m.askSets = m.askSets[1:]
+
+	batch := askprompt.NewAskBatch(set.questions, set.agent, m.width)
 	m.askActive = &batch
-	m.askQueue = nil
+	m.askActiveAgent = set.agent
 	m.state = StateAskUser
 	return m, nil
 }
@@ -406,32 +429,44 @@ func (m *AppModel) handleBatchAnswered(msg msgs.AskBatchAnsweredMsg) (tea.Model,
 	if m.askActive == nil {
 		return m, nil
 	}
-	dismissed := m.askActive.Questions()
+	agentName := m.askActiveAgent
 	m.askActive = nil
+	m.askActiveAgent = ""
 
-	if len(m.askQueue) > 0 {
-		return m.drainAskBatch()
-	}
-
-	if m.state == StateAskUser {
-		m.state = StateProcessing
-	}
-
+	// Dismissed — cancel the agent instead of sending "[user dismissed]".
 	if msg.Answers == nil {
-		sess := m.sess
-		return m, func() tea.Msg {
-			for _, q := range dismissed {
-				if err := sess.Respond(q.Question.ID, "[user dismissed the question]"); err != nil {
-					return msgs.RespondErrorMsg{Err: err}
-				}
+		m.purgeAgentSets(agentName)
+
+		isMain := agentName == m.sess.AgentName()
+		if isMain {
+			// Cancel the main send and return to idle.
+			if m.cancelSend != nil {
+				m.cancelSend()
+				m.cancelSend = nil
 			}
-			return nil
+			m.state = StateIdle
+			m.chatView, _ = m.chatView.Update(msgs.ChatViewSetProcessingMsg{Processing: false})
+		} else {
+			// Cancel the sub-agent's context.
+			m.eng.CancelAgent(agentName)
+			dismissLine := styles.DimStyle.Render(fmt.Sprintf("[dismissed questions from %s]", agentName))
+			m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: "\n" + dismissLine + "\n"})
 		}
+
+		// Drain next set if available.
+		if len(m.askSets) > 0 {
+			return m.drainAskBatch()
+		}
+		if !isMain && m.state == StateAskUser {
+			m.state = StateProcessing
+		}
+		return m, nil
 	}
 
+	// Normal answer path — always deliver answers first.
 	sess := m.sess
 	answers := msg.Answers
-	return m, func() tea.Msg {
+	respondCmd := func() tea.Msg {
 		for _, ans := range answers {
 			if err := sess.Respond(ans.QuestionID, ans.Response); err != nil {
 				return msgs.RespondErrorMsg{Err: err}
@@ -439,6 +474,28 @@ func (m *AppModel) handleBatchAnswered(msg msgs.AskBatchAnsweredMsg) (tea.Model,
 		}
 		return nil
 	}
+
+	if len(m.askSets) > 0 {
+		_, drainCmd := m.drainAskBatch()
+		return m, tea.Batch(respondCmd, drainCmd)
+	}
+
+	if m.state == StateAskUser {
+		m.state = StateProcessing
+	}
+
+	return m, respondCmd
+}
+
+// purgeAgentSets removes all queued ask sets for the given agent.
+func (m *AppModel) purgeAgentSets(agentName string) {
+	filtered := m.askSets[:0]
+	for _, s := range m.askSets {
+		if s.agent != agentName {
+			filtered = append(filtered, s)
+		}
+	}
+	m.askSets = filtered
 }
 
 func tickCmd() tea.Cmd {

@@ -38,8 +38,10 @@ type effectSetup struct {
 
 // agentEvents holds the event callbacks wired into each agent.
 type agentEvents struct {
-	notifier  agent.EventNotifier
-	eventFunc agent.EventFunc
+	notifier          agent.EventNotifier
+	eventFunc         agent.EventFunc
+	cancelRegistrar   agent.CancelRegistrar
+	cancelUnregistrar agent.CancelUnregistrar
 }
 
 // registrationContext groups intermediate resolved state used while registering
@@ -146,8 +148,10 @@ func (e *Engine) buildRegistrationContext(ac AgentConfig) (registrationContext, 
 			wiringCtx: wctx,
 		},
 		events: agentEvents{
-			notifier:  e.buildAgentEventNotifier(),
-			eventFunc: e.buildAgentEventFunc(),
+			notifier:          e.buildAgentEventNotifier(),
+			eventFunc:         e.buildAgentEventFunc(),
+			cancelRegistrar:   agent.CancelRegistrar(e.RegisterAgentCancel),
+			cancelUnregistrar: agent.CancelUnregistrar(e.UnregisterAgentCancel),
 		},
 		contextStr:    e.projectCtx.String(),
 		contextWindow: contextWindow,
@@ -309,6 +313,8 @@ func (e *Engine) registerFactory(rc registrationContext) error {
 			Context:            rc.contextStr,
 			EventNotifier:      rc.events.notifier,
 			EventFunc:          rc.events.eventFunc,
+			CancelRegistrar:    rc.events.cancelRegistrar,
+			CancelUnregistrar:  rc.events.cancelUnregistrar,
 			ReflectionDir:      rc.reflectionDir,
 			Prefix:             rc.identity.prefix,
 			ProviderLabel:      rc.identity.providerLabel,

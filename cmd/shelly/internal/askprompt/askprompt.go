@@ -13,17 +13,18 @@ import (
 
 // askEntry represents a single question within a batch.
 type askEntry struct {
-	question    msgs.AskUserMsg
-	header      string // tab label
-	isChoice    bool
-	multiSelect bool
-	options     []string
-	checked     []bool // for multi-select: which options are checked
-	cursor      int
-	textarea    textarea.Model
-	customMode  bool
-	answered    bool
-	response    string
+	question      msgs.AskUserMsg
+	header        string // tab label
+	isChoice      bool
+	multiSelect   bool
+	maxSelections int // max picks for multi-select (0 = unlimited)
+	options       []string
+	checked       []bool // for multi-select: which options are checked
+	cursor        int
+	textarea      textarea.Model
+	customMode    bool
+	answered      bool
+	response      string
 }
 
 // AskBatchModel handles one or more batched ask-user interactions.
@@ -31,6 +32,7 @@ type AskBatchModel struct {
 	entries   []askEntry
 	activeTab int
 	onConfirm bool // true when on the Confirm tab
+	agentName string
 	width     int
 
 	// Confirm tab state.
@@ -40,7 +42,8 @@ type AskBatchModel struct {
 }
 
 // NewAskBatch creates a new AskBatchModel from the given questions.
-func NewAskBatch(questions []msgs.AskUserMsg, width int) AskBatchModel {
+// agentName identifies the agent that posed these questions.
+func NewAskBatch(questions []msgs.AskUserMsg, agentName string, width int) AskBatchModel {
 	entries := make([]askEntry, len(questions))
 	for i, q := range questions {
 		ta := newAskTextarea()
@@ -59,13 +62,14 @@ func NewAskBatch(questions []msgs.AskUserMsg, width int) AskBatchModel {
 		}
 
 		entries[i] = askEntry{
-			question:    q,
-			header:      header,
-			isChoice:    isChoice,
-			multiSelect: q.Question.MultiSelect,
-			options:     options,
-			checked:     make([]bool, len(options)),
-			textarea:    ta,
+			question:      q,
+			header:        header,
+			isChoice:      isChoice,
+			multiSelect:   q.Question.MultiSelect,
+			maxSelections: q.Question.MaxSelections,
+			options:       options,
+			checked:       make([]bool, len(options)),
+			textarea:      ta,
 		}
 	}
 
@@ -80,9 +84,21 @@ func NewAskBatch(questions []msgs.AskUserMsg, width int) AskBatchModel {
 
 	return AskBatchModel{
 		entries:   entries,
+		agentName: agentName,
 		width:     width,
 		confirmTA: confirmTA,
 	}
+}
+
+// checkedCount returns the number of currently checked options.
+func (e *askEntry) checkedCount() int {
+	n := 0
+	for _, c := range e.checked {
+		if c {
+			n++
+		}
+	}
+	return n
 }
 
 func newAskTextarea() textarea.Model {
@@ -190,7 +206,11 @@ func (m AskBatchModel) handleChoiceKey(msg tea.KeyPressMsg, e *askEntry) (AskBat
 	case tea.KeySpace:
 		// Toggle for multi-select.
 		if e.multiSelect && e.cursor < len(e.options)-1 {
-			e.checked[e.cursor] = !e.checked[e.cursor]
+			if e.checked[e.cursor] {
+				e.checked[e.cursor] = false
+			} else if e.maxSelections <= 0 || e.checkedCount() < e.maxSelections {
+				e.checked[e.cursor] = true
+			}
 		}
 	case tea.KeyEnter:
 		if e.multiSelect {
@@ -411,6 +431,12 @@ func (m AskBatchModel) View() string {
 
 	var sb strings.Builder
 
+	// Agent label.
+	if m.agentName != "" {
+		sb.WriteString(styles.AskTitleStyle.Render("📨 " + m.agentName))
+		sb.WriteString("\n")
+	}
+
 	// Tab bar.
 	sb.WriteString(m.renderTabBar())
 	sb.WriteString("\n\n")
@@ -535,7 +561,11 @@ func (m AskBatchModel) renderHints() string {
 	if !m.onConfirm && m.activeTab < len(m.entries) {
 		e := m.entries[m.activeTab]
 		if e.multiSelect && e.isChoice && !e.customMode {
-			hints += ", Space Toggle"
+			if e.maxSelections > 0 {
+				hints += fmt.Sprintf(", Space Toggle (%d/%d)", e.checkedCount(), e.maxSelections)
+			} else {
+				hints += ", Space Toggle"
+			}
 		}
 	}
 	hints += ", ↵ Confirm, Esc Dismiss"

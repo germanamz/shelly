@@ -41,6 +41,9 @@ type Engine struct {
 	closed    bool
 	wg        sync.WaitGroup
 	closeOnce sync.Once
+
+	cancelMu     sync.Mutex
+	agentCancels map[string]context.CancelFunc
 }
 
 // New creates an Engine from the given configuration. It validates the config,
@@ -68,14 +71,15 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	e := &Engine{
-		cfg:        cfg,
-		cancel:     cancel,
-		events:     NewEventBus(),
-		registry:   agent.NewRegistry(),
-		completers: make(map[string]modeladapter.Completer, len(cfg.Providers)),
-		toolboxes:  make(map[string]*toolbox.ToolBox),
-		sessions:   make(map[string]*Session),
-		dir:        dir,
+		cfg:          cfg,
+		cancel:       cancel,
+		events:       NewEventBus(),
+		registry:     agent.NewRegistry(),
+		completers:   make(map[string]modeladapter.Completer, len(cfg.Providers)),
+		toolboxes:    make(map[string]*toolbox.ToolBox),
+		sessions:     make(map[string]*Session),
+		dir:          dir,
+		agentCancels: make(map[string]context.CancelFunc),
 	}
 
 	// Bootstrap .shelly/ directory structure.
@@ -244,6 +248,35 @@ func (e *Engine) acquireSend() error {
 // releaseSend decrements the in-flight send counter.
 func (e *Engine) releaseSend() {
 	e.wg.Done()
+}
+
+// RegisterAgentCancel stores a cancel function for the named agent.
+func (e *Engine) RegisterAgentCancel(name string, cancel context.CancelFunc) {
+	e.cancelMu.Lock()
+	defer e.cancelMu.Unlock()
+	e.agentCancels[name] = cancel
+}
+
+// UnregisterAgentCancel removes a previously registered cancel function.
+func (e *Engine) UnregisterAgentCancel(name string) {
+	e.cancelMu.Lock()
+	defer e.cancelMu.Unlock()
+	delete(e.agentCancels, name)
+}
+
+// CancelAgent cancels the named agent's context and unregisters it. Returns
+// true if the agent was found and cancelled.
+func (e *Engine) CancelAgent(name string) bool {
+	e.cancelMu.Lock()
+	cancel, ok := e.agentCancels[name]
+	if ok {
+		delete(e.agentCancels, name)
+	}
+	e.cancelMu.Unlock()
+	if ok {
+		cancel()
+	}
+	return ok
 }
 
 // Close cancels the engine context, shuts down MCP clients, and releases
