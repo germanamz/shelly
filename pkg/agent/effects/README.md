@@ -353,9 +353,8 @@ type OffloadConfig struct {
 
 The package includes internal helpers used by multiple effects:
 
-- `truncate(s string, maxLen int) string` -- Truncates to maxLen runes, appending an ellipsis if needed. Correctly handles multi-byte UTF-8 characters.
-- `renderConversation(c *chat.Chat) string` -- Converts chat messages into a compact text transcript, skipping system messages. Tool call arguments are truncated to 200 runes, tool results to 500 runes.
-- `renderMessages(msgs []message.Message) string` -- Same as `renderConversation` but operates on a message slice.
+- `renderMessages(msgs []message.Message) string` -- Converts messages into a compact text transcript, skipping system messages. Tool call arguments are truncated to 200 runes, tool results to 500 runes. Defined in `render.go`.
+- `truncate(s string, maxLen int) string` -- Truncates to maxLen runes, appending an ellipsis if needed. Correctly handles multi-byte UTF-8 characters. Defined in `render.go`.
 
 ## Dependency Direction
 

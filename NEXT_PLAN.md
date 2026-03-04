@@ -33,7 +33,7 @@ Both `openai.Adapter` and `grok.Adapter` then compose with `openaicompat` functi
 
 **Risks:** Low. Internal package, no public API change. All provider behavior tested via existing test suites.
 
-### 1.2 Deduplicate `renderConversation` / `renderMessages` in effects
+### 1.2 Deduplicate `renderConversation` / `renderMessages` in effects ✅
 
 **Problem:** `pkg/agent/effects/compact.go` has `renderConversation()` and `pkg/agent/effects/sliding_window.go` has `renderMessages()` — nearly identical functions that serialize chat messages to a text format for LLM summarization.
 

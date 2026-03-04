@@ -3,12 +3,10 @@ package effects
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/germanamz/shelly/pkg/agent"
 	"github.com/germanamz/shelly/pkg/chats/chat"
-	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/chats/role"
 	"github.com/germanamz/shelly/pkg/modeladapter/usage"
@@ -390,96 +388,4 @@ func TestCompactEffect_Error_AskUser_Retry(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, callCount)
 	assert.True(t, notified)
-}
-
-// --- renderConversation ---
-
-func TestRenderConversation_Basic(t *testing.T) {
-	c := chat.New(
-		message.NewText("", role.System, "You are helpful."),
-		message.NewText("user", role.User, "Hello"),
-		message.NewText("bot", role.Assistant, "Hi there!"),
-	)
-
-	result := renderConversation(c)
-	assert.NotContains(t, result, "You are helpful.")
-	assert.Contains(t, result, "[user] Hello")
-	assert.Contains(t, result, "[assistant] Hi there!")
-}
-
-func TestRenderConversation_ToolCalls(t *testing.T) {
-	c := chat.New(
-		message.New("bot", role.Assistant,
-			content.ToolCall{ID: "c1", Name: "read_file", Arguments: `{"path":"/foo/bar.go"}`},
-		),
-		message.New("bot", role.Tool,
-			content.ToolResult{ToolCallID: "c1", Content: "file contents here"},
-		),
-	)
-
-	result := renderConversation(c)
-	assert.Contains(t, result, `[assistant] Called tool read_file({"path":"/foo/bar.go"})`)
-	assert.Contains(t, result, "[tool result] file contents here")
-}
-
-func TestRenderConversation_ToolError(t *testing.T) {
-	c := chat.New(
-		message.New("bot", role.Tool,
-			content.ToolResult{ToolCallID: "c1", Content: "not found", IsError: true},
-		),
-	)
-
-	result := renderConversation(c)
-	assert.Contains(t, result, "[tool error] not found")
-}
-
-func TestRenderConversation_TruncatesLongArgs(t *testing.T) {
-	longArgs := strings.Repeat("x", 300)
-	c := chat.New(
-		message.New("bot", role.Assistant,
-			content.ToolCall{ID: "c1", Name: "test", Arguments: longArgs},
-		),
-	)
-
-	result := renderConversation(c)
-	assert.Contains(t, result, strings.Repeat("x", 200)+"\u2026")
-}
-
-func TestRenderConversation_TruncatesLongResults(t *testing.T) {
-	longResult := strings.Repeat("y", 600)
-	c := chat.New(
-		message.New("bot", role.Tool,
-			content.ToolResult{ToolCallID: "c1", Content: longResult},
-		),
-	)
-
-	result := renderConversation(c)
-	assert.Contains(t, result, strings.Repeat("y", 500)+"\u2026")
-}
-
-// --- truncate ---
-
-func TestTruncate_Short(t *testing.T) {
-	assert.Equal(t, "abc", truncate("abc", 10))
-}
-
-func TestTruncate_Exact(t *testing.T) {
-	assert.Equal(t, "abc", truncate("abc", 3))
-}
-
-func TestTruncate_Long(t *testing.T) {
-	assert.Equal(t, "ab\u2026", truncate("abcdef", 2))
-}
-
-func TestTruncate_MultiByte(t *testing.T) {
-	// 5 runes: こ ん に ち は (each 3 bytes in UTF-8)
-	s := "こんにちは"
-	result := truncate(s, 3)
-	assert.Equal(t, "こんに\u2026", result)
-
-	// At exact rune length — no truncation.
-	assert.Equal(t, s, truncate(s, 5))
-
-	// Shorter than limit — returned as-is.
-	assert.Equal(t, s, truncate(s, 10))
 }

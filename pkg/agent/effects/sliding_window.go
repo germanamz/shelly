@@ -286,33 +286,3 @@ func (e *SlidingWindowEffect) computeSummary(ctx context.Context, ic agent.Itera
 
 	return reply.TextContent(), nil
 }
-
-// renderMessages converts a slice of messages into a compact text transcript.
-func renderMessages(msgs []message.Message) string {
-	var b strings.Builder
-
-	for _, m := range msgs {
-		if m.Role == role.System {
-			continue
-		}
-
-		for _, p := range m.Parts {
-			switch v := p.(type) {
-			case content.Text:
-				fmt.Fprintf(&b, "[%s] %s\n", m.Role, v.Text)
-			case content.ToolCall:
-				args := truncate(v.Arguments, maxToolArgs)
-				fmt.Fprintf(&b, "[%s] Called tool %s(%s)\n", m.Role, v.Name, args)
-			case content.ToolResult:
-				body := truncate(v.Content, maxToolResult)
-				if v.IsError {
-					fmt.Fprintf(&b, "[tool error] %s\n", body)
-				} else {
-					fmt.Fprintf(&b, "[tool result] %s\n", body)
-				}
-			}
-		}
-	}
-
-	return b.String()
-}

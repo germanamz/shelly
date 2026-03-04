@@ -6,12 +6,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/germanamz/shelly/pkg/agent"
 	"github.com/germanamz/shelly/pkg/chats/chat"
-	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/chats/role"
 	"github.com/germanamz/shelly/pkg/modeladapter"
@@ -40,11 +37,6 @@ const summarizationPrompt = `You are a conversation summarizer. Summarize this c
 ## Next Steps
 1. [Specific next action with enough detail to execute without prior context]
 2. [Following action]`
-
-const (
-	maxToolArgs   = 200
-	maxToolResult = 500
-)
 
 // CompactConfig holds parameters for the CompactEffect.
 type CompactConfig struct {
@@ -113,7 +105,7 @@ func (e *CompactEffect) shouldCompact(completer modeladapter.Completer, estimate
 // standalone TrimToolResultsEffect which runs at PhaseAfterComplete before
 // this effect's PhaseBeforeComplete on the next iteration.
 func (e *CompactEffect) summarize(ctx context.Context, ic agent.IterationContext) error {
-	transcript := renderConversation(ic.Chat)
+	transcript := renderMessages(ic.Chat.Messages())
 
 	tempChat := chat.New(
 		message.NewText("", role.System, summarizationPrompt),
@@ -173,48 +165,4 @@ func (e *CompactEffect) handleCompactError(ctx context.Context, ic agent.Iterati
 	}
 
 	return nil
-}
-
-// renderConversation converts chat messages into a compact text transcript,
-// skipping system messages.
-func renderConversation(c *chat.Chat) string {
-	var b strings.Builder
-
-	c.Each(func(_ int, m message.Message) bool {
-		if m.Role == role.System {
-			return true
-		}
-
-		for _, p := range m.Parts {
-			switch v := p.(type) {
-			case content.Text:
-				fmt.Fprintf(&b, "[%s] %s\n", m.Role, v.Text)
-			case content.ToolCall:
-				args := truncate(v.Arguments, maxToolArgs)
-				fmt.Fprintf(&b, "[%s] Called tool %s(%s)\n", m.Role, v.Name, args)
-			case content.ToolResult:
-				body := truncate(v.Content, maxToolResult)
-				if v.IsError {
-					fmt.Fprintf(&b, "[tool error] %s\n", body)
-				} else {
-					fmt.Fprintf(&b, "[tool result] %s\n", body)
-				}
-			}
-		}
-
-		return true
-	})
-
-	return b.String()
-}
-
-// truncate returns s truncated to maxLen runes with "…" appended if needed.
-func truncate(s string, maxLen int) string {
-	if utf8.RuneCountInString(s) <= maxLen {
-		return s
-	}
-
-	runes := []rune(s)
-
-	return string(runes[:maxLen]) + "\u2026"
 }
