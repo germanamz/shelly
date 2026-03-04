@@ -36,9 +36,9 @@ type ChatViewModel struct {
 	committed []string // committed content lines (user msgs, summaries, etc.)
 
 	agents        map[string]*AgentContainer
-	subAgents     map[string]*SubAgentItem // nested sub-agent containers keyed by agent name
-	agentOrder    []string                 // agent names in arrival order
-	colorRegistry map[string]string        // agent name → hex color string
+	subAgents     map[string]*AgentContainer // nested sub-agent containers keyed by agent name
+	agentOrder    []string                   // agent names in arrival order
+	colorRegistry map[string]string          // agent name → hex color string
 	nextColorSlot int
 
 	HasMessages   bool
@@ -70,7 +70,7 @@ func New() ChatViewModel {
 	return ChatViewModel{
 		viewport:      vp,
 		agents:        make(map[string]*AgentContainer),
-		subAgents:     make(map[string]*SubAgentItem),
+		subAgents:     make(map[string]*AgentContainer),
 		colorRegistry: make(map[string]string),
 	}
 }
@@ -341,8 +341,8 @@ func (m *ChatViewModel) resolveContainer(agentName string) *AgentContainer {
 	if ac, ok := m.agents[agentName]; ok {
 		return ac
 	}
-	if sa, ok := m.subAgents[agentName]; ok {
-		return sa.Container
+	if ac, ok := m.subAgents[agentName]; ok {
+		return ac
 	}
 	return nil
 }
@@ -373,9 +373,8 @@ func (m *ChatViewModel) startAgent(agentName, prefix, parent, providerLabel, tas
 		if task != "" {
 			childAC.Items = append(childAC.Items, &TaskMessageItem{Text: task, Color: color})
 		}
-		sa := &SubAgentItem{Container: childAC}
-		parentAC.Items = append(parentAC.Items, sa)
-		m.subAgents[agentName] = sa
+		parentAC.Items = append(parentAC.Items, childAC)
+		m.subAgents[agentName] = childAC
 		return
 	}
 
@@ -395,10 +394,10 @@ func (m *ChatViewModel) startAgent(agentName, prefix, parent, providerLabel, tas
 func (m *ChatViewModel) endAgent(agentName, completionSummary string) {
 	// Check if this is a nested sub-agent.
 	if sa, ok := m.subAgents[agentName]; ok {
-		sa.Container.Done = true
-		sa.Container.EndTime = time.Now()
-		if sa.Container.FinalAnswer == "" && completionSummary != "" {
-			sa.Container.FinalAnswer = completionSummary
+		sa.Done = true
+		sa.EndTime = time.Now()
+		if sa.FinalAnswer == "" && completionSummary != "" {
+			sa.FinalAnswer = completionSummary
 		}
 		delete(m.subAgents, agentName)
 		return
@@ -435,9 +434,9 @@ func (m *ChatViewModel) endAgent(agentName, completionSummary string) {
 func (m *ChatViewModel) flushAll() {
 	// End sub-agents first so their containers are marked Done.
 	for name, sa := range m.subAgents {
-		sa.Container.Done = true
-		if sa.Container.EndTime.IsZero() {
-			sa.Container.EndTime = time.Now()
+		sa.Done = true
+		if sa.EndTime.IsZero() {
+			sa.EndTime = time.Now()
 		}
 		delete(m.subAgents, name)
 	}
@@ -481,7 +480,7 @@ func (m *ChatViewModel) advanceSpinners() {
 // clear resets the chat view state including the viewport content.
 func (m *ChatViewModel) clear() {
 	m.agents = make(map[string]*AgentContainer)
-	m.subAgents = make(map[string]*SubAgentItem)
+	m.subAgents = make(map[string]*AgentContainer)
 	m.agentOrder = nil
 	m.committed = nil
 	m.Processing = false

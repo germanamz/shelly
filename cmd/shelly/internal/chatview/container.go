@@ -176,29 +176,67 @@ func (ac *AgentContainer) findCallByID(callID string) *ToolCallItem {
 	return nil
 }
 
-// View renders visible items with windowing.
+// IsLive returns true if the agent is still processing.
+func (ac *AgentContainer) IsLive() bool { return !ac.Done }
+
+// Kind returns the display item kind.
+func (ac *AgentContainer) Kind() string { return "agent" }
+
+// View renders the agent container as a DisplayItem.
+// When done, it delegates to CollapsedSummary.
+// When live, it renders items with optional header and indentation for sub-agents.
 func (ac *AgentContainer) View(width int) string {
-	if len(ac.Items) == 0 && !ac.Done {
-		// Show "thinking..." when no items yet.
-		frame := format.SpinnerFrames[ac.FrameIdx%len(format.SpinnerFrames)]
+	if ac.Done {
+		return ac.CollapsedSummary()
+	}
+
+	items := ac.Items
+	frame := format.SpinnerFrames[ac.FrameIdx%len(format.SpinnerFrames)]
+
+	// No items yet — show "is thinking..." spinner.
+	if len(items) == 0 {
 		label := ac.Agent
 		if ac.ProviderLabel != "" {
 			label += " (" + ac.ProviderLabel + ")"
 		}
-		return fmt.Sprintf("%s %s is thinking... %s\n",
+		line := fmt.Sprintf("%s %s is thinking... %s",
 			ac.Prefix, label, styles.SpinnerStyle.Render(frame))
+		if ac.Color == "" {
+			// Top-level: add trailing newline to match original behavior.
+			line += "\n"
+		}
+		return line
 	}
 
-	items := ac.Items
 	var sb strings.Builder
+	isSubAgent := ac.Color != ""
 
-	// Apply windowing for sub-agents.
+	// Sub-agents get a colored header line.
+	if isSubAgent {
+		fmt.Fprintf(&sb, "%s %s\n",
+			colorStyle(ac.Color).Render(fmt.Sprintf("%s %s", ac.Prefix, ac.Agent)),
+			styles.SpinnerStyle.Render(frame),
+		)
+	}
+
+	// Apply windowing.
 	if ac.MaxShow > 0 && len(items) > ac.MaxShow {
 		skipped := len(items) - ac.MaxShow
 		fmt.Fprintf(&sb, "  %s\n", styles.DimStyle.Render(fmt.Sprintf("... %d more items", skipped)))
 		items = items[skipped:]
 	}
 
+	if isSubAgent {
+		// Sub-agent: indent items with tree-pipe.
+		for _, item := range items {
+			for line := range strings.SplitSeq(item.View(width-4), "\n") {
+				fmt.Fprintf(&sb, "  %s%s\n", styles.TreePipe, line)
+			}
+		}
+		return strings.TrimRight(sb.String(), "\n")
+	}
+
+	// Top-level: render items flat.
 	for _, item := range items {
 		sb.WriteString(item.View(width))
 		sb.WriteString("\n")
@@ -207,8 +245,7 @@ func (ac *AgentContainer) View(width int) string {
 	// Show a spinner when all items are completed but the agent is still
 	// processing (e.g., after delegation results return and the agent makes
 	// another LLM call to summarize).
-	if !ac.Done && !ac.hasLiveItems() {
-		frame := format.SpinnerFrames[ac.FrameIdx%len(format.SpinnerFrames)]
+	if !ac.hasLiveItems() {
 		fmt.Fprintf(&sb, "%s %s is thinking... %s\n",
 			ac.Prefix, ac.Agent, styles.SpinnerStyle.Render(frame))
 	}
@@ -236,7 +273,7 @@ func (ac *AgentContainer) CollapsedSummary() string {
 	// Include collapsed subagent summaries so the last message from each
 	// subagent remains visible after the parent collapses.
 	for _, item := range ac.Items {
-		sa, ok := item.(*SubAgentItem)
+		sa, ok := item.(*AgentContainer)
 		if !ok {
 			continue
 		}
@@ -292,8 +329,8 @@ func (ac *AgentContainer) AdvanceSpinners() {
 					c.FrameIdx++
 				}
 			}
-		case *SubAgentItem:
-			it.Container.AdvanceSpinners()
+		case *AgentContainer:
+			it.AdvanceSpinners()
 		}
 	}
 }

@@ -125,7 +125,7 @@ func TestChatViewSubAgent(t *testing.T) {
 	// Parent should have a sub-agent item.
 	parentAC := cv.agents["parent"]
 	assert.Len(t, parentAC.Items, 1)
-	_, ok := parentAC.Items[0].(*SubAgentItem)
+	_, ok := parentAC.Items[0].(*AgentContainer)
 	assert.True(t, ok)
 
 	// End child.

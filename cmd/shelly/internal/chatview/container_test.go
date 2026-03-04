@@ -133,15 +133,14 @@ func TestAdvanceSpinners(t *testing.T) {
 
 func TestSubAgentNesting(t *testing.T) {
 	parent := NewAgentContainer("parent", "🤖", 0, "", "")
-	child := NewAgentContainer("child", "🦾", 4, "", "")
-	sa := &SubAgentItem{Container: child}
-	parent.Items = append(parent.Items, sa)
+	child := NewAgentContainer("child", "🦾", 4, "#0969da", "")
+	parent.Items = append(parent.Items, child)
 
-	assert.True(t, sa.IsLive())
-	assert.Equal(t, "sub_agent", sa.Kind())
+	assert.True(t, child.IsLive())
+	assert.Equal(t, "agent", child.Kind())
 
 	child.Done = true
-	assert.False(t, sa.IsLive())
+	assert.False(t, child.IsLive())
 }
 
 func TestWindowedView(t *testing.T) {

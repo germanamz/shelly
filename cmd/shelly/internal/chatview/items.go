@@ -285,52 +285,6 @@ func (m *ToolGroupItem) FindPending() *ToolCallItem {
 	return nil
 }
 
-// --- SubAgentItem ---
-
-// SubAgentItem wraps a nested agent container.
-type SubAgentItem struct {
-	Container *AgentContainer
-}
-
-func (m *SubAgentItem) View(width int) string {
-	if m.Container.Done {
-		return m.Container.CollapsedSummary()
-	}
-
-	var sb strings.Builder
-	frame := format.SpinnerFrames[m.Container.FrameIdx%len(format.SpinnerFrames)]
-
-	items := m.Container.Items
-
-	// Show "is thinking..." when the container has no items yet.
-	if len(items) == 0 {
-		fmt.Fprintf(&sb, "%s %s is thinking... %s",
-			m.Container.Prefix, m.Container.Agent, styles.SpinnerStyle.Render(frame))
-		return sb.String()
-	}
-
-	fmt.Fprintf(&sb, "%s %s\n",
-		colorStyle(m.Container.Color).Render(fmt.Sprintf("%s %s", m.Container.Prefix, m.Container.Agent)),
-		styles.SpinnerStyle.Render(frame),
-	)
-	if m.Container.MaxShow > 0 && len(items) > m.Container.MaxShow {
-		skipped := len(items) - m.Container.MaxShow
-		fmt.Fprintf(&sb, "  %s\n", styles.DimStyle.Render(fmt.Sprintf("... %d more items", skipped)))
-		items = items[skipped:]
-	}
-
-	for _, item := range items {
-		for line := range strings.SplitSeq(item.View(width-4), "\n") {
-			fmt.Fprintf(&sb, "  %s%s\n", styles.TreePipe, line)
-		}
-	}
-
-	return strings.TrimRight(sb.String(), "\n")
-}
-
-func (m *SubAgentItem) IsLive() bool { return !m.Container.Done }
-func (m *SubAgentItem) Kind() string { return "sub_agent" }
-
 // --- TaskMessageItem ---
 
 // TaskMessageItem displays the delegation task sent from parent to sub-agent.
