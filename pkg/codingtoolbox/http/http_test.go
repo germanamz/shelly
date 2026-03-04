@@ -13,9 +13,35 @@ import (
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/codingtoolbox"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
+	"github.com/germanamz/shelly/pkg/tools/toolbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func callTool(tb *toolbox.ToolBox, ctx context.Context, tc content.ToolCall) content.ToolResult {
+	t, ok := tb.Get(tc.Name)
+	if !ok {
+		return content.ToolResult{
+			ToolCallID: tc.ID,
+			Content:    "tool not found: " + tc.Name,
+			IsError:    true,
+		}
+	}
+
+	result, err := t.Handler(ctx, json.RawMessage(tc.Arguments))
+	if err != nil {
+		return content.ToolResult{
+			ToolCallID: tc.ID,
+			Content:    err.Error(),
+			IsError:    true,
+		}
+	}
+
+	return content.ToolResult{
+		ToolCallID: tc.ID,
+		Content:    result,
+	}
+}
 
 func autoApprove(_ context.Context, _ string, _ []string) (string, error) {
 	return "yes", nil
@@ -65,7 +91,7 @@ func TestFetch_GET(t *testing.T) {
 	h, _ := newTestHTTP(t, autoApprove)
 	tb := h.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "http_fetch",
 		Arguments: mustJSON(t, fetchInput{URL: srv.URL}),
@@ -95,7 +121,7 @@ func TestFetch_POST(t *testing.T) {
 	h, _ := newTestHTTP(t, autoApprove)
 	tb := h.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:   "tc1",
 		Name: "http_fetch",
 		Arguments: mustJSON(t, fetchInput{
@@ -125,7 +151,7 @@ func TestFetch_Denied(t *testing.T) {
 	h, _ := newTestHTTP(t, autoDeny)
 	tb := h.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "http_fetch",
 		Arguments: mustJSON(t, fetchInput{URL: srv.URL}),
@@ -145,7 +171,7 @@ func TestFetch_Trust(t *testing.T) {
 	h, store := newTestHTTP(t, autoTrust)
 	tb := h.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "http_fetch",
 		Arguments: mustJSON(t, fetchInput{URL: srv.URL}),
@@ -157,7 +183,7 @@ func TestFetch_Trust(t *testing.T) {
 	// Subsequent calls bypass the ask — switch to deny to prove it.
 	h.ask = autoDeny
 
-	tr = tb.Call(context.Background(), content.ToolCall{
+	tr = callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc2",
 		Name:      "http_fetch",
 		Arguments: mustJSON(t, fetchInput{URL: srv.URL}),
@@ -170,7 +196,7 @@ func TestFetch_EmptyURL(t *testing.T) {
 	h, _ := newTestHTTP(t, autoApprove)
 	tb := h.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "http_fetch",
 		Arguments: `{"url":""}`,
@@ -197,7 +223,7 @@ func TestFetch_CustomHeaders(t *testing.T) {
 	h, _ := newTestHTTP(t, autoApprove)
 	tb := h.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:   "tc1",
 		Name: "http_fetch",
 		Arguments: mustJSON(t, fetchInput{

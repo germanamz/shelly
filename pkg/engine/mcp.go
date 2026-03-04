@@ -16,7 +16,7 @@ import (
 // mcpResult holds the outcome of a single parallel MCP connection attempt.
 type mcpResult struct {
 	name   string
-	client *mcpclient.MCPClient
+	client *mcpclient.Client
 	tb     *toolbox.ToolBox
 	err    error
 }
@@ -36,7 +36,7 @@ func (e *Engine) connectMCPClients(ctx context.Context, servers []MCPConfig, sta
 			status(fmt.Sprintf("Connecting MCP server %q...", mc.Name))
 			start := time.Now()
 
-			var client *mcpclient.MCPClient
+			var client *mcpclient.Client
 			var err error
 			if mc.URL != "" {
 				client, err = mcpclient.NewHTTP(ctx, mc.URL)

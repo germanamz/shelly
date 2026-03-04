@@ -7,12 +7,12 @@ import (
 )
 
 // AddRoots adds roots to the client's root list and notifies connected servers.
-func (c *MCPClient) AddRoots(roots ...*mcp.Root) {
+func (c *Client) AddRoots(roots ...*mcp.Root) {
 	c.client.AddRoots(roots...)
 }
 
 // RemoveRoots removes roots by URI and notifies connected servers.
-func (c *MCPClient) RemoveRoots(uris ...string) {
+func (c *Client) RemoveRoots(uris ...string) {
 	c.client.RemoveRoots(uris...)
 }
 

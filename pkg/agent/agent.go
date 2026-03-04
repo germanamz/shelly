@@ -5,6 +5,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -444,8 +445,23 @@ func (a *Agent) hasNotesTools() bool {
 // callTool searches all toolboxes for the named tool and executes it.
 func callTool(ctx context.Context, toolboxes []*toolbox.ToolBox, tc content.ToolCall) content.ToolResult {
 	for _, tb := range toolboxes {
-		if _, ok := tb.Get(tc.Name); ok {
-			return tb.Call(ctx, tc)
+		t, ok := tb.Get(tc.Name)
+		if !ok {
+			continue
+		}
+
+		result, err := t.Handler(ctx, json.RawMessage(tc.Arguments))
+		if err != nil {
+			return content.ToolResult{
+				ToolCallID: tc.ID,
+				Content:    err.Error(),
+				IsError:    true,
+			}
+		}
+
+		return content.ToolResult{
+			ToolCallID: tc.ID,
+			Content:    result,
 		}
 	}
 

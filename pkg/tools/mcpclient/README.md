@@ -6,14 +6,14 @@ Built as a thin wrapper around the official [MCP Go SDK](https://github.com/mode
 
 ## Architecture
 
-`MCPClient` wraps the SDK's `mcp.Client` and `mcp.ClientSession`. It supports two transport modes:
+`Client` wraps the SDK's `mcp.Client` and `mcp.ClientSession`. It supports two transport modes:
 
 1. **Command (stdio)** -- spawns a subprocess via `mcp.CommandTransport` and communicates over stdin/stdout
 2. **Streamable HTTP** -- connects to a remote MCP server via `mcp.StreamableClientTransport`
 
-Both constructors share a common `newFromTransport` helper that creates the SDK client (with implementation name `"shelly"`, version `"0.1.0"`), connects to the transport, and returns an initialized `MCPClient`.
+Both constructors share a common `newFromTransport` helper that creates the SDK client (with implementation name `"shelly"`, version `"0.1.0"`), connects to the transport, and returns an initialized `Client`.
 
-The key design choice is in `ListTools`: each returned `toolbox.Tool` has a `Handler` closure that calls back through `MCPClient.CallTool`, so MCP tools are seamlessly usable through the standard `ToolBox.Call` dispatch.
+The key design choice is in `ListTools`: each returned `toolbox.Tool` has a `Handler` closure that calls back through `Client.CallTool`, so MCP tools are seamlessly usable through the standard tool dispatch.
 
 ### Dependencies
 
@@ -24,10 +24,10 @@ The key design choice is in `ListTools`: each returned `toolbox.Tool` has a `Han
 
 ### Types
 
-#### `MCPClient`
+#### `Client`
 
 ```go
-type MCPClient struct {
+type Client struct {
     client  *mcp.Client        // unexported
     session *mcp.ClientSession // unexported
 }
@@ -39,20 +39,20 @@ Communicates with a single MCP server instance.
 
 | Function / Method                                                          | Description                                                                                   |
 |---------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------|
-| `New(ctx context.Context, command string, args ...string) (*MCPClient, error)` | Spawns a server process and connects via stdio; SDK handles initialization automatically |
-| `NewHTTP(ctx context.Context, url string) (*MCPClient, error)`            | Connects to a Streamable HTTP MCP server at the given URL                                     |
-| `(*MCPClient) ListTools(ctx context.Context) ([]toolbox.Tool, error)`     | Fetches available tools; returns `toolbox.Tool` instances with handlers that call back through the client |
-| `(*MCPClient) CallTool(ctx context.Context, name string, arguments json.RawMessage) (string, error)` | Calls a named tool on the server with JSON arguments |
-| `(*MCPClient) Close() error`                                              | Terminates the session and releases resources (subprocess cleanup is handled by the SDK)      |
-| `(*MCPClient) AddRoots(roots ...*mcp.Root)`                               | Adds roots to the client's root list and notifies connected servers                           |
-| `(*MCPClient) RemoveRoots(uris ...string)`                                | Removes roots by URI and notifies connected servers                                           |
+| `New(ctx context.Context, command string, args ...string) (*Client, error)` | Spawns a server process and connects via stdio; SDK handles initialization automatically |
+| `NewHTTP(ctx context.Context, url string) (*Client, error)`            | Connects to a Streamable HTTP MCP server at the given URL                                     |
+| `(*Client) ListTools(ctx context.Context) ([]toolbox.Tool, error)`     | Fetches available tools; returns `toolbox.Tool` instances with handlers that call back through the client |
+| `(*Client) CallTool(ctx context.Context, name string, arguments json.RawMessage) (string, error)` | Calls a named tool on the server with JSON arguments |
+| `(*Client) Close() error`                                              | Terminates the session and releases resources (subprocess cleanup is handled by the SDK)      |
+| `(*Client) AddRoots(roots ...*mcp.Root)`                               | Adds roots to the client's root list and notifies connected servers                           |
+| `(*Client) RemoveRoots(uris ...string)`                                | Removes roots by URI and notifies connected servers                                           |
 | `DirToRoot(dir string) *mcp.Root`                                         | Converts an absolute directory path to an MCP Root with a `file://` URI                       |
 
 ### Internal Helpers
 
 | Function                                       | Description                                                        |
 |------------------------------------------------|--------------------------------------------------------------------|
-| `newFromTransport(ctx, transport) (*MCPClient, error)` | Shared constructor used by both `New` and `NewHTTP`         |
+| `newFromTransport(ctx, transport) (*Client, error)` | Shared constructor used by both `New` and `NewHTTP`         |
 | `fromSDKTool(sdkTool, client) (toolbox.Tool, error)`   | Converts an SDK `*mcp.Tool` to a `toolbox.Tool` with a handler closure |
 | `extractText(result) string`                   | Joins all `TextContent` items from a `CallToolResult` with newlines |
 
@@ -75,10 +75,6 @@ if err != nil {
 }
 tb := toolbox.New()
 tb.Register(tools...)
-
-// Call MCP tools through the ToolBox like any other tool
-tc := content.ToolCall{ID: "1", Name: "read_file", Arguments: `{"path":"/tmp/data.txt"}`}
-result := tb.Call(ctx, tc)
 ```
 
 ### Streamable HTTP transport

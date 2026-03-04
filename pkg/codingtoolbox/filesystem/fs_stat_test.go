@@ -19,7 +19,7 @@ func TestStat_File(t *testing.T) {
 	filePath := filepath.Join(dir, "info.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("hello"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_stat",
 		Arguments: mustJSON(t, pathInput{Path: filePath}),
@@ -43,7 +43,7 @@ func TestStat_Directory(t *testing.T) {
 	subDir := filepath.Join(dir, "mydir")
 	require.NoError(t, os.Mkdir(subDir, 0o750))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_stat",
 		Arguments: mustJSON(t, pathInput{Path: subDir}),
@@ -61,7 +61,7 @@ func TestStat_NotFound(t *testing.T) {
 	fs, dir := newTestFS(t, autoApprove)
 	tb := fs.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_stat",
 		Arguments: mustJSON(t, pathInput{Path: filepath.Join(dir, "nope")}),
@@ -78,7 +78,7 @@ func TestStat_Denied(t *testing.T) {
 	filePath := filepath.Join(dir, "x.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("x"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_stat",
 		Arguments: mustJSON(t, pathInput{Path: filePath}),
@@ -92,7 +92,7 @@ func TestStat_EmptyPath(t *testing.T) {
 	fs, _ := newTestFS(t, autoApprove)
 	tb := fs.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_stat",
 		Arguments: `{"path":""}`,

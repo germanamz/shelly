@@ -18,7 +18,7 @@ func TestPatch(t *testing.T) {
 	filePath := filepath.Join(dir, "patch.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("alpha beta gamma"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:   "tc1",
 		Name: "fs_patch",
 		Arguments: mustJSON(t, patchInput{
@@ -45,7 +45,7 @@ func TestPatch_HunkNotFound(t *testing.T) {
 	filePath := filepath.Join(dir, "patch.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("hello"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:   "tc1",
 		Name: "fs_patch",
 		Arguments: mustJSON(t, patchInput{
@@ -65,7 +65,7 @@ func TestPatch_HunkAmbiguous(t *testing.T) {
 	filePath := filepath.Join(dir, "patch.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("aaa aaa"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:   "tc1",
 		Name: "fs_patch",
 		Arguments: mustJSON(t, patchInput{
@@ -85,7 +85,7 @@ func TestPatch_DeleteHunk(t *testing.T) {
 	filePath := filepath.Join(dir, "patch.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("line1\nline2\nline3\n"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:   "tc1",
 		Name: "fs_patch",
 		Arguments: mustJSON(t, patchInput{
@@ -109,7 +109,7 @@ func TestPatch_DeleteOmitNewText(t *testing.T) {
 	require.NoError(t, os.WriteFile(filePath, []byte("keep remove keep"), 0o600))
 
 	// Omit new_text entirely — should default to "" and delete old_text.
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_patch",
 		Arguments: `{"path":"` + filePath + `","hunks":[{"old_text":" remove"}]}`,
@@ -129,7 +129,7 @@ func TestPatch_InsertAndModify(t *testing.T) {
 	filePath := filepath.Join(dir, "patch.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("import (\n\t\"fmt\"\n)\n\nfunc old() {}\n"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:   "tc1",
 		Name: "fs_patch",
 		Arguments: mustJSON(t, patchInput{
@@ -158,7 +158,7 @@ func TestPatch_PreservesPermissions(t *testing.T) {
 	require.NoError(t, os.WriteFile(filePath, []byte("alpha beta"), 0o600))
 	require.NoError(t, os.Chmod(filePath, 0o755)) //nolint:gosec // test needs 0o755 to verify permission preservation
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:   "tc1",
 		Name: "fs_patch",
 		Arguments: mustJSON(t, patchInput{
@@ -181,7 +181,7 @@ func TestPatch_EmptyHunks(t *testing.T) {
 	filePath := filepath.Join(dir, "patch.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("x"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_patch",
 		Arguments: mustJSON(t, patchInput{Path: filePath, Hunks: []hunk{}}),
@@ -198,7 +198,7 @@ func TestPatch_Denied(t *testing.T) {
 	filePath := filepath.Join(dir, "patch.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("x"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:   "tc1",
 		Name: "fs_patch",
 		Arguments: mustJSON(t, patchInput{
@@ -215,7 +215,7 @@ func TestPatch_EmptyPath(t *testing.T) {
 	fs, _ := newTestFS(t, autoApprove)
 	tb := fs.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:   "tc1",
 		Name: "fs_patch",
 		Arguments: mustJSON(t, patchInput{
@@ -243,7 +243,7 @@ func TestPatch_ConfirmDenied(t *testing.T) {
 	filePath := filepath.Join(dir, "patch.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("alpha beta"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:   "tc1",
 		Name: "fs_patch",
 		Arguments: mustJSON(t, patchInput{

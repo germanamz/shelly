@@ -19,7 +19,7 @@ func TestCopy_File(t *testing.T) {
 	dst := filepath.Join(dir, "copy.txt")
 	require.NoError(t, os.WriteFile(src, []byte("content"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_copy",
 		Arguments: mustJSON(t, copyInput{Source: src, Destination: dst}),
@@ -49,7 +49,7 @@ func TestCopy_Directory(t *testing.T) {
 
 	dstDir := filepath.Join(dir, "dstdir")
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_copy",
 		Arguments: mustJSON(t, copyInput{Source: srcDir, Destination: dstDir}),
@@ -73,7 +73,7 @@ func TestCopy_Denied(t *testing.T) {
 	src := filepath.Join(dir, "x.txt")
 	require.NoError(t, os.WriteFile(src, []byte("x"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_copy",
 		Arguments: mustJSON(t, copyInput{Source: src, Destination: filepath.Join(dir, "y.txt")}),
@@ -87,7 +87,7 @@ func TestCopy_SourceNotFound(t *testing.T) {
 	fs, dir := newTestFS(t, autoApprove)
 	tb := fs.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_copy",
 		Arguments: mustJSON(t, copyInput{Source: filepath.Join(dir, "nope"), Destination: filepath.Join(dir, "y")}),
@@ -101,7 +101,7 @@ func TestCopy_EmptySource(t *testing.T) {
 	fs, _ := newTestFS(t, autoApprove)
 	tb := fs.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_copy",
 		Arguments: `{"source":"","destination":"/tmp/x"}`,

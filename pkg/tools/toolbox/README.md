@@ -1,19 +1,19 @@
 # toolbox
 
-Core tool primitives for Shelly. Defines the `Tool` type representing an executable tool and `ToolBox` which orchestrates a flat collection of tools for registration, retrieval, and execution. This is the foundation layer that all other tool-related packages depend on.
+Core tool primitives for Shelly. Defines the `Tool` type representing an executable tool and `ToolBox` which orchestrates a flat collection of tools for registration, retrieval, and filtering. This is the foundation layer that all other tool-related packages depend on.
 
 ## Architecture
 
 The package has two files:
 
 - `tool.go` -- defines the `Handler` function type and the `Tool` struct
-- `toolbox.go` -- defines the `ToolBox` orchestrator that manages a `map[string]Tool`
+- `toolbox.go` -- defines the `ToolBox` orchestrator with ordered, name-indexed storage
 
-`ToolBox` maintains a flat, name-keyed map of tools with no parent-child or hierarchical relationships. Toolbox inheritance during agent delegation is handled by the agent layer (`pkg/agent`), not here.
+`ToolBox` maintains an insertion-ordered list of tools backed by a name-to-index map. Tools are returned in the order they were first registered (replacements preserve position). Toolbox inheritance during agent delegation is handled by the agent layer (`pkg/agent`), not here.
 
 ### Dependencies
 
-- `pkg/chats/content` -- for `ToolCall` and `ToolResult` types used by `ToolBox.Call`
+None (stdlib only).
 
 ## Exported API
 
@@ -47,27 +47,19 @@ type Tool struct {
 
 #### `ToolBox`
 
-Orchestrates a collection of tools. Agents use `ToolBox` to register tools and dispatch `ToolCall` requests from the LLM.
+Orchestrates a collection of tools in insertion order. Agents use `ToolBox` to register tools and look up handlers for dispatch.
 
 ### Functions
 
 | Function / Method                            | Description                                                                 |
 |----------------------------------------------|-----------------------------------------------------------------------------|
 | `New() *ToolBox`                             | Creates a new empty `ToolBox`                                               |
-| `(*ToolBox) Register(tools ...Tool)`         | Adds one or more tools; replaces existing tools with the same name          |
+| `(*ToolBox) Register(tools ...Tool)`         | Adds one or more tools; replaces existing tools in-place (preserving position) |
 | `(*ToolBox) Get(name string) (Tool, bool)`   | Retrieves a tool by name; returns false if not found                        |
 | `(*ToolBox) Merge(other *ToolBox)`           | Copies all tools from another `ToolBox` into this one; replaces by name     |
-| `(*ToolBox) Tools() []Tool`                  | Returns all registered tools as a slice                                     |
-| `(*ToolBox) Call(ctx, tc ToolCall) ToolResult` | Executes a tool call; returns a `ToolResult` with `IsError` on failure    |
-
-### Error Handling in `Call`
-
-`Call` never returns a Go error. Instead, it returns a `content.ToolResult` with `IsError: true` in two cases:
-
-1. **Tool not found** -- `Content` is set to `"tool not found: <name>"`
-2. **Handler error** -- `Content` is set to the error message from the handler
-
-This design allows the agent loop to always send a result back to the LLM, which can then decide how to recover.
+| `(*ToolBox) Tools() []Tool`                  | Returns all registered tools as a slice in insertion order                   |
+| `(*ToolBox) Len() int`                       | Returns the number of registered tools                                      |
+| `(*ToolBox) Filter(names []string) *ToolBox` | Returns a new ToolBox with only the named tools in the requested order      |
 
 ## Usage
 
@@ -84,10 +76,11 @@ tb.Register(toolbox.Tool{
     },
 })
 
-tc := content.ToolCall{ID: "1", Name: "greet", Arguments: `{"name":"World"}`}
-result := tb.Call(context.Background(), tc)
-// result.Content == "Hello, World!"
-// result.IsError == false
+tool, ok := tb.Get("greet")
+if ok {
+    result, err := tool.Handler(ctx, json.RawMessage(`{"name":"World"}`))
+    // result == "Hello, World!"
+}
 ```
 
 ### Merging ToolBoxes

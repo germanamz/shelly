@@ -20,7 +20,7 @@ func TestDiff(t *testing.T) {
 	require.NoError(t, os.WriteFile(fileA, []byte("line1\nline2\nline3\n"), 0o600))
 	require.NoError(t, os.WriteFile(fileB, []byte("line1\nchanged\nline3\n"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_diff",
 		Arguments: mustJSON(t, diffInput{FileA: fileA, FileB: fileB}),
@@ -40,7 +40,7 @@ func TestDiff_Identical(t *testing.T) {
 	require.NoError(t, os.WriteFile(fileA, []byte("same"), 0o600))
 	require.NoError(t, os.WriteFile(fileB, []byte("same"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_diff",
 		Arguments: mustJSON(t, diffInput{FileA: fileA, FileB: fileB}),
@@ -57,7 +57,7 @@ func TestDiff_FileNotFound(t *testing.T) {
 	fileA := filepath.Join(dir, "a.txt")
 	require.NoError(t, os.WriteFile(fileA, []byte("x"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_diff",
 		Arguments: mustJSON(t, diffInput{FileA: fileA, FileB: filepath.Join(dir, "nope.txt")}),
@@ -76,7 +76,7 @@ func TestDiff_Denied(t *testing.T) {
 	require.NoError(t, os.WriteFile(fileA, []byte("x"), 0o600))
 	require.NoError(t, os.WriteFile(fileB, []byte("y"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_diff",
 		Arguments: mustJSON(t, diffInput{FileA: fileA, FileB: fileB}),
@@ -90,7 +90,7 @@ func TestDiff_EmptyFileA(t *testing.T) {
 	fs, _ := newTestFS(t, autoApprove)
 	tb := fs.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_diff",
 		Arguments: `{"file_a":"","file_b":"/tmp/x"}`,
@@ -104,7 +104,7 @@ func TestDiff_EmptyFileB(t *testing.T) {
 	fs, _ := newTestFS(t, autoApprove)
 	tb := fs.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_diff",
 		Arguments: `{"file_a":"/tmp/x","file_b":""}`,

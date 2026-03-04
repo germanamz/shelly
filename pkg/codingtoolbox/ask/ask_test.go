@@ -2,12 +2,39 @@ package ask
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/germanamz/shelly/pkg/chats/content"
+	"github.com/germanamz/shelly/pkg/tools/toolbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func callTool(tb *toolbox.ToolBox, ctx context.Context, tc content.ToolCall) content.ToolResult {
+	t, ok := tb.Get(tc.Name)
+	if !ok {
+		return content.ToolResult{
+			ToolCallID: tc.ID,
+			Content:    "tool not found: " + tc.Name,
+			IsError:    true,
+		}
+	}
+
+	result, err := t.Handler(ctx, json.RawMessage(tc.Arguments))
+	if err != nil {
+		return content.ToolResult{
+			ToolCallID: tc.ID,
+			Content:    err.Error(),
+			IsError:    true,
+		}
+	}
+
+	return content.ToolResult{
+		ToolCallID: tc.ID,
+		Content:    result,
+	}
+}
 
 func TestResponder_AskWithOptions(t *testing.T) {
 	var received Question
@@ -21,7 +48,7 @@ func TestResponder_AskWithOptions(t *testing.T) {
 	})
 
 	tb := r.Tools()
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "ask_user",
 		Arguments: `{"question":"Pick a color","options":["red","blue","green"]}`,
@@ -48,7 +75,7 @@ func TestResponder_AskWithMultiSelect(t *testing.T) {
 	})
 
 	tb := r.Tools()
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "ask_user",
 		Arguments: `{"question":"Pick colors","options":["red","blue","green"],"multiSelect":true}`,
@@ -72,7 +99,7 @@ func TestResponder_AskWithHeader(t *testing.T) {
 	})
 
 	tb := r.Tools()
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "ask_user",
 		Arguments: `{"question":"Which auth method?","options":["OAuth","JWT"],"header":"Auth"}`,
@@ -92,7 +119,7 @@ func TestResponder_AskFreeForm(t *testing.T) {
 	})
 
 	tb := r.Tools()
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "ask_user",
 		Arguments: `{"question":"What is your age?"}`,
@@ -110,7 +137,7 @@ func TestResponder_ContextCancelled(t *testing.T) {
 	done := make(chan content.ToolResult, 1)
 	go func() {
 		tb := r.Tools()
-		done <- tb.Call(ctx, content.ToolCall{
+		done <- callTool(tb, ctx, content.ToolCall{
 			ID:        "tc1",
 			Name:      "ask_user",
 			Arguments: `{"question":"hello?"}`,
@@ -136,7 +163,7 @@ func TestResponder_EmptyQuestion(t *testing.T) {
 	r := NewResponder(nil)
 
 	tb := r.Tools()
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "ask_user",
 		Arguments: `{"question":""}`,
@@ -150,7 +177,7 @@ func TestResponder_InvalidInput(t *testing.T) {
 	r := NewResponder(nil)
 
 	tb := r.Tools()
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "ask_user",
 		Arguments: `not json`,
@@ -265,7 +292,7 @@ func TestResponder_UniqueIDs(t *testing.T) {
 
 	tb := r.Tools()
 	for range 3 {
-		tr := tb.Call(context.Background(), content.ToolCall{
+		tr := callTool(tb, context.Background(), content.ToolCall{
 			ID:        "tc",
 			Name:      "ask_user",
 			Arguments: `{"question":"q?"}`,

@@ -18,7 +18,7 @@ func TestDelete_File(t *testing.T) {
 	filePath := filepath.Join(dir, "doomed.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("bye"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_delete",
 		Arguments: mustJSON(t, deleteInput{Path: filePath}),
@@ -39,7 +39,7 @@ func TestDelete_Directory_Recursive(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(subDir, "nested"), 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(subDir, "nested", "f.txt"), []byte("x"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_delete",
 		Arguments: mustJSON(t, deleteInput{Path: subDir, Recursive: true}),
@@ -59,7 +59,7 @@ func TestDelete_NonRecursive_Directory_Fails(t *testing.T) {
 	require.NoError(t, os.MkdirAll(subDir, 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(subDir, "f.txt"), []byte("x"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_delete",
 		Arguments: mustJSON(t, deleteInput{Path: subDir}),
@@ -75,7 +75,7 @@ func TestDelete_Denied(t *testing.T) {
 	filePath := filepath.Join(dir, "protected.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("safe"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_delete",
 		Arguments: mustJSON(t, deleteInput{Path: filePath}),
@@ -89,7 +89,7 @@ func TestDelete_EmptyPath(t *testing.T) {
 	fs, _ := newTestFS(t, autoApprove)
 	tb := fs.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_delete",
 		Arguments: `{"path":""}`,
@@ -114,7 +114,7 @@ func TestDelete_ConfirmDenied(t *testing.T) {
 	filePath := filepath.Join(dir, "protected.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("keep"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_delete",
 		Arguments: mustJSON(t, deleteInput{Path: filePath}),
@@ -144,7 +144,7 @@ func TestDelete_ConfirmDenied_Recursive(t *testing.T) {
 	require.NoError(t, os.MkdirAll(subDir, 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(subDir, "f.txt"), []byte("x"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_delete",
 		Arguments: mustJSON(t, deleteInput{Path: subDir, Recursive: true}),

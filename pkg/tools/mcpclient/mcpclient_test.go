@@ -16,7 +16,7 @@ import (
 // setupTestServer creates an MCP server with the given tools, connects a
 // client via in-memory transports, and returns the client. The server runs
 // in a background goroutine tied to t.Cleanup.
-func setupTestServer(t *testing.T, tools ...toolbox.Tool) *MCPClient {
+func setupTestServer(t *testing.T, tools ...toolbox.Tool) *Client {
 	t.Helper()
 
 	server := mcp.NewServer(&mcp.Implementation{
@@ -266,7 +266,7 @@ func TestFromSDKTool(t *testing.T) {
 		},
 	}
 
-	client := &MCPClient{}
+	client := &Client{}
 	tool, err := fromSDKTool(sdkTool, client)
 	require.NoError(t, err)
 	assert.Equal(t, "test", tool.Name)

@@ -11,9 +11,35 @@ import (
 	"github.com/germanamz/shelly/pkg/codingtoolbox"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
 	"github.com/germanamz/shelly/pkg/mcproots"
+	"github.com/germanamz/shelly/pkg/tools/toolbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func callTool(tb *toolbox.ToolBox, ctx context.Context, tc content.ToolCall) content.ToolResult {
+	t, ok := tb.Get(tc.Name)
+	if !ok {
+		return content.ToolResult{
+			ToolCallID: tc.ID,
+			Content:    "tool not found: " + tc.Name,
+			IsError:    true,
+		}
+	}
+
+	result, err := t.Handler(ctx, json.RawMessage(tc.Arguments))
+	if err != nil {
+		return content.ToolResult{
+			ToolCallID: tc.ID,
+			Content:    err.Error(),
+			IsError:    true,
+		}
+	}
+
+	return content.ToolResult{
+		ToolCallID: tc.ID,
+		Content:    result,
+	}
+}
 
 // autoApprove always grants permission.
 func autoApprove(_ context.Context, _ string, _ []string) (string, error) {
@@ -54,7 +80,7 @@ func TestRead(t *testing.T) {
 	filePath := filepath.Join(dir, "hello.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("hello world"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_read",
 		Arguments: mustJSON(t, pathInput{Path: filePath}),
@@ -68,7 +94,7 @@ func TestRead_FileNotFound(t *testing.T) {
 	fs, dir := newTestFS(t, autoApprove)
 	tb := fs.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_read",
 		Arguments: mustJSON(t, pathInput{Path: filepath.Join(dir, "nope.txt")}),
@@ -85,7 +111,7 @@ func TestRead_Denied(t *testing.T) {
 	filePath := filepath.Join(dir, "secret.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("secret"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_read",
 		Arguments: mustJSON(t, pathInput{Path: filePath}),
@@ -101,7 +127,7 @@ func TestWrite(t *testing.T) {
 
 	filePath := filepath.Join(dir, "sub", "out.txt")
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_write",
 		Arguments: mustJSON(t, writeInput{Path: filePath, Content: "written"}),
@@ -122,7 +148,7 @@ func TestEdit(t *testing.T) {
 	filePath := filepath.Join(dir, "edit.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("foo bar baz"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_edit",
 		Arguments: mustJSON(t, editInput{Path: filePath, OldText: "bar", NewText: "qux"}),
@@ -143,7 +169,7 @@ func TestEdit_NotFound(t *testing.T) {
 	filePath := filepath.Join(dir, "edit.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("hello"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_edit",
 		Arguments: mustJSON(t, editInput{Path: filePath, OldText: "missing", NewText: "x"}),
@@ -160,7 +186,7 @@ func TestEdit_Ambiguous(t *testing.T) {
 	filePath := filepath.Join(dir, "edit.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("aaa aaa"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_edit",
 		Arguments: mustJSON(t, editInput{Path: filePath, OldText: "aaa", NewText: "b"}),
@@ -177,7 +203,7 @@ func TestList(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0o600))
 	require.NoError(t, os.Mkdir(filepath.Join(dir, "sub"), 0o750))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_list",
 		Arguments: mustJSON(t, pathInput{Path: dir}),
@@ -206,7 +232,7 @@ func TestSubdirectoryInheritance(t *testing.T) {
 	require.NoError(t, os.WriteFile(filePath, []byte("top"), 0o600))
 
 	tb := fs.Tools()
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_read",
 		Arguments: mustJSON(t, pathInput{Path: filePath}),
@@ -221,7 +247,7 @@ func TestSubdirectoryInheritance(t *testing.T) {
 	subFile := filepath.Join(subDir, "nested.txt")
 	require.NoError(t, os.WriteFile(subFile, []byte("nested"), 0o600))
 
-	tr = tb.Call(context.Background(), content.ToolCall{
+	tr = callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc2",
 		Name:      "fs_read",
 		Arguments: mustJSON(t, pathInput{Path: subFile}),
@@ -244,7 +270,7 @@ func TestPersistence(t *testing.T) {
 	require.NoError(t, os.WriteFile(filePath, []byte("data"), 0o600))
 
 	tb := fs1.Tools()
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_read",
 		Arguments: mustJSON(t, pathInput{Path: filePath}),
@@ -257,7 +283,7 @@ func TestPersistence(t *testing.T) {
 	fs2 := New(store2, autoDeny, noopNotify)
 
 	tb2 := fs2.Tools()
-	tr = tb2.Call(context.Background(), content.ToolCall{
+	tr = callTool(tb2, context.Background(), content.ToolCall{
 		ID:        "tc2",
 		Name:      "fs_read",
 		Arguments: mustJSON(t, pathInput{Path: filePath}),
@@ -275,7 +301,7 @@ func TestReadLines(t *testing.T) {
 	filePath := filepath.Join(dir, "multi.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte(fileContent), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_read_lines",
 		Arguments: mustJSON(t, readLinesInput{Path: filePath, Offset: 2, Limit: 3}),
@@ -297,7 +323,7 @@ func TestReadLines_DefaultLimit(t *testing.T) {
 	require.NoError(t, os.WriteFile(filePath, []byte("a\nb\nc\n"), 0o600))
 
 	// No offset or limit: should default to offset=1, limit=100.
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_read_lines",
 		Arguments: mustJSON(t, readLinesInput{Path: filePath}),
@@ -316,7 +342,7 @@ func TestReadLines_OffsetBeyondFile(t *testing.T) {
 	filePath := filepath.Join(dir, "small.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("one\n"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_read_lines",
 		Arguments: mustJSON(t, readLinesInput{Path: filePath, Offset: 100}),
@@ -330,7 +356,7 @@ func TestReadLines_EmptyPath(t *testing.T) {
 	fs, _ := newTestFS(t, autoApprove)
 	tb := fs.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_read",
 		Arguments: `{"path":""}`,
@@ -344,7 +370,7 @@ func TestWrite_EmptyPath(t *testing.T) {
 	fs, _ := newTestFS(t, autoApprove)
 	tb := fs.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_write",
 		Arguments: `{"path":"","content":"x"}`,
@@ -361,7 +387,7 @@ func TestEdit_Delete(t *testing.T) {
 	filePath := filepath.Join(dir, "edit.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("line1\nline2\nline3\n"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_edit",
 		Arguments: mustJSON(t, editInput{Path: filePath, OldText: "line2\n", NewText: ""}),
@@ -382,7 +408,7 @@ func TestEdit_DeleteOmitNewText(t *testing.T) {
 	require.NoError(t, os.WriteFile(filePath, []byte("aaa bbb ccc"), 0o600))
 
 	// Omit new_text entirely — should default to "" and delete old_text.
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_edit",
 		Arguments: `{"path":"` + filePath + `","old_text":" bbb"}`,
@@ -403,7 +429,7 @@ func TestEdit_Insert(t *testing.T) {
 	require.NoError(t, os.WriteFile(filePath, []byte("func main() {\n\tfmt.Println(\"hello\")\n}\n"), 0o600))
 
 	// Insert a new line after the opening brace by including context.
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:   "tc1",
 		Name: "fs_edit",
 		Arguments: mustJSON(t, editInput{
@@ -428,7 +454,7 @@ func TestWrite_PreservesPermissions(t *testing.T) {
 	require.NoError(t, os.WriteFile(filePath, []byte("#!/bin/sh\necho old"), 0o600))
 	require.NoError(t, os.Chmod(filePath, 0o755)) //nolint:gosec // test needs 0o755 to verify permission preservation
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_write",
 		Arguments: mustJSON(t, writeInput{Path: filePath, Content: "#!/bin/sh\necho new"}),
@@ -447,7 +473,7 @@ func TestWrite_NewFileDefault0600(t *testing.T) {
 
 	filePath := filepath.Join(dir, "brand-new.txt")
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_write",
 		Arguments: mustJSON(t, writeInput{Path: filePath, Content: "hello"}),
@@ -468,7 +494,7 @@ func TestEdit_PreservesPermissions(t *testing.T) {
 	require.NoError(t, os.WriteFile(filePath, []byte("old content"), 0o600))
 	require.NoError(t, os.Chmod(filePath, 0o755)) //nolint:gosec // test needs 0o755 to verify permission preservation
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_edit",
 		Arguments: mustJSON(t, editInput{Path: filePath, OldText: "old", NewText: "new"}),
@@ -488,7 +514,7 @@ func TestEdit_EmptyOldText(t *testing.T) {
 	filePath := filepath.Join(dir, "e.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("data"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_edit",
 		Arguments: mustJSON(t, editInput{Path: filePath, OldText: "", NewText: "x"}),
@@ -513,7 +539,7 @@ func TestWrite_ConfirmDenied(t *testing.T) {
 
 	filePath := filepath.Join(dir, "denied.txt")
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_write",
 		Arguments: mustJSON(t, writeInput{Path: filePath, Content: "new content"}),
@@ -541,7 +567,7 @@ func TestWrite_TrustedSession(t *testing.T) {
 
 	filePath := filepath.Join(dir, "trusted.txt")
 
-	tr := tb.Call(ctx, content.ToolCall{
+	tr := callTool(tb, ctx, content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_write",
 		Arguments: mustJSON(t, writeInput{Path: filePath, Content: "trusted content"}),
@@ -566,7 +592,7 @@ func TestEdit_ConfirmDenied(t *testing.T) {
 	filePath := filepath.Join(dir, "edit.txt")
 	require.NoError(t, os.WriteFile(filePath, []byte("original"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_edit",
 		Arguments: mustJSON(t, editInput{Path: filePath, OldText: "original", NewText: "changed"}),
@@ -593,7 +619,7 @@ func TestRead_RootsAllow(t *testing.T) {
 	require.NoError(t, os.WriteFile(filePath, []byte("allowed"), 0o600))
 
 	ctx := mcproots.WithRoots(context.Background(), []string{realDir})
-	tr := tb.Call(ctx, content.ToolCall{
+	tr := callTool(tb, ctx, content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_read",
 		Arguments: mustJSON(t, pathInput{Path: filePath}),
@@ -612,7 +638,7 @@ func TestRead_RootsReject(t *testing.T) {
 
 	// Roots that don't include the test directory.
 	ctx := mcproots.WithRoots(context.Background(), []string{"/some/other/dir"})
-	tr := tb.Call(ctx, content.ToolCall{
+	tr := callTool(tb, ctx, content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_read",
 		Arguments: mustJSON(t, pathInput{Path: filePath}),
@@ -630,7 +656,7 @@ func TestRead_RootsEmptyRejectsAll(t *testing.T) {
 	require.NoError(t, os.WriteFile(filePath, []byte("data"), 0o600))
 
 	ctx := mcproots.WithRoots(context.Background(), []string{})
-	tr := tb.Call(ctx, content.ToolCall{
+	tr := callTool(tb, ctx, content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_read",
 		Arguments: mustJSON(t, pathInput{Path: filePath}),
@@ -648,7 +674,7 @@ func TestRead_NilRootsFallsThrough(t *testing.T) {
 	require.NoError(t, os.WriteFile(filePath, []byte("normal"), 0o600))
 
 	// No roots in context — should fall through to interactive flow.
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_read",
 		Arguments: mustJSON(t, pathInput{Path: filePath}),

@@ -9,14 +9,14 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// MCPServer serves tools over the MCP protocol using the official MCP Go SDK.
-type MCPServer struct {
+// Server serves tools over the MCP protocol using the official MCP Go SDK.
+type Server struct {
 	server *mcp.Server
 }
 
-// New creates a new MCPServer with the given name and version.
-func New(name, version string, opts ...MCPServerOption) *MCPServer {
-	var cfg mcpServerConfig
+// New creates a new Server with the given name and version.
+func New(name, version string, opts ...Option) *Server {
+	var cfg config
 	for _, o := range opts {
 		o(&cfg)
 	}
@@ -42,11 +42,11 @@ func New(name, version string, opts ...MCPServerOption) *MCPServer {
 		Version: version,
 	}, serverOpts)
 
-	return &MCPServer{server: server}
+	return &Server{server: server}
 }
 
 // Register adds tools to the server.
-func (s *MCPServer) Register(tools ...toolbox.Tool) {
+func (s *Server) Register(tools ...toolbox.Tool) {
 	for _, t := range tools {
 		s.server.AddTool(toSDKTool(t), toSDKHandler(t.Handler))
 	}
@@ -54,7 +54,7 @@ func (s *MCPServer) Register(tools ...toolbox.Tool) {
 
 // Serve starts serving MCP requests. It reads requests from in and writes
 // responses to out. It blocks until ctx is cancelled or the transport closes.
-func (s *MCPServer) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
+func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	transport := &mcp.IOTransport{
 		Reader: io.NopCloser(in),
 		Writer: nopWriteCloser{out},
@@ -65,7 +65,7 @@ func (s *MCPServer) Serve(ctx context.Context, in io.Reader, out io.Writer) erro
 
 // run starts the server with the given transport. Exported via Serve for
 // production use; called directly by tests with InMemoryTransport.
-func (s *MCPServer) run(ctx context.Context, transport mcp.Transport) error {
+func (s *Server) run(ctx context.Context, transport mcp.Transport) error {
 	return s.server.Run(ctx, transport)
 }
 

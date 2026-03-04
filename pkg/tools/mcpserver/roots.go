@@ -6,17 +6,17 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// MCPServerOption configures optional behavior of MCPServer.
-type MCPServerOption func(*mcpServerConfig)
+// Option configures optional behavior of Server.
+type Option func(*config)
 
-type mcpServerConfig struct {
+type config struct {
 	rootsChangedHandler func([]*mcp.Root)
 }
 
 // WithRootsChangedHandler registers a callback that fires when a connected
 // client's root list changes. The handler receives the full updated root list.
-func WithRootsChangedHandler(fn func(roots []*mcp.Root)) MCPServerOption {
-	return func(cfg *mcpServerConfig) {
+func WithRootsChangedHandler(fn func(roots []*mcp.Root)) Option {
+	return func(cfg *config) {
 		cfg.rootsChangedHandler = fn
 	}
 }

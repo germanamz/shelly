@@ -3,20 +3,14 @@ package toolbox
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"testing"
 
-	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func echoHandler(_ context.Context, input json.RawMessage) (string, error) {
 	return string(input), nil
-}
-
-func errorHandler(_ context.Context, _ json.RawMessage) (string, error) {
-	return "", errors.New("tool failed")
 }
 
 func newEchoTool(name string) Tool {
@@ -32,6 +26,7 @@ func TestNew(t *testing.T) {
 	tb := New()
 	assert.NotNil(t, tb)
 	assert.Empty(t, tb.Tools())
+	assert.Equal(t, 0, tb.Len())
 }
 
 func TestRegisterAndGet(t *testing.T) {
@@ -60,6 +55,7 @@ func TestRegisterMultiple(t *testing.T) {
 		newEchoTool("c"),
 	)
 
+	assert.Equal(t, 3, tb.Len())
 	assert.Len(t, tb.Tools(), 3)
 }
 
@@ -79,39 +75,31 @@ func TestRegisterReplace(t *testing.T) {
 	got, ok := tb.Get("tool")
 	require.True(t, ok)
 	assert.Equal(t, "replaced", got.Description)
-	assert.Len(t, tb.Tools(), 1)
+	assert.Equal(t, 1, tb.Len())
 }
 
-func TestTools(t *testing.T) {
+func TestRegisterReplacePreservesOrder(t *testing.T) {
+	tb := New()
+	tb.Register(newEchoTool("a"), newEchoTool("b"), newEchoTool("c"))
+	tb.Register(Tool{Name: "b", Description: "replaced", Handler: echoHandler})
+
+	tools := tb.Tools()
+	require.Len(t, tools, 3)
+	assert.Equal(t, "a", tools[0].Name)
+	assert.Equal(t, "b", tools[1].Name)
+	assert.Equal(t, "replaced", tools[1].Description)
+	assert.Equal(t, "c", tools[2].Name)
+}
+
+func TestToolsInsertionOrder(t *testing.T) {
 	tb := New()
 	tb.Register(newEchoTool("x"))
 	tb.Register(newEchoTool("y"))
 
 	tools := tb.Tools()
-	assert.Len(t, tools, 2)
-
-	names := make(map[string]bool)
-	for _, tool := range tools {
-		names[tool.Name] = true
-	}
-	assert.True(t, names["x"])
-	assert.True(t, names["y"])
-}
-
-func TestCallSuccess(t *testing.T) {
-	tb := New()
-	tb.Register(newEchoTool("echo"))
-
-	tc := content.ToolCall{
-		ID:        "call-1",
-		Name:      "echo",
-		Arguments: `{"msg":"hi"}`,
-	}
-
-	result := tb.Call(context.Background(), tc)
-	assert.Equal(t, "call-1", result.ToolCallID)
-	assert.JSONEq(t, `{"msg":"hi"}`, result.Content)
-	assert.False(t, result.IsError)
+	require.Len(t, tools, 2)
+	assert.Equal(t, "x", tools[0].Name)
+	assert.Equal(t, "y", tools[1].Name)
 }
 
 func TestMerge(t *testing.T) {
@@ -123,7 +111,7 @@ func TestMerge(t *testing.T) {
 
 	tb1.Merge(tb2)
 
-	assert.Len(t, tb1.Tools(), 3)
+	assert.Equal(t, 3, tb1.Len())
 	_, ok := tb1.Get("c")
 	assert.True(t, ok)
 }
@@ -140,7 +128,7 @@ func TestMergeOverwrite(t *testing.T) {
 	got, ok := tb1.Get("x")
 	require.True(t, ok)
 	assert.Equal(t, "replaced", got.Description)
-	assert.Len(t, tb1.Tools(), 1)
+	assert.Equal(t, 1, tb1.Len())
 }
 
 func TestFilterSubset(t *testing.T) {
@@ -149,13 +137,24 @@ func TestFilterSubset(t *testing.T) {
 
 	filtered := tb.Filter([]string{"a", "c"})
 
-	assert.Len(t, filtered.Tools(), 2)
+	assert.Equal(t, 2, filtered.Len())
 	_, ok := filtered.Get("a")
 	assert.True(t, ok)
 	_, ok = filtered.Get("c")
 	assert.True(t, ok)
 	_, ok = filtered.Get("b")
 	assert.False(t, ok)
+}
+
+func TestFilterPreservesRequestedOrder(t *testing.T) {
+	tb := New()
+	tb.Register(newEchoTool("a"), newEchoTool("b"), newEchoTool("c"))
+
+	filtered := tb.Filter([]string{"c", "a"})
+	tools := filtered.Tools()
+	require.Len(t, tools, 2)
+	assert.Equal(t, "c", tools[0].Name)
+	assert.Equal(t, "a", tools[1].Name)
 }
 
 func TestFilterEmptyReturnsSamePointer(t *testing.T) {
@@ -175,7 +174,7 @@ func TestFilterMissingNamesSkipped(t *testing.T) {
 
 	filtered := tb.Filter([]string{"a", "missing", "also_missing"})
 
-	assert.Len(t, filtered.Tools(), 1)
+	assert.Equal(t, 1, filtered.Len())
 	_, ok := filtered.Get("a")
 	assert.True(t, ok)
 }
@@ -187,39 +186,22 @@ func TestFilterOriginalNotMutated(t *testing.T) {
 	filtered := tb.Filter([]string{"a"})
 
 	// Original still has all three tools.
-	assert.Len(t, tb.Tools(), 3)
+	assert.Equal(t, 3, tb.Len())
 	// Filtered has only one.
-	assert.Len(t, filtered.Tools(), 1)
+	assert.Equal(t, 1, filtered.Len())
 }
 
-func TestCallNotFound(t *testing.T) {
+func TestLen(t *testing.T) {
 	tb := New()
+	assert.Equal(t, 0, tb.Len())
 
-	tc := content.ToolCall{
-		ID:   "call-2",
-		Name: "missing",
-	}
+	tb.Register(newEchoTool("a"))
+	assert.Equal(t, 1, tb.Len())
 
-	result := tb.Call(context.Background(), tc)
-	assert.Equal(t, "call-2", result.ToolCallID)
-	assert.Contains(t, result.Content, "tool not found: missing")
-	assert.True(t, result.IsError)
-}
+	tb.Register(newEchoTool("b"))
+	assert.Equal(t, 2, tb.Len())
 
-func TestCallHandlerError(t *testing.T) {
-	tb := New()
-	tb.Register(Tool{
-		Name:    "fail",
-		Handler: errorHandler,
-	})
-
-	tc := content.ToolCall{
-		ID:   "call-3",
-		Name: "fail",
-	}
-
-	result := tb.Call(context.Background(), tc)
-	assert.Equal(t, "call-3", result.ToolCallID)
-	assert.Equal(t, "tool failed", result.Content)
-	assert.True(t, result.IsError)
+	// Replacing doesn't change count.
+	tb.Register(newEchoTool("a"))
+	assert.Equal(t, 2, tb.Len())
 }

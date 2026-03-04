@@ -1,96 +1,72 @@
 package toolbox
 
-import (
-	"context"
-	"encoding/json"
-	"fmt"
-
-	"github.com/germanamz/shelly/pkg/chats/content"
-)
-
 // ToolBox orchestrates a collection of tools. It allows registering, retrieving,
-// listing, and calling tools. Agents use ToolBox to execute tool calls.
+// listing, and filtering tools. Tools are stored in insertion order.
 type ToolBox struct {
-	tools map[string]Tool
+	index map[string]int // name → position in items
+	items []Tool         // insertion-ordered
 }
 
 // New creates a new ToolBox ready for use.
 func New() *ToolBox {
 	return &ToolBox{
-		tools: make(map[string]Tool),
+		index: make(map[string]int),
 	}
 }
 
 // Register adds one or more tools to the ToolBox. If a tool with the same name
-// already exists, it is replaced.
+// already exists, it is replaced in-place (preserving position).
 func (tb *ToolBox) Register(tools ...Tool) {
 	for _, t := range tools {
-		tb.tools[t.Name] = t
+		if idx, ok := tb.index[t.Name]; ok {
+			tb.items[idx] = t
+			continue
+		}
+		tb.index[t.Name] = len(tb.items)
+		tb.items = append(tb.items, t)
 	}
 }
 
 // Get returns a tool by name and a boolean indicating whether it was found.
 func (tb *ToolBox) Get(name string) (Tool, bool) {
-	t, ok := tb.tools[name]
-	return t, ok
+	idx, ok := tb.index[name]
+	if !ok {
+		return Tool{}, false
+	}
+	return tb.items[idx], true
 }
 
-// Merge registers all tools from another ToolBox into this one. If a tool
-// with the same name already exists, it is replaced.
+// Merge registers all tools from another ToolBox into this one, preserving the
+// other's insertion order. If a tool with the same name already exists, it is
+// replaced in-place.
 func (tb *ToolBox) Merge(other *ToolBox) {
-	for _, t := range other.tools {
-		tb.tools[t.Name] = t
+	for _, t := range other.items {
+		tb.Register(t)
 	}
 }
 
-// Tools returns all registered tools as a slice.
+// Tools returns all registered tools as a slice in insertion order.
 func (tb *ToolBox) Tools() []Tool {
-	result := make([]Tool, 0, len(tb.tools))
-	for _, t := range tb.tools {
-		result = append(result, t)
-	}
+	result := make([]Tool, len(tb.items))
+	copy(result, tb.items)
 	return result
 }
 
+// Len returns the number of registered tools.
+func (tb *ToolBox) Len() int { return len(tb.items) }
+
 // Filter returns a new ToolBox containing only the tools whose names appear in
-// the provided list. Unknown names are silently skipped. If names is empty, the
-// original ToolBox is returned unchanged.
+// the provided list, in the order given. Unknown names are silently skipped.
+// If names is empty, the original ToolBox is returned unchanged.
 func (tb *ToolBox) Filter(names []string) *ToolBox {
 	if len(names) == 0 {
 		return tb
 	}
 	filtered := New()
 	for _, name := range names {
-		if t, ok := tb.tools[name]; ok {
-			filtered.tools[name] = t
+		if t, ok := tb.Get(name); ok {
+			filtered.Register(t)
 		}
 	}
 	return filtered
-}
-
-// Call executes a tool call and returns a ToolResult. If the tool is not found
-// or the handler returns an error, the result will have IsError set to true.
-func (tb *ToolBox) Call(ctx context.Context, tc content.ToolCall) content.ToolResult {
-	t, ok := tb.tools[tc.Name]
-	if !ok {
-		return content.ToolResult{
-			ToolCallID: tc.ID,
-			Content:    fmt.Sprintf("tool not found: %s", tc.Name),
-			IsError:    true,
-		}
-	}
-
-	result, err := t.Handler(ctx, json.RawMessage(tc.Arguments))
-	if err != nil {
-		return content.ToolResult{
-			ToolCallID: tc.ID,
-			Content:    err.Error(),
-			IsError:    true,
-		}
-	}
-
-	return content.ToolResult{
-		ToolCallID: tc.ID,
-		Content:    result,
-	}
 }

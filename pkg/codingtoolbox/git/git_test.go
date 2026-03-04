@@ -11,9 +11,35 @@ import (
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/codingtoolbox"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
+	"github.com/germanamz/shelly/pkg/tools/toolbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func callTool(tb *toolbox.ToolBox, ctx context.Context, tc content.ToolCall) content.ToolResult {
+	t, ok := tb.Get(tc.Name)
+	if !ok {
+		return content.ToolResult{
+			ToolCallID: tc.ID,
+			Content:    "tool not found: " + tc.Name,
+			IsError:    true,
+		}
+	}
+
+	result, err := t.Handler(ctx, json.RawMessage(tc.Arguments))
+	if err != nil {
+		return content.ToolResult{
+			ToolCallID: tc.ID,
+			Content:    err.Error(),
+			IsError:    true,
+		}
+	}
+
+	return content.ToolResult{
+		ToolCallID: tc.ID,
+		Content:    result,
+	}
+}
 
 func autoApprove(_ context.Context, _ string, _ []string) (string, error) {
 	return "yes", nil
@@ -84,7 +110,7 @@ func TestStatus(t *testing.T) {
 	g, _ := newTestGit(t, autoApprove, dir)
 	tb := g.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "git_status",
 		Arguments: `{}`,
@@ -102,7 +128,7 @@ func TestStatus_Short(t *testing.T) {
 	// Create an untracked file.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "new.txt"), []byte("x"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "git_status",
 		Arguments: mustJSON(t, statusInput{Short: true}),
@@ -120,7 +146,7 @@ func TestDiff(t *testing.T) {
 	// Modify a tracked file.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("# changed"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "git_diff",
 		Arguments: `{}`,
@@ -135,7 +161,7 @@ func TestLog(t *testing.T) {
 	g, _ := newTestGit(t, autoApprove, dir)
 	tb := g.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "git_log",
 		Arguments: `{}`,
@@ -150,7 +176,7 @@ func TestLog_CustomFormat(t *testing.T) {
 	g, _ := newTestGit(t, autoApprove, dir)
 	tb := g.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "git_log",
 		Arguments: mustJSON(t, logInput{Format: "short"}),
@@ -165,7 +191,7 @@ func TestLog_UnsupportedFormat(t *testing.T) {
 	g, _ := newTestGit(t, autoApprove, dir)
 	tb := g.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "git_log",
 		Arguments: mustJSON(t, logInput{Format: "format:%H%n%ae"}),
@@ -181,7 +207,7 @@ func TestLog_AllAllowedFormats(t *testing.T) {
 	tb := g.Tools()
 
 	for _, format := range []string{"oneline", "short", "medium", "full", "fuller", "reference", "email", "raw"} {
-		tr := tb.Call(context.Background(), content.ToolCall{
+		tr := callTool(tb, context.Background(), content.ToolCall{
 			ID:        "tc-" + format,
 			Name:      "git_log",
 			Arguments: mustJSON(t, logInput{Format: format}),
@@ -200,7 +226,7 @@ func TestCommit(t *testing.T) {
 	newFile := filepath.Join(dir, "new.txt")
 	require.NoError(t, os.WriteFile(newFile, []byte("new content"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:   "tc1",
 		Name: "git_commit",
 		Arguments: mustJSON(t, commitInput{
@@ -221,7 +247,7 @@ func TestCommit_All(t *testing.T) {
 	// Modify a tracked file.
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("# updated"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:   "tc1",
 		Name: "git_commit",
 		Arguments: mustJSON(t, commitInput{
@@ -239,7 +265,7 @@ func TestCommit_FilesAndAll(t *testing.T) {
 	g, _ := newTestGit(t, autoApprove, dir)
 	tb := g.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:   "tc1",
 		Name: "git_commit",
 		Arguments: mustJSON(t, commitInput{
@@ -258,7 +284,7 @@ func TestCommit_EmptyMessage(t *testing.T) {
 	g, _ := newTestGit(t, autoApprove, dir)
 	tb := g.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "git_commit",
 		Arguments: `{"message":""}`,
@@ -273,7 +299,7 @@ func TestDenied(t *testing.T) {
 	g, _ := newTestGit(t, autoDeny, dir)
 	tb := g.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "git_status",
 		Arguments: `{}`,
@@ -288,7 +314,7 @@ func TestTrust(t *testing.T) {
 	g, store := newTestGit(t, autoTrust, dir)
 	tb := g.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "git_status",
 		Arguments: `{}`,
@@ -300,7 +326,7 @@ func TestTrust(t *testing.T) {
 	// Subsequent calls bypass the ask — switch to deny to prove it.
 	g.ask = autoDeny
 
-	tr = tb.Call(context.Background(), content.ToolCall{
+	tr = callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc2",
 		Name:      "git_status",
 		Arguments: `{}`,

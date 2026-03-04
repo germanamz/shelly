@@ -13,8 +13,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// MCPClient communicates with an MCP server using the official MCP Go SDK.
-type MCPClient struct {
+// Client communicates with an MCP server using the official MCP Go SDK.
+type Client struct {
 	client   *mcp.Client
 	session  *mcp.ClientSession
 	cmd      *exec.Cmd // non-nil for stdio transport; used to force-kill subprocess
@@ -26,7 +26,7 @@ type MCPClient struct {
 // The SDK handles initialization automatically during Connect. A background
 // goroutine ensures the subprocess is killed if the context is cancelled
 // without Close being called (e.g., double signal, unclean exit).
-func New(ctx context.Context, command string, args ...string) (*MCPClient, error) {
+func New(ctx context.Context, command string, args ...string) (*Client, error) {
 	cmd := exec.Command(command, args...) //nolint:gosec // command is caller-provided by design
 	transport := &mcp.CommandTransport{
 		Command: cmd,
@@ -45,15 +45,15 @@ func New(ctx context.Context, command string, args ...string) (*MCPClient, error
 }
 
 // NewHTTP connects to a Streamable HTTP MCP server at the given URL.
-func NewHTTP(ctx context.Context, url string) (*MCPClient, error) {
+func NewHTTP(ctx context.Context, url string) (*Client, error) {
 	transport := &mcp.StreamableClientTransport{Endpoint: url}
 
 	return newFromTransport(ctx, transport)
 }
 
-// newFromTransport creates an MCPClient using the given transport. Used by New
+// newFromTransport creates an Client using the given transport. Used by New
 // and useful for testing with InMemoryTransport.
-func newFromTransport(ctx context.Context, transport mcp.Transport) (*MCPClient, error) {
+func newFromTransport(ctx context.Context, transport mcp.Transport) (*Client, error) {
 	client := mcp.NewClient(&mcp.Implementation{
 		Name:    "shelly",
 		Version: "0.1.0",
@@ -64,13 +64,13 @@ func newFromTransport(ctx context.Context, transport mcp.Transport) (*MCPClient,
 		return nil, fmt.Errorf("mcpclient: connect: %w", err)
 	}
 
-	return &MCPClient{client: client, session: session, done: make(chan struct{})}, nil
+	return &Client{client: client, session: session, done: make(chan struct{})}, nil
 }
 
 // ListTools fetches available tools from the server and returns them as
 // toolbox.Tool instances. Each Tool's Handler closure calls back through
 // CallTool.
-func (c *MCPClient) ListTools(ctx context.Context) ([]toolbox.Tool, error) {
+func (c *Client) ListTools(ctx context.Context) ([]toolbox.Tool, error) {
 	result, err := c.session.ListTools(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("mcpclient: list tools: %w", err)
@@ -89,7 +89,7 @@ func (c *MCPClient) ListTools(ctx context.Context) ([]toolbox.Tool, error) {
 }
 
 // CallTool calls a named tool on the server with the given arguments.
-func (c *MCPClient) CallTool(ctx context.Context, name string, arguments json.RawMessage) (string, error) {
+func (c *Client) CallTool(ctx context.Context, name string, arguments json.RawMessage) (string, error) {
 	var args map[string]any
 	if len(arguments) > 0 {
 		if err := json.Unmarshal(arguments, &args); err != nil {
@@ -119,7 +119,7 @@ func (c *MCPClient) CallTool(ctx context.Context, name string, arguments json.Ra
 // before resorting to SIGKILL. This is a safety net for cases where Close is
 // never called (e.g., the process receives a second signal before the defer
 // runs).
-func (c *MCPClient) reap(ctx context.Context) {
+func (c *Client) reap(ctx context.Context) {
 	<-ctx.Done()
 
 	t := time.NewTimer(3 * time.Second)
@@ -141,7 +141,7 @@ func (c *MCPClient) reap(ctx context.Context) {
 // jsonrpc2.Connection.Close() → ioConn.Close() → pipeRWC.Close(), which
 // closes stdin, waits with timeout, and escalates through SIGTERM/SIGKILL.
 // As a fallback the subprocess is also killed explicitly.
-func (c *MCPClient) Close() error {
+func (c *Client) Close() error {
 	defer c.doneOnce.Do(func() { close(c.done) })
 
 	err := c.session.Close()
@@ -156,7 +156,7 @@ func (c *MCPClient) Close() error {
 
 // fromSDKTool converts an SDK *mcp.Tool to a toolbox.Tool. The handler
 // closure calls CallTool on the client.
-func fromSDKTool(sdkTool *mcp.Tool, c *MCPClient) (toolbox.Tool, error) {
+func fromSDKTool(sdkTool *mcp.Tool, c *Client) (toolbox.Tool, error) {
 	schemaBytes, err := json.Marshal(sdkTool.InputSchema)
 	if err != nil {
 		return toolbox.Tool{}, fmt.Errorf("marshal input schema: %w", err)

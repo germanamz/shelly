@@ -29,7 +29,7 @@ type Engine struct {
 	registry       *agent.Registry
 	completers     map[string]modeladapter.Completer
 	toolboxes      map[string]*toolbox.ToolBox
-	mcpClients     []*mcpclient.MCPClient
+	mcpClients     []*mcpclient.Client
 	dir            shellydir.Dir
 	projectCtx     projectctx.Context
 	knowledgeStale bool

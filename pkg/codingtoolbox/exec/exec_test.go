@@ -9,9 +9,35 @@ import (
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/codingtoolbox"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
+	"github.com/germanamz/shelly/pkg/tools/toolbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func callTool(tb *toolbox.ToolBox, ctx context.Context, tc content.ToolCall) content.ToolResult {
+	t, ok := tb.Get(tc.Name)
+	if !ok {
+		return content.ToolResult{
+			ToolCallID: tc.ID,
+			Content:    "tool not found: " + tc.Name,
+			IsError:    true,
+		}
+	}
+
+	result, err := t.Handler(ctx, json.RawMessage(tc.Arguments))
+	if err != nil {
+		return content.ToolResult{
+			ToolCallID: tc.ID,
+			Content:    err.Error(),
+			IsError:    true,
+		}
+	}
+
+	return content.ToolResult{
+		ToolCallID: tc.ID,
+		Content:    result,
+	}
+}
 
 func autoApprove(_ context.Context, _ string, _ []string) (string, error) {
 	return "yes", nil
@@ -48,7 +74,7 @@ func TestRun_Echo(t *testing.T) {
 	e, _ := newTestExec(t, autoApprove)
 	tb := e.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "exec_run",
 		Arguments: mustJSON(t, runInput{Command: "echo", Args: []string{"hello"}}),
@@ -62,7 +88,7 @@ func TestRun_Denied(t *testing.T) {
 	e, _ := newTestExec(t, autoDeny)
 	tb := e.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "exec_run",
 		Arguments: mustJSON(t, runInput{Command: "echo", Args: []string{"hello"}}),
@@ -76,7 +102,7 @@ func TestRun_Trust(t *testing.T) {
 	e, store := newTestExec(t, autoTrust)
 	tb := e.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "exec_run",
 		Arguments: mustJSON(t, runInput{Command: "echo", Args: []string{"first"}}),
@@ -88,7 +114,7 @@ func TestRun_Trust(t *testing.T) {
 	// Subsequent calls bypass the ask — switch to deny to prove it.
 	e.ask = autoDeny
 
-	tr = tb.Call(context.Background(), content.ToolCall{
+	tr = callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc2",
 		Name:      "exec_run",
 		Arguments: mustJSON(t, runInput{Command: "echo", Args: []string{"second"}}),
@@ -102,7 +128,7 @@ func TestRun_CommandFailed(t *testing.T) {
 	e, _ := newTestExec(t, autoApprove)
 	tb := e.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "exec_run",
 		Arguments: mustJSON(t, runInput{Command: "false"}),
@@ -116,7 +142,7 @@ func TestRun_EmptyCommand(t *testing.T) {
 	e, _ := newTestExec(t, autoApprove)
 	tb := e.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "exec_run",
 		Arguments: `{"command":""}`,
@@ -130,7 +156,7 @@ func TestRun_CommandNotFound(t *testing.T) {
 	e, _ := newTestExec(t, autoApprove)
 	tb := e.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "exec_run",
 		Arguments: mustJSON(t, runInput{Command: "nonexistent_command_xyz_12345"}),

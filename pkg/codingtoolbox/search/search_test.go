@@ -12,9 +12,35 @@ import (
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/codingtoolbox"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
+	"github.com/germanamz/shelly/pkg/tools/toolbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func callTool(tb *toolbox.ToolBox, ctx context.Context, tc content.ToolCall) content.ToolResult {
+	t, ok := tb.Get(tc.Name)
+	if !ok {
+		return content.ToolResult{
+			ToolCallID: tc.ID,
+			Content:    "tool not found: " + tc.Name,
+			IsError:    true,
+		}
+	}
+
+	result, err := t.Handler(ctx, json.RawMessage(tc.Arguments))
+	if err != nil {
+		return content.ToolResult{
+			ToolCallID: tc.ID,
+			Content:    err.Error(),
+			IsError:    true,
+		}
+	}
+
+	return content.ToolResult{
+		ToolCallID: tc.ID,
+		Content:    result,
+	}
+}
 
 func autoApprove(_ context.Context, _ string, _ []string) (string, error) {
 	return "yes", nil
@@ -50,7 +76,7 @@ func TestSearchContent(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "hello.go"), []byte("package main\nfunc hello() {}\n"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "search_content",
 		Arguments: mustJSON(t, contentInput{Pattern: "func.*hello", Directory: dir}),
@@ -69,7 +95,7 @@ func TestSearchContent_InvalidRegex(t *testing.T) {
 	s, dir := newTestSearch(t, autoApprove)
 	tb := s.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "search_content",
 		Arguments: mustJSON(t, contentInput{Pattern: "[invalid", Directory: dir}),
@@ -90,7 +116,7 @@ func TestSearchContent_MaxResults(t *testing.T) {
 	}
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "many.txt"), []byte(b.String()), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "search_content",
 		Arguments: mustJSON(t, contentInput{Pattern: "match", Directory: dir, MaxResults: 5}),
@@ -107,7 +133,7 @@ func TestSearchContent_Denied(t *testing.T) {
 	s, dir := newTestSearch(t, autoDeny)
 	tb := s.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "search_content",
 		Arguments: mustJSON(t, contentInput{Pattern: "x", Directory: dir}),
@@ -121,7 +147,7 @@ func TestSearchContent_EmptyPattern(t *testing.T) {
 	s, _ := newTestSearch(t, autoApprove)
 	tb := s.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "search_content",
 		Arguments: `{"pattern":"","directory":"/tmp"}`,
@@ -140,7 +166,7 @@ func TestSearchFiles(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "readme.md"), []byte("x"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "sub", "helper.go"), []byte("x"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "search_files",
 		Arguments: mustJSON(t, filesInput{Pattern: "*.go", Directory: dir}),
@@ -164,7 +190,7 @@ func TestSearchFiles_DoublestarGlob(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "sub", "deep", "c.go"), []byte("x"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "sub", "deep", "d.txt"), []byte("x"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "search_files",
 		Arguments: mustJSON(t, filesInput{Pattern: "**/*.go", Directory: dir}),
@@ -185,7 +211,7 @@ func TestSearchFiles_MaxResults(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, fmt.Sprintf("file%d.txt", i)), []byte("x"), 0o600))
 	}
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "search_files",
 		Arguments: mustJSON(t, filesInput{Pattern: "**/*.txt", Directory: dir, MaxResults: 3}),
@@ -202,7 +228,7 @@ func TestSearchFiles_Denied(t *testing.T) {
 	s, dir := newTestSearch(t, autoDeny)
 	tb := s.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "search_files",
 		Arguments: mustJSON(t, filesInput{Pattern: "*.go", Directory: dir}),
@@ -220,7 +246,7 @@ func TestSearchFiles_PatternWithDirSeparator(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "sub", "main.go"), []byte("x"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.go"), []byte("x"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "search_files",
 		Arguments: mustJSON(t, filesInput{Pattern: "sub/*.go", Directory: dir}),
@@ -240,7 +266,7 @@ func TestSearchContent_WithContext(t *testing.T) {
 	fileContent := "line1\nline2\nfunc target() {}\nline4\nline5\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "ctx.go"), []byte(fileContent), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "search_content",
 		Arguments: mustJSON(t, contentInput{Pattern: "func target", Directory: dir, ContextLines: 1}),
@@ -265,7 +291,7 @@ func TestSearchContent_ContextZero(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "f.go"), []byte("package main\nfunc foo() {}\n"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "search_content",
 		Arguments: mustJSON(t, contentInput{Pattern: "func foo", Directory: dir}),
@@ -287,7 +313,7 @@ func TestSearchContent_LongLines(t *testing.T) {
 	longLine := strings.Repeat("a", 100_000) + "NEEDLE" + strings.Repeat("b", 100_000)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "long.txt"), []byte(longLine+"\n"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "search_content",
 		Arguments: mustJSON(t, contentInput{Pattern: "NEEDLE", Directory: dir}),
@@ -305,7 +331,7 @@ func TestSearchFiles_EmptyPattern(t *testing.T) {
 	s, _ := newTestSearch(t, autoApprove)
 	tb := s.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "search_files",
 		Arguments: `{"pattern":"","directory":"/tmp"}`,

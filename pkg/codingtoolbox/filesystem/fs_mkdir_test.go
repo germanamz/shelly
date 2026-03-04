@@ -17,7 +17,7 @@ func TestMkdir(t *testing.T) {
 
 	dirPath := filepath.Join(dir, "newdir")
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_mkdir",
 		Arguments: mustJSON(t, pathInput{Path: dirPath}),
@@ -37,7 +37,7 @@ func TestMkdir_Nested(t *testing.T) {
 
 	dirPath := filepath.Join(dir, "a", "b", "c")
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_mkdir",
 		Arguments: mustJSON(t, pathInput{Path: dirPath}),
@@ -55,7 +55,7 @@ func TestMkdir_AlreadyExists(t *testing.T) {
 	fs, dir := newTestFS(t, autoApprove)
 	tb := fs.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_mkdir",
 		Arguments: mustJSON(t, pathInput{Path: dir}),
@@ -71,7 +71,7 @@ func TestMkdir_Denied(t *testing.T) {
 
 	dirPath := filepath.Join(dir, "forbidden")
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_mkdir",
 		Arguments: mustJSON(t, pathInput{Path: dirPath}),
@@ -85,7 +85,7 @@ func TestMkdir_EmptyPath(t *testing.T) {
 	fs, _ := newTestFS(t, autoApprove)
 	tb := fs.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_mkdir",
 		Arguments: `{"path":""}`,

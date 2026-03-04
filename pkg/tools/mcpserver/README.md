@@ -4,7 +4,7 @@ MCP (Model Context Protocol) server for Shelly. Exposes `toolbox.Tool` instances
 
 ## Architecture
 
-`MCPServer` wraps the SDK's `mcp.Server`. Tools are registered via `Register`, which converts each `toolbox.Tool` into SDK tool registrations using two internal helpers:
+`Server` wraps the SDK's `mcp.Server`. Tools are registered via `Register`, which converts each `toolbox.Tool` into SDK tool registrations using two internal helpers:
 
 - `toSDKTool` -- converts a `toolbox.Tool` struct to an `*mcp.Tool` (name, description, input schema)
 - `toSDKHandler` -- wraps a `toolbox.Handler` as an SDK `mcp.ToolHandler`, mapping handler errors to MCP error responses (`IsError: true` with the error message as `TextContent`)
@@ -20,10 +20,10 @@ The `Serve` method accepts an `io.Reader` and `io.Writer` (typically `os.Stdin` 
 
 ### Types
 
-#### `MCPServer`
+#### `Server`
 
 ```go
-type MCPServer struct {
+type Server struct {
     server *mcp.Server // unexported
 }
 ```
@@ -34,10 +34,10 @@ Serves tools over the MCP protocol.
 
 | Function / Method                                                | Description                                                                  |
 |------------------------------------------------------------------|------------------------------------------------------------------------------|
-| `New(name, version string, opts ...MCPServerOption) *MCPServer`  | Creates a new server with the given implementation name, version, and options |
-| `(*MCPServer) Register(tools ...toolbox.Tool)`                   | Adds one or more tools to the server                                         |
-| `(*MCPServer) Serve(ctx context.Context, in io.Reader, out io.Writer) error` | Starts serving MCP requests; blocks until ctx is cancelled or transport closes |
-| `WithRootsChangedHandler(fn func(roots []*mcp.Root)) MCPServerOption` | Option: registers a callback fired when a client's root list changes   |
+| `New(name, version string, opts ...Option) *Server`              | Creates a new server with the given implementation name, version, and options |
+| `(*Server) Register(tools ...toolbox.Tool)`                      | Adds one or more tools to the server                                         |
+| `(*Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error` | Starts serving MCP requests; blocks until ctx is cancelled or transport closes |
+| `WithRootsChangedHandler(fn func(roots []*mcp.Root)) Option`    | Option: registers a callback fired when a client's root list changes         |
 | `RootPaths(roots []*mcp.Root) []string`                          | Extracts absolute filesystem paths from roots, skipping non-`file://` URIs  |
 
 ### Internal Helpers
@@ -83,4 +83,4 @@ err := server.Serve(ctx, os.Stdin, os.Stdout)
 
 ## Testing
 
-Tests use the SDK's `mcp.NewInMemoryTransports()` to create paired in-memory transports. The `setupTestClient` helper creates an `MCPServer`, connects an SDK client via in-memory transport, and runs the server in a background goroutine. Tests verify tool listing, successful calls, handler errors, unknown tool calls, and context cancellation.
+Tests use the SDK's `mcp.NewInMemoryTransports()` to create paired in-memory transports. The `setupTestClient` helper creates a `Server`, connects an SDK client via in-memory transport, and runs the server in a background goroutine. Tests verify tool listing, successful calls, handler errors, unknown tool calls, and context cancellation.

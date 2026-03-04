@@ -2,21 +2,48 @@ package notes
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/germanamz/shelly/pkg/chats/content"
+	"github.com/germanamz/shelly/pkg/tools/toolbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func callTool(tb *toolbox.ToolBox, ctx context.Context, tc content.ToolCall) content.ToolResult {
+	t, ok := tb.Get(tc.Name)
+	if !ok {
+		return content.ToolResult{
+			ToolCallID: tc.ID,
+			Content:    "tool not found: " + tc.Name,
+			IsError:    true,
+		}
+	}
+
+	result, err := t.Handler(ctx, json.RawMessage(tc.Arguments))
+	if err != nil {
+		return content.ToolResult{
+			ToolCallID: tc.ID,
+			Content:    err.Error(),
+			IsError:    true,
+		}
+	}
+
+	return content.ToolResult{
+		ToolCallID: tc.ID,
+		Content:    result,
+	}
+}
 
 func TestWriteNote_CreatesFile(t *testing.T) {
 	dir := t.TempDir()
 	s := New(dir)
 	tb := s.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "write_note",
 		Arguments: `{"name":"my-note","content":"# Hello\nThis is a note."}`,
@@ -36,13 +63,13 @@ func TestReadNote_ReturnsContent(t *testing.T) {
 	tb := s.Tools()
 
 	// Write first.
-	tb.Call(context.Background(), content.ToolCall{
+	callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "write_note",
 		Arguments: `{"name":"todo","content":"Buy milk"}`,
 	})
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc2",
 		Name:      "read_note",
 		Arguments: `{"name":"todo"}`,
@@ -57,18 +84,18 @@ func TestListNotes_ListsAllNotes(t *testing.T) {
 	s := New(dir)
 	tb := s.Tools()
 
-	tb.Call(context.Background(), content.ToolCall{
+	callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "write_note",
 		Arguments: `{"name":"alpha","content":"First note"}`,
 	})
-	tb.Call(context.Background(), content.ToolCall{
+	callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc2",
 		Name:      "write_note",
 		Arguments: `{"name":"beta","content":"Second note"}`,
 	})
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc3",
 		Name:      "list_notes",
 		Arguments: `{}`,
@@ -99,7 +126,7 @@ func TestWriteNote_RejectsInvalidName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tr := tb.Call(context.Background(), content.ToolCall{
+			tr := callTool(tb, context.Background(), content.ToolCall{
 				ID:        "tc1",
 				Name:      "write_note",
 				Arguments: tt.args,
@@ -114,19 +141,19 @@ func TestWriteNote_OverwritesExisting(t *testing.T) {
 	s := New(dir)
 	tb := s.Tools()
 
-	tb.Call(context.Background(), content.ToolCall{
+	callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "write_note",
 		Arguments: `{"name":"overwrite-me","content":"original"}`,
 	})
 
-	tb.Call(context.Background(), content.ToolCall{
+	callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc2",
 		Name:      "write_note",
 		Arguments: `{"name":"overwrite-me","content":"updated"}`,
 	})
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc3",
 		Name:      "read_note",
 		Arguments: `{"name":"overwrite-me"}`,
@@ -141,7 +168,7 @@ func TestReadNote_NotFound(t *testing.T) {
 	s := New(dir)
 	tb := s.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "read_note",
 		Arguments: `{"name":"nonexistent"}`,
@@ -156,7 +183,7 @@ func TestWriteNote_AutoCreatesDirectory(t *testing.T) {
 	s := New(dir)
 	tb := s.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "write_note",
 		Arguments: `{"name":"deep","content":"created in nested dir"}`,
@@ -174,7 +201,7 @@ func TestListNotes_EmptyDirectory(t *testing.T) {
 	s := New(dir)
 	tb := s.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "list_notes",
 		Arguments: `{}`,
@@ -189,7 +216,7 @@ func TestListNotes_NonexistentDirectory(t *testing.T) {
 	s := New(dir)
 	tb := s.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "list_notes",
 		Arguments: `{}`,
@@ -204,7 +231,7 @@ func TestReadNote_RejectsInvalidName(t *testing.T) {
 	s := New(dir)
 	tb := s.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "read_note",
 		Arguments: `{"name":"../etc/passwd"}`,
@@ -219,7 +246,7 @@ func TestWriteNote_InvalidJSON(t *testing.T) {
 	s := New(dir)
 	tb := s.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "write_note",
 		Arguments: `not json`,
@@ -234,7 +261,7 @@ func TestReadNote_InvalidJSON(t *testing.T) {
 	s := New(dir)
 	tb := s.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "read_note",
 		Arguments: `not json`,
@@ -249,7 +276,7 @@ func TestReadNote_EmptyName(t *testing.T) {
 	s := New(dir)
 	tb := s.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "read_note",
 		Arguments: `{"name":""}`,
@@ -270,13 +297,13 @@ func TestListNotes_IgnoresNonMdFiles(t *testing.T) {
 	tb := s.Tools()
 
 	// Write one real note.
-	tb.Call(context.Background(), content.ToolCall{
+	callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "write_note",
 		Arguments: `{"name":"real","content":"I am real"}`,
 	})
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc2",
 		Name:      "list_notes",
 		Arguments: `{}`,

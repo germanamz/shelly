@@ -19,7 +19,7 @@ func TestMove(t *testing.T) {
 	dst := filepath.Join(dir, "dst.txt")
 	require.NoError(t, os.WriteFile(src, []byte("data"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_move",
 		Arguments: mustJSON(t, moveInput{Source: src, Destination: dst}),
@@ -44,7 +44,7 @@ func TestMove_CreatesParentDirs(t *testing.T) {
 	dst := filepath.Join(dir, "nested", "deep", "b.txt")
 	require.NoError(t, os.WriteFile(src, []byte("x"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_move",
 		Arguments: mustJSON(t, moveInput{Source: src, Destination: dst}),
@@ -60,7 +60,7 @@ func TestMove_Denied(t *testing.T) {
 	src := filepath.Join(dir, "x.txt")
 	require.NoError(t, os.WriteFile(src, []byte("x"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_move",
 		Arguments: mustJSON(t, moveInput{Source: src, Destination: filepath.Join(dir, "y.txt")}),
@@ -74,7 +74,7 @@ func TestMove_EmptySource(t *testing.T) {
 	fs, _ := newTestFS(t, autoApprove)
 	tb := fs.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_move",
 		Arguments: `{"source":"","destination":"/tmp/x"}`,
@@ -88,7 +88,7 @@ func TestMove_EmptyDestination(t *testing.T) {
 	fs, _ := newTestFS(t, autoApprove)
 	tb := fs.Tools()
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_move",
 		Arguments: `{"source":"/tmp/x","destination":""}`,
@@ -114,7 +114,7 @@ func TestMove_ConfirmDenied(t *testing.T) {
 	dst := filepath.Join(dir, "dst.txt")
 	require.NoError(t, os.WriteFile(src, []byte("data"), 0o600))
 
-	tr := tb.Call(context.Background(), content.ToolCall{
+	tr := callTool(tb, context.Background(), content.ToolCall{
 		ID:        "tc1",
 		Name:      "fs_move",
 		Arguments: mustJSON(t, moveInput{Source: src, Destination: dst}),
