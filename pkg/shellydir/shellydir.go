@@ -53,6 +53,9 @@ func (d Dir) NotesDir() string { return filepath.Join(d.root, "local", "notes") 
 // ReflectionsDir returns the path to the reflections directory inside local/.
 func (d Dir) ReflectionsDir() string { return filepath.Join(d.root, "local", "reflections") }
 
+// HistoryPath returns the path to the input history file inside local/.
+func (d Dir) HistoryPath() string { return filepath.Join(d.root, "local", "history") }
+
 // GitignorePath returns the path to the .gitignore file inside .shelly/.
 func (d Dir) GitignorePath() string { return filepath.Join(d.root, ".gitignore") }
 

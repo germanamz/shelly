@@ -24,12 +24,13 @@ type InputModel struct {
 	textarea   textarea.Model
 	FilePicker FilePickerModel
 	CmdPicker  CmdPickerModel
+	history    *History
 	Enabled    bool
 	width      int
 }
 
-// New creates a new InputModel.
-func New() InputModel {
+// New creates a new InputModel with persistent history at the given path.
+func New(historyPath string) InputModel {
 	ta := textarea.New()
 	ta.Placeholder = "Type a message... (@ for files, / for commands)"
 	ta.ShowLineNumbers = false
@@ -49,6 +50,7 @@ func New() InputModel {
 		textarea:   ta,
 		FilePicker: NewFilePicker(),
 		CmdPicker:  NewCmdPicker(),
+		history:    NewHistory(historyPath),
 		Enabled:    false,
 	}
 }
@@ -133,11 +135,30 @@ func (m InputModel) handleKeyPress(keyMsg tea.KeyPressMsg) (InputModel, tea.Cmd)
 		}
 	}
 
+	// History navigation: Up on first line, Down on last line.
+	if keyMsg.Key().Code == tea.KeyUp && !m.FilePicker.Active && !m.CmdPicker.Active && m.cursorOnFirstLine() {
+		if text, ok := m.history.Up(m.textarea.Value()); ok {
+			m.textarea.SetValue(text)
+			lines := m.visualLineCount()
+			m.textarea.SetHeight(min(max(lines, InputMinHeight), InputMaxHeight))
+		}
+		return m, nil
+	}
+	if keyMsg.Key().Code == tea.KeyDown && !m.FilePicker.Active && !m.CmdPicker.Active && m.cursorOnLastLine() {
+		if text, ok := m.history.Down(); ok {
+			m.textarea.SetValue(text)
+			lines := m.visualLineCount()
+			m.textarea.SetHeight(min(max(lines, InputMinHeight), InputMaxHeight))
+		}
+		return m, nil
+	}
+
 	// Handle enter submission (Shift+Enter and Alt+Enter are consumed by the
 	// textarea's InsertNewline binding before reaching here).
 	if keyMsg.Key().Code == tea.KeyEnter && keyMsg.Key().Mod&tea.ModAlt == 0 && !m.FilePicker.Active && !m.CmdPicker.Active {
 		text := strings.TrimSpace(m.textarea.Value())
 		if text != "" {
+			m.history.Add(text)
 			m.textarea.Reset()
 			m.textarea.SetHeight(InputMinHeight)
 			m.FilePicker.Active = false
@@ -360,6 +381,19 @@ func wordWrapLineCount(text string, width int) int {
 	}
 
 	return lines
+}
+
+// cursorOnFirstLine returns true when the cursor is on the first visual line
+// (hard line 0, soft-wrap row 0).
+func (m InputModel) cursorOnFirstLine() bool {
+	return m.textarea.Line() == 0 && m.textarea.LineInfo().RowOffset == 0
+}
+
+// cursorOnLastLine returns true when the cursor is on the last visual line
+// (last hard line, last soft-wrap row).
+func (m InputModel) cursorOnLastLine() bool {
+	li := m.textarea.LineInfo()
+	return m.textarea.Line() == m.textarea.LineCount()-1 && li.RowOffset == li.Height-1
 }
 
 // ViewHeight returns the height of the input box area.

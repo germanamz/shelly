@@ -55,7 +55,7 @@ type AppModel struct {
 }
 
 // NewAppModel creates a new AppModel.
-func NewAppModel(ctx context.Context, sess *engine.Session, eng *engine.Engine) AppModel {
+func NewAppModel(ctx context.Context, sess *engine.Session, eng *engine.Engine, historyPath string) AppModel {
 	cv := chatview.New()
 	// Append logo to viewport as initial content.
 	cv, _ = cv.Update(msgs.ChatViewAppendMsg{Content: styles.DimStyle.Render(chatview.LogoArt)})
@@ -64,7 +64,7 @@ func NewAppModel(ctx context.Context, sess *engine.Session, eng *engine.Engine) 
 		sess:      sess,
 		eng:       eng,
 		chatView:  cv,
-		inputBox:  input.New(),
+		inputBox:  input.New(historyPath),
 		taskPanel: taskpanel.New(),
 		state:     StateIdle,
 	}

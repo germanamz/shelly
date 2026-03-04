@@ -15,6 +15,7 @@ import (
 	"github.com/germanamz/shelly/cmd/shelly/internal/msgs"
 	"github.com/germanamz/shelly/cmd/shelly/internal/tty"
 	"github.com/germanamz/shelly/pkg/engine"
+	"github.com/germanamz/shelly/pkg/shellydir"
 )
 
 func main() {
@@ -100,7 +101,8 @@ func run(configPath, shellyDirPath, agentName string) error {
 		return err
 	}
 
-	model := app.NewAppModel(ctx, sess, eng)
+	dir := shellydir.New(shellyDirPath)
+	model := app.NewAppModel(ctx, sess, eng, dir.HistoryPath())
 
 	// Force the OSC 11 background-color query and consume its response
 	// synchronously before bubbletea starts. This prevents the response from
