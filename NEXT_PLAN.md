@@ -311,7 +311,7 @@ func (s *Store) OnDirApproved(fn func(string)) func() {
 
 Improvements to developer experience and configuration safety.
 
-### 6.1 Update provider README to match post-refactor architecture
+### 6.1 Update provider README to match post-refactor architecture ✅
 
 **Problem:** `pkg/providers/README.md` still references `modeladapter.ModelAdapter` which was decomposed into `Client` + `ModelConfig` in commit `88696ec`.
 

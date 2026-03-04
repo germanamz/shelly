@@ -21,13 +21,19 @@ packages.
 | `grok`        | xAI Grok       | `/v1/chat/completions`                        | `Authorization: Bearer` |
 | `gemini`      | Google Gemini  | `/v1beta/models/{model}:generateContent`      | `x-goog-api-key` header |
 
+Additionally, `internal/openaicompat/` provides shared wire types, message
+conversion, and batch infrastructure used by the `openai` and `grok`
+sub-packages (see below).
+
 ## Architecture
 
-All providers follow the same pattern:
+All providers follow the same composition pattern:
 
-1. **Embed `modeladapter.ModelAdapter`** -- Provides HTTP helpers (`PostJSON`,
-   `NewRequest`, `Do`), authentication, custom headers, rate limit handling,
-   and token usage tracking.
+1. **Compose `modeladapter.Client` + `modeladapter.ModelConfig` +
+   `usage.Tracker`** -- `Client` provides HTTP transport (`PostJSON`,
+   `NewRequest`, `Do`), authentication, custom headers, and rate limit info.
+   `ModelConfig` holds the model name, temperature, and max tokens.
+   `usage.Tracker` accumulates token counts.
 2. **Implement `modeladapter.Completer`** -- The single-method interface
    `Complete(ctx, chat, tools) (message, error)` that the agent's ReAct loop
    calls on each iteration.
@@ -35,7 +41,29 @@ All providers follow the same pattern:
    ToolResult, roles) into the provider's API format and parse responses back
    into `message.Message` with `content.Part` slices.
 4. **Track usage** -- Accumulate input/output token counts (and cache metrics
-   where available) via `adapter.Usage.Add()` after each successful API call.
+   where available) via `usage.Tracker.Add()` after each successful API call.
+5. **Optionally implement `modeladapter.UsageReporter`** -- Exposes
+   `UsageTracker()` and `ModelMaxTokens()` for the engine and effects.
+6. **Optionally implement `modeladapter.RateLimitInfoReporter`** -- Delegates
+   to `Client.LastRateLimitInfo()` for proactive rate limit throttling (all
+   providers except Gemini).
+
+### Shared OpenAI-compatible base (`internal/openaicompat`)
+
+The `openai` and `grok` providers share an OpenAI-compatible wire format. Rather
+than duplicating the code, shared types and logic live in
+`providers/internal/openaicompat/`:
+
+- **`types.go`** -- Wire types: `Request`, `Message`, `ToolCall`, `ToolDef`,
+  `Response`, `Choice`, `Usage`, etc. Also exports `CompletionsPath`.
+- **`convert.go`** -- `BuildRequest`, `ConvertMessages`, `ConvertTools`,
+  `MarshalToolDef`, `ParseMessage`, `ParseUsage`.
+- **`batch.go`** -- `BatchHelper` struct with `SubmitBatch`, `PollBatch`,
+  `CancelBatch` and supporting helpers (`UploadFile`, `DownloadResults`,
+  `ParseResultsJSONL`, `ConvertResult`).
+
+Both `openai.Adapter` and `grok.Adapter` delegate their `Complete` and batch
+implementations to these shared functions, keeping only provider-specific config.
 
 ### Provider Differences
 
@@ -56,11 +84,9 @@ All providers follow the same pattern:
   captures `prompt_tokens_details.cached_tokens` from responses and maps it to
   `CacheReadInputTokens` in the usage tracker.
 - **Grok** follows the OpenAI-compatible format (same message structure and tool
-  definitions). Its constructor accepts an `*http.Client` and uses
-  `modeladapter.New()` rather than direct field assignment. The model name is
-  set after construction. Default base URL: `https://api.x.ai`. Uses
-  `ParseOpenAIRateLimitHeaders`. Exports `MarshalToolDef` as a convenience for
-  building tool definitions in the OpenAI-compatible format.
+  definitions) via the shared `openaicompat` package. Accepts an optional
+  `*http.Client` in its constructor (falls back to `http.DefaultClient`).
+  Default base URL: `https://api.x.ai`. Uses `ParseOpenAIRateLimitHeaders`.
 - **Gemini** sends the system prompt as a top-level `systemInstruction` field
   and uses `contents` (not `messages`) with role alternation between `"user"`
   and `"model"`. Tool definitions use `functionDeclarations` grouped in a tool
@@ -73,42 +99,49 @@ All providers follow the same pattern:
   that the Gemini API rejects. Default max tokens: 8192.
   **Prompt caching**: Gemini has implicit caching (90% discount on Gemini 2.5+).
   The adapter captures `cachedContentTokenCount` from `usageMetadata` and maps
-  it to `CacheReadInputTokens` in the usage tracker.
+  it to `CacheReadInputTokens` in the usage tracker. Does not implement
+  `RateLimitInfoReporter`.
 
 ## Exported Types and Constructors
 
 ### `anthropic`
 
-- **`Adapter`** -- Embeds `modeladapter.ModelAdapter`. Implements `Completer`.
+- **`Adapter`** -- Composes `*modeladapter.Client`, `modeladapter.ModelConfig`, `usage.Tracker`. Implements `Completer`, `UsageReporter`, `RateLimitInfoReporter`.
 - **`New(baseURL, apiKey, model string) *Adapter`** -- Creates a configured adapter.
+- **`BatchSubmitter`** -- Batch processing. Created via `NewBatchSubmitter(adapter)`.
 
 ### `openai`
 
-- **`Adapter`** -- Embeds `modeladapter.ModelAdapter`. Implements `Completer`.
+- **`Adapter`** -- Composes `*modeladapter.Client`, `modeladapter.ModelConfig`, `usage.Tracker`. Implements `Completer`, `UsageReporter`, `RateLimitInfoReporter`.
 - **`New(baseURL, apiKey, model string) *Adapter`** -- Creates a configured adapter.
+- **`BatchSubmitter`** -- Batch processing via `openaicompat.BatchHelper`. Created via `NewBatchSubmitter(adapter)`.
 
 ### `grok`
 
-- **`Adapter`** -- Embeds `modeladapter.ModelAdapter`. Implements `Completer`.
-- **`New(apiKey string, client *http.Client) *Adapter`** -- Creates a configured adapter. A nil client falls back to `http.DefaultClient`.
-- **`MarshalToolDef(name, description string, schema json.RawMessage) apiTool`** -- Convenience helper to build an OpenAI-compatible tool definition.
+- **`Adapter`** -- Composes `*modeladapter.Client`, `modeladapter.ModelConfig`, `usage.Tracker`. Implements `Completer`, `UsageReporter`, `RateLimitInfoReporter`.
+- **`New(baseURL, apiKey, model string, httpClient *http.Client) *Adapter`** -- Creates a configured adapter. A nil client falls back to `http.DefaultClient`.
 - **`DefaultBaseURL`** -- Constant: `https://api.x.ai`.
+- **`BatchSubmitter`** -- Batch processing via `openaicompat.BatchHelper`. Created via `NewBatchSubmitter(adapter)`.
 
 ### `gemini`
 
-- **`Adapter`** -- Embeds `modeladapter.ModelAdapter`. Implements `Completer`.
+- **`Adapter`** -- Composes `*modeladapter.Client`, `modeladapter.ModelConfig`, `usage.Tracker`. Implements `Completer`, `UsageReporter`.
 - **`New(baseURL, apiKey, model string) *Adapter`** -- Creates a configured adapter.
+- **`BatchSubmitter`** -- Batch processing. Created via `NewBatchSubmitter(adapter)`.
 
 ## Dependencies
 
 - `pkg/chats/` -- Provider-agnostic chat data model
-- `pkg/modeladapter/` -- Base adapter struct, `Completer` interface, HTTP helpers, usage tracking
+- `pkg/modeladapter/` -- `Client` (HTTP transport), `ModelConfig`, `Completer` interface, rate limit handling
+- `pkg/modeladapter/usage/` -- `Tracker` for token count accumulation
+- `pkg/modeladapter/batch/` -- `Request`/`Result` types for batch processing
 - `pkg/tools/toolbox/` -- Tool definition type
 
 ## Use Cases
 
-- Adding a new LLM provider: create a new sub-package that embeds
-  `modeladapter.ModelAdapter`, implements `Complete`, and handles the
-  provider's API format.
+- Adding a new LLM provider: create a new sub-package that composes
+  `modeladapter.Client` + `modeladapter.ModelConfig` + `usage.Tracker`,
+  implements `Complete`, and handles the provider's API format. If the provider
+  uses an OpenAI-compatible API, delegate to `internal/openaicompat`.
 - The engine (`pkg/engine`) selects the appropriate provider sub-package based
   on YAML config and injects it into agents.
