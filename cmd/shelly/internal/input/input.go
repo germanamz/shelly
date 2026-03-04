@@ -11,6 +11,7 @@ import (
 	"github.com/germanamz/shelly/cmd/shelly/internal/msgs"
 	"github.com/germanamz/shelly/cmd/shelly/internal/styles"
 	"github.com/mattn/go-runewidth"
+	"github.com/rivo/uniseg"
 )
 
 const (
@@ -33,6 +34,7 @@ func New() InputModel {
 	ta.Placeholder = "Type a message... (@ for files, / for commands)"
 	ta.ShowLineNumbers = false
 	ta.SetHeight(InputMinHeight)
+	ta.Prompt = ""
 	ta.CharLimit = 0
 	s := ta.Styles()
 	s.Focused.CursorLine = lipgloss.NewStyle()
@@ -271,7 +273,7 @@ func (m InputModel) viewInput() string {
 		border = styles.DisabledBorder
 	}
 
-	innerWidth := max(m.width-4, 10) // account for border padding
+	innerWidth := max(m.width-4, 10) // account for border (2) + padding (2)
 	m.textarea.SetWidth(innerWidth)
 	border = border.Width(innerWidth)
 
@@ -280,14 +282,19 @@ func (m InputModel) viewInput() string {
 
 // visualLineCount returns the number of visual lines the current text occupies,
 // accounting for both hard newlines and soft wraps at the textarea width.
-// This mirrors the textarea's internal word-wrap function so the height
-// calculation stays in sync with what the textarea actually renders.
 func (m InputModel) visualLineCount() int {
 	text := m.textarea.Value()
 	if text == "" {
 		return 1
 	}
 
+	// Single hard-line (most common case): use the textarea's own wrap count
+	// via LineInfo().Height to stay perfectly in sync with its rendering.
+	if m.textarea.LineCount() == 1 {
+		return m.textarea.LineInfo().Height
+	}
+
+	// Multi-line fallback: sum wrap counts per hard line.
 	width := max(m.textarea.Width(), 1)
 
 	total := 0
@@ -300,7 +307,9 @@ func (m InputModel) visualLineCount() int {
 
 // wordWrapLineCount returns the number of visual lines a single hard line
 // occupies when word-wrapped at the given width. The algorithm mirrors the
-// textarea's internal wrap() function from charm.land/bubbles/v2.
+// textarea's internal wrap() function from charm.land/bubbles/v2, using the
+// same width-measurement libraries (uniseg for string widths, runewidth for
+// single-rune widths).
 func wordWrapLineCount(text string, width int) int {
 	runes := []rune(text)
 	if len(runes) == 0 {
@@ -320,7 +329,7 @@ func wordWrapLineCount(text string, width int) int {
 		}
 
 		if spaces > 0 {
-			wordWidth := runewidth.StringWidth(string(wordRunes))
+			wordWidth := uniseg.StringWidth(string(wordRunes))
 			if lineWidth+wordWidth+spaces > width {
 				// Word doesn't fit on current line — wrap.
 				lines++
@@ -333,7 +342,7 @@ func wordWrapLineCount(text string, width int) int {
 		} else {
 			// Check if a single word exceeds the line width and must be broken.
 			lastCharLen := runewidth.RuneWidth(wordRunes[len(wordRunes)-1])
-			wordWidth := runewidth.StringWidth(string(wordRunes))
+			wordWidth := uniseg.StringWidth(string(wordRunes))
 			if wordWidth+lastCharLen > width {
 				if lineWidth > 0 {
 					lines++
@@ -345,7 +354,7 @@ func wordWrapLineCount(text string, width int) int {
 	}
 
 	// Handle remaining text after the loop — mirrors the textarea's >= boundary.
-	wordWidth := runewidth.StringWidth(string(wordRunes))
+	wordWidth := uniseg.StringWidth(string(wordRunes))
 	if lineWidth+wordWidth+spaces >= width {
 		lines++
 	}

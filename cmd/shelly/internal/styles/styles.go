@@ -57,8 +57,8 @@ var (
 			BorderForeground(ColorError)
 
 	// Input styles.
-	FocusedBorder  = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(ColorAccent)
-	DisabledBorder = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(ColorMuted)
+	FocusedBorder  = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(ColorAccent).PaddingLeft(1).PaddingRight(1)
+	DisabledBorder = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(ColorMuted).PaddingLeft(1).PaddingRight(1)
 
 	// Picker styles.
 	PickerBorder    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(ColorAccent)
