@@ -275,7 +275,7 @@ func (m InputModel) viewInput() string {
 
 	innerWidth := max(m.width-4, 10) // account for border (2) + padding (2)
 	m.textarea.SetWidth(innerWidth)
-	border = border.Width(innerWidth)
+	border = border.Width(m.width)
 
 	return border.Render(m.textarea.View())
 }
