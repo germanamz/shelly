@@ -17,6 +17,7 @@ import (
 
 	"github.com/germanamz/shelly/pkg/codingtoolbox"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
+	"github.com/germanamz/shelly/pkg/tools/schema"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
@@ -179,10 +180,10 @@ func (h *HTTP) askAndApproveDomain(ctx context.Context, domain string) error {
 // --- http_fetch ---
 
 type fetchInput struct {
-	URL     string            `json:"url"`
-	Method  string            `json:"method"`
-	Headers map[string]string `json:"headers"`
-	Body    string            `json:"body"`
+	URL     string            `json:"url" desc:"The URL to fetch"`
+	Method  string            `json:"method,omitempty" desc:"HTTP method (default GET)"`
+	Headers map[string]string `json:"headers,omitempty" desc:"Request headers"`
+	Body    string            `json:"body,omitempty" desc:"Request body"`
 }
 
 type fetchOutput struct {
@@ -208,7 +209,7 @@ func (h *HTTP) fetchTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "http_fetch",
 		Description: "Make an HTTP request. Returns status, headers, and body (capped at 1MB).",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"url":{"type":"string","description":"The URL to fetch"},"method":{"type":"string","description":"HTTP method (default GET)"},"headers":{"type":"object","additionalProperties":{"type":"string"},"description":"Request headers"},"body":{"type":"string","description":"Request body"}},"required":["url"]}`),
+		InputSchema: schema.Generate[fetchInput](),
 		Handler:     h.handleFetch,
 	}
 }

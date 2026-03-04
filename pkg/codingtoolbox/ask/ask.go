@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/germanamz/shelly/pkg/tools/schema"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
@@ -77,17 +78,17 @@ func (r *Responder) Tools() *toolbox.ToolBox {
 }
 
 type askInput struct {
-	Question    string   `json:"question"`
-	Options     []string `json:"options,omitempty"`
-	Header      string   `json:"header,omitempty"`
-	MultiSelect bool     `json:"multiSelect,omitempty"`
+	Question    string   `json:"question" desc:"The question to ask the user"`
+	Options     []string `json:"options,omitempty" desc:"Optional list of choices for the user to select from"`
+	Header      string   `json:"header,omitempty" desc:"Short tab label for the question (single word, e.g. Auth, Style)"`
+	MultiSelect bool     `json:"multiSelect,omitempty" desc:"When true the user can select multiple options (checkboxes). Defaults to false (single choice)."`
 }
 
 func (r *Responder) askUserTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "ask_user",
 		Description: "Ask the user a question. Optionally provide multiple-choice options. The user may select an option or provide a custom response.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string","description":"The question to ask the user"},"options":{"type":"array","items":{"type":"string"},"description":"Optional list of choices for the user to select from"},"header":{"type":"string","description":"Short tab label for the question (single word, e.g. Auth, Style)"},"multiSelect":{"type":"boolean","description":"When true the user can select multiple options (checkboxes). Defaults to false (single choice)."}},"required":["question"]}`),
+		InputSchema: schema.Generate[askInput](),
 		Handler:     r.handleAsk,
 	}
 }

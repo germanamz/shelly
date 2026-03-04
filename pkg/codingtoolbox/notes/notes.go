@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/germanamz/shelly/pkg/tools/schema"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
@@ -38,19 +39,19 @@ func (s *Store) Tools() *toolbox.ToolBox {
 		toolbox.Tool{
 			Name:        "write_note",
 			Description: "Create or overwrite a persistent note. Notes survive context compaction and can be re-read later to restore important context. Use descriptive names like 'architecture-decisions' or 'user_preferences'.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string","description":"Note name (alphanumeric, hyphens, underscores only)"},"content":{"type":"string","description":"Markdown content of the note"}},"required":["name","content"]}`),
+			InputSchema: schema.Generate[writeInput](),
 			Handler:     s.handleWrite,
 		},
 		toolbox.Tool{
 			Name:        "read_note",
 			Description: "Read the content of a previously saved note by name.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string","description":"Name of the note to read"}},"required":["name"]}`),
+			InputSchema: schema.Generate[readInput](),
 			Handler:     s.handleRead,
 		},
 		toolbox.Tool{
 			Name:        "list_notes",
 			Description: "List all available notes with a first-line preview of each.",
-			InputSchema: json.RawMessage(`{"type":"object"}`),
+			InputSchema: schema.Generate[struct{}](),
 			Handler:     s.handleList,
 		},
 	)
@@ -61,12 +62,12 @@ func (s *Store) Tools() *toolbox.ToolBox {
 // --- input types ---
 
 type writeInput struct {
-	Name    string `json:"name"`
-	Content string `json:"content"`
+	Name    string `json:"name" desc:"Note name (alphanumeric, hyphens, underscores only)"`
+	Content string `json:"content" desc:"Markdown content of the note"`
 }
 
 type readInput struct {
-	Name string `json:"name"`
+	Name string `json:"name" desc:"Name of the note to read"`
 }
 
 // --- handlers ---

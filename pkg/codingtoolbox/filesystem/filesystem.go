@@ -18,6 +18,7 @@ import (
 	"github.com/germanamz/shelly/pkg/codingtoolbox"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
 	"github.com/germanamz/shelly/pkg/mcproots"
+	"github.com/germanamz/shelly/pkg/tools/schema"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
@@ -163,31 +164,31 @@ func (f *FS) askAndApproveDir(ctx context.Context, dir string) error {
 // --- tool definitions ---
 
 type pathInput struct {
-	Path string `json:"path"`
+	Path string `json:"path" desc:"Path to the file or directory"`
 }
 
 type readLinesInput struct {
-	Path   string `json:"path"`
-	Offset int    `json:"offset"` // 1-indexed first line to read
-	Limit  int    `json:"limit"`  // max number of lines to return
+	Path   string `json:"path" desc:"Path to the file to read"`
+	Offset int    `json:"offset,omitempty" desc:"First line to read, 1-indexed (default: 1)"`
+	Limit  int    `json:"limit,omitempty" desc:"Maximum number of lines to return (default: 100)"`
 }
 
 type writeInput struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
+	Path    string `json:"path" desc:"Path to the file to write"`
+	Content string `json:"content" desc:"Content to write"`
 }
 
 type editInput struct {
-	Path    string `json:"path"`
-	OldText string `json:"old_text"`
-	NewText string `json:"new_text"`
+	Path    string `json:"path" desc:"Path to the file to edit"`
+	OldText string `json:"old_text" desc:"Text to find (must appear exactly once)"`
+	NewText string `json:"new_text,omitempty" desc:"Replacement text. Omit or set to empty string to delete the matched text."`
 }
 
 func (f *FS) readTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "fs_read",
 		Description: "Read the contents of a file at the given path. Use this to inspect file contents before editing. Returns the full file content as text.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path to the file to read"}},"required":["path"]}`),
+		InputSchema: schema.Generate[pathInput](),
 		Handler:     f.handleRead,
 	}
 }
@@ -234,7 +235,7 @@ func (f *FS) readLinesTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "fs_read_lines",
 		Description: "Read a specific line range from a file. Returns numbered lines in the format \"N→content\" with a header showing the range and total line count. Use when you only need a portion of a large file to save context. For edits after a partial read, use fs_read to get exact text to match.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path to the file to read"},"offset":{"type":"integer","description":"First line to read, 1-indexed (default: 1)"},"limit":{"type":"integer","description":"Maximum number of lines to return (default: 100)"}},"required":["path"]}`),
+		InputSchema: schema.Generate[readLinesInput](),
 		Handler:     f.handleReadLines,
 	}
 }
@@ -312,7 +313,7 @@ func (f *FS) writeTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "fs_write",
 		Description: "Write content to a file, creating parent directories as needed. Use for creating new files or full file rewrites. For targeted edits to existing files, prefer fs_edit instead.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path to the file to write"},"content":{"type":"string","description":"Content to write"}},"required":["path","content"]}`),
+		InputSchema: schema.Generate[writeInput](),
 		Handler:     f.handleWrite,
 	}
 }
@@ -367,7 +368,7 @@ func (f *FS) editTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "fs_edit",
 		Description: "Edit a file by finding and replacing text. The old_text must appear exactly once. Supports three operations: modify (replace old_text with new_text), delete (omit new_text to remove old_text), and insert (include surrounding context in old_text and add new content in new_text). Use for targeted edits. For full rewrites, use fs_write instead. Always read the file first with fs_read to get exact text to match.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path to the file to edit"},"old_text":{"type":"string","description":"Text to find (must appear exactly once)"},"new_text":{"type":"string","description":"Replacement text. Omit or set to empty string to delete the matched text."}},"required":["path","old_text"]}`),
+		InputSchema: schema.Generate[editInput](),
 		Handler:     f.handleEdit,
 	}
 }
@@ -441,7 +442,7 @@ func (f *FS) listTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "fs_list",
 		Description: "List entries in a directory (non-recursive). Returns JSON with name, type, and size. For recursive file discovery, use search_files instead.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path to the directory to list"}},"required":["path"]}`),
+		InputSchema: schema.Generate[pathInput](),
 		Handler:     f.handleList,
 	}
 }

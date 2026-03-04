@@ -10,19 +10,20 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/germanamz/shelly/pkg/tools/schema"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
 type copyInput struct {
-	Source      string `json:"source"`
-	Destination string `json:"destination"`
+	Source      string `json:"source" desc:"Source path"`
+	Destination string `json:"destination" desc:"Destination path"`
 }
 
 func (f *FS) copyTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "fs_copy",
 		Description: "Copy a file or directory. Directories are copied recursively.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"source":{"type":"string","description":"Source path"},"destination":{"type":"string","description":"Destination path"}},"required":["source","destination"]}`),
+		InputSchema: schema.Generate[copyInput](),
 		Handler:     f.handleCopy,
 	}
 }

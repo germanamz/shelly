@@ -7,19 +7,20 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/germanamz/shelly/pkg/tools/schema"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
 type deleteInput struct {
-	Path      string `json:"path"`
-	Recursive bool   `json:"recursive"`
+	Path      string `json:"path" desc:"Path to delete"`
+	Recursive bool   `json:"recursive,omitempty" desc:"If true, delete directory and all contents"`
 }
 
 func (f *FS) deleteTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "fs_delete",
 		Description: "Delete a file or directory. Set recursive to true to delete a directory and all its contents.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path to delete"},"recursive":{"type":"boolean","description":"If true, delete directory and all contents"}},"required":["path"]}`),
+		InputSchema: schema.Generate[deleteInput](),
 		Handler:     f.handleDelete,
 	}
 }

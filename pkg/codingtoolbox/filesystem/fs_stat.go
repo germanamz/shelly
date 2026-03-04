@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/germanamz/shelly/pkg/tools/schema"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
@@ -22,7 +23,7 @@ func (f *FS) statTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "fs_stat",
 		Description: "Get file or directory metadata (name, size, mode, modification time, is_dir).",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path to stat"}},"required":["path"]}`),
+		InputSchema: schema.Generate[pathInput](),
 		Handler:     f.handleStat,
 	}
 }

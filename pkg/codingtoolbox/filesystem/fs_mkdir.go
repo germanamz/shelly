@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/germanamz/shelly/pkg/tools/schema"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
@@ -14,7 +15,7 @@ func (f *FS) mkdirTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "fs_mkdir",
 		Description: "Create a directory, including any necessary parent directories.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path of the directory to create"}},"required":["path"]}`),
+		InputSchema: schema.Generate[pathInput](),
 		Handler:     f.handleMkdir,
 	}
 }

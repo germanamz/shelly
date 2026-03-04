@@ -7,20 +7,21 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/germanamz/shelly/pkg/tools/schema"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 	"github.com/pmezard/go-difflib/difflib"
 )
 
 type diffInput struct {
-	FileA string `json:"file_a"`
-	FileB string `json:"file_b"`
+	FileA string `json:"file_a" desc:"Path to the first file"`
+	FileB string `json:"file_b" desc:"Path to the second file"`
 }
 
 func (f *FS) diffTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "fs_diff",
 		Description: "Show a unified diff between two files.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"file_a":{"type":"string","description":"Path to the first file"},"file_b":{"type":"string","description":"Path to the second file"}},"required":["file_a","file_b"]}`),
+		InputSchema: schema.Generate[diffInput](),
 		Handler:     f.handleDiff,
 	}
 }

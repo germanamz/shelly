@@ -15,6 +15,7 @@ import (
 
 	"github.com/germanamz/shelly/pkg/codingtoolbox"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
+	"github.com/germanamz/shelly/pkg/tools/schema"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
@@ -89,10 +90,10 @@ func (s *Search) askAndApproveDir(ctx context.Context, dir string) error {
 // --- search_content ---
 
 type contentInput struct {
-	Pattern      string `json:"pattern"`
-	Directory    string `json:"directory"`
-	MaxResults   int    `json:"max_results"`
-	ContextLines int    `json:"context_lines"` // number of surrounding lines to include per match
+	Pattern      string `json:"pattern" desc:"Regular expression pattern to search for"`
+	Directory    string `json:"directory" desc:"Directory to search in"`
+	MaxResults   int    `json:"max_results,omitempty" desc:"Maximum number of results (default 100)"`
+	ContextLines int    `json:"context_lines,omitempty" desc:"Number of lines before and after each match to include in the context field (default 0)"`
 }
 
 type contentMatch struct {
@@ -106,7 +107,7 @@ func (s *Search) contentTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "search_content",
 		Description: "Search file contents using a regular expression. Returns matching lines with file path and line number. Set context_lines to include N surrounding lines per match (avoids a follow-up fs_read_lines in many cases). Use to find code patterns, definitions, or references across a directory.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string","description":"Regular expression pattern to search for"},"directory":{"type":"string","description":"Directory to search in"},"max_results":{"type":"integer","description":"Maximum number of results (default 100)"},"context_lines":{"type":"integer","description":"Number of lines before and after each match to include in the context field (default 0)"}},"required":["pattern","directory"]}`),
+		InputSchema: schema.Generate[contentInput](),
 		Handler:     s.handleContent,
 	}
 }
@@ -293,16 +294,16 @@ func (s *Search) searchFileWithContext(
 // --- search_files ---
 
 type filesInput struct {
-	Pattern    string `json:"pattern"`
-	Directory  string `json:"directory"`
-	MaxResults int    `json:"max_results"`
+	Pattern    string `json:"pattern" desc:"Glob pattern to match file names (supports **)"`
+	Directory  string `json:"directory" desc:"Directory to search in"`
+	MaxResults int    `json:"max_results,omitempty" desc:"Maximum number of results (default 100)"`
 }
 
 func (s *Search) filesTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "search_files",
 		Description: "Find files by name pattern (supports glob with ** for recursive matching). Returns matching file paths. Use to locate files before reading them. Example patterns: '**/*.go' for all Go files, '**/test_*' for test files.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string","description":"Glob pattern to match file names (supports **)"},"directory":{"type":"string","description":"Directory to search in"},"max_results":{"type":"integer","description":"Maximum number of results (default 100)"}},"required":["pattern","directory"]}`),
+		InputSchema: schema.Generate[filesInput](),
 		Handler:     s.handleFiles,
 	}
 }

@@ -4,53 +4,27 @@ Continuation of the Shelly refactoring plan. All items from Phases 1–5 and 6.1
 
 ---
 
-## Phase 1 — Schema Validation for Tool Definitions
+## Phase 1 — Schema Validation for Tool Definitions ✅ COMPLETE
 
 Catch malformed tool schemas at test time rather than at LLM invocation time.
 
-### 1.1 Add JSON Schema validation tests for all codingtoolbox tools
+### 1.1 Add JSON Schema validation tests for all codingtoolbox tools ✅
 
-**Problem:** Every tool in `codingtoolbox/` defines its `InputSchema` as a hardcoded `json.RawMessage` string literal. A typo or structural error in any schema is only caught when an LLM tries to call the tool at runtime. No existing test validates that these schemas are well-formed JSON or valid JSON Schema.
+**Status:** Complete. Implemented with struct-based schema generation (1.2) which supersedes hand-written validation.
 
-**Affected packages:**
-- `pkg/codingtoolbox/ask/`
-- `pkg/codingtoolbox/exec/`
-- `pkg/codingtoolbox/filesystem/`
-- `pkg/codingtoolbox/git/`
-- `pkg/codingtoolbox/http/`
-- `pkg/codingtoolbox/notes/`
-- `pkg/codingtoolbox/search/`
-- `pkg/codingtoolbox/defaults/`
+**What was done:**
+- Created `pkg/tools/schema/` package with `Generate[T any]() json.RawMessage` — derives JSON Schema from Go struct types via reflection using `json` tags (omitempty = optional) and `desc` tags (descriptions)
+- Created `pkg/codingtoolbox/internal/schematest/validate.go` — shared `ValidateTools` helper that validates JSON validity, top-level type, required/properties consistency, and property type validity
+- Added `schema_test.go` in every tool package (ask, exec, filesystem, git, http, notes, search) — validates all 24 tool schemas
 
-**Solution:** Create a single shared test helper and per-package `schema_test.go` files:
+### 1.2 Struct-based schema generation ✅
 
-1. Add a test helper (e.g., in `pkg/codingtoolbox/internal/schematest/`) that:
-   - Unmarshals `InputSchema` to verify it's valid JSON
-   - Validates it conforms to JSON Schema Draft 2020-12 structure (has `"type"`, valid `"properties"`, etc.)
-   - Checks `"required"` fields reference properties that actually exist in the schema
+**Status:** Complete. Implemented as part of 1.1 instead of being deferred.
 
-2. Each tool package gets a `schema_test.go` that calls the helper for all tools it exports.
-
-**Files to create:**
-- `pkg/codingtoolbox/internal/schematest/validate.go` — shared validation helper
-- `pkg/codingtoolbox/ask/schema_test.go`
-- `pkg/codingtoolbox/exec/schema_test.go`
-- `pkg/codingtoolbox/filesystem/schema_test.go`
-- `pkg/codingtoolbox/git/schema_test.go`
-- `pkg/codingtoolbox/http/schema_test.go`
-- `pkg/codingtoolbox/notes/schema_test.go`
-- `pkg/codingtoolbox/search/schema_test.go`
-- `pkg/codingtoolbox/defaults/schema_test.go`
-
-**Risks:** None. Test-only additions — no production code changes. Can use `encoding/json` for basic validation or bring in a lightweight JSON Schema validator if the project already has one as a dependency.
-
-### 1.2 (Future) Evaluate struct-based schema generation
-
-**Problem:** Even with validation tests, the schemas are still hand-written strings that can drift from handler input parsing logic.
-
-**Solution:** Evaluate using `invopop/jsonschema` or similar to generate `InputSchema` from Go structs with JSON tags. This would provide compile-time type safety and keep schemas in sync with handler input parsing. Do this per-package as an incremental migration.
-
-**Status:** Deferred — evaluate after 1.1 is in place.
+**What was done:**
+- All input structs across all tool packages now use `desc` struct tags for descriptions and `omitempty` for optional fields
+- All `InputSchema: json.RawMessage(...)` literals replaced with `schema.Generate[inputType]()` calls
+- Schemas are now derived from the same Go structs that handlers unmarshal into — they cannot drift
 
 ---
 
@@ -201,10 +175,10 @@ Recommend **Option A** unless task persistence across sessions is not currently 
 
 ## Execution Order Summary
 
-| Phase | Risk | Effort | Impact |
-|-------|------|--------|--------|
-| 1 — Schema validation | None | Low-Med | Medium — catches schema bugs at test time |
-| 2 — Long-running robustness | Low-Med | Medium | High — prevents OOM and mutation bugs |
-| 3 — Task store resilience | Low | Low | Low — only matters if task persistence is added |
+| Phase | Status | Risk | Effort | Impact |
+|-------|--------|------|--------|--------|
+| 1 — Schema validation | ✅ Complete | None | Low-Med | Medium — catches schema bugs at test time |
+| 2 — Long-running robustness | Pending | Low-Med | Medium | High — prevents OOM and mutation bugs |
+| 3 — Task store resilience | Pending | Low | Low | Low — only matters if task persistence is added |
 
-Phase 1 is the highest-confidence, lowest-risk starting point. Phase 2 items can be done independently in any order. Phase 3 can be deferred until task persistence becomes a requirement.
+Phase 1 is complete. Phase 2 items can be done independently in any order. Phase 3 can be deferred until task persistence becomes a requirement.

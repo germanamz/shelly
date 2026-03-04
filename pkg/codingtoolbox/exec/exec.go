@@ -14,6 +14,7 @@ import (
 
 	"github.com/germanamz/shelly/pkg/codingtoolbox"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
+	"github.com/germanamz/shelly/pkg/tools/schema"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
@@ -65,15 +66,15 @@ func (e *Exec) Tools() *toolbox.ToolBox {
 }
 
 type runInput struct {
-	Command string   `json:"command"`
-	Args    []string `json:"args"`
+	Command string   `json:"command" desc:"The program or command to run (e.g. git, ls, npm)"`
+	Args    []string `json:"args,omitempty" desc:"Arguments to pass to the command"`
 }
 
 func (e *Exec) runTool() toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "exec_run",
 		Description: "Run a program or CLI command. The user will be asked for permission before execution. They can choose to trust the command for all future calls. Use for arbitrary shell commands. For git operations, prefer the dedicated git tools (git_status, git_diff, git_log, git_commit) which provide structured output.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string","description":"The program or command to run (e.g. git, ls, npm)"},"args":{"type":"array","items":{"type":"string"},"description":"Arguments to pass to the command"}},"required":["command"]}`),
+		InputSchema: schema.Generate[runInput](),
 		Handler:     e.handleRun,
 	}
 }
