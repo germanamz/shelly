@@ -142,7 +142,7 @@ Concretely:
 
 **Risks:** Low. Internal engine change, config validation continues to work identically.
 
-### 3.2 Simplify `registrationContext`
+### 3.2 Simplify `registrationContext` ✅
 
 **Problem:** `registrationContext` in `pkg/engine/registration.go` is an internal struct with 18 fields. It acts as a parameter bag for agent factory construction. While the complexity is real (agent registration genuinely requires all these inputs), the large struct makes it easy to miss setting a field.
 

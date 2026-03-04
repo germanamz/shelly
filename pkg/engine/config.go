@@ -254,7 +254,6 @@ func KnownProviderKinds() []string {
 	return kinds
 }
 
-
 // Validate checks that the configuration is internally consistent.
 func (c Config) Validate() error {
 	if len(c.Providers) == 0 {

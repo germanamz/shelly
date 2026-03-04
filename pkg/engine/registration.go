@@ -11,25 +11,48 @@ import (
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
-// registrationContext groups intermediate resolved state used while registering
-// an agent factory.
-type registrationContext struct {
+// agentIdentity holds the agent's name, description, instructions, and display
+// metadata.
+type agentIdentity struct {
 	name          string
 	desc          string
 	instr         string
 	prefix        string
 	providerLabel string
+}
+
+// agentTooling groups the toolboxes, skills, and task board available to an
+// agent.
+type agentTooling struct {
+	toolboxes []*toolbox.ToolBox
+	skills    []skill.Skill
+	taskBoard agent.TaskBoard
+}
+
+// effectSetup pairs effect configs with the wiring context needed to
+// instantiate them.
+type effectSetup struct {
+	configs   []EffectConfig
+	wiringCtx EffectWiringContext
+}
+
+// agentEvents holds the event callbacks wired into each agent.
+type agentEvents struct {
+	notifier  agent.EventNotifier
+	eventFunc agent.EventFunc
+}
+
+// registrationContext groups intermediate resolved state used while registering
+// an agent factory.
+type registrationContext struct {
+	identity      agentIdentity
 	completer     modeladapter.Completer
-	toolboxes     []*toolbox.ToolBox
-	skills        []skill.Skill
+	tooling       agentTooling
+	effects       effectSetup
+	events        agentEvents
 	contextStr    string
 	contextWindow int
-	effectConfigs []EffectConfig
-	wiringCtx     EffectWiringContext
-	eventNotifier agent.EventNotifier
-	eventFunc     agent.EventFunc
 	reflectionDir string
-	taskBoard     agent.TaskBoard
 	maxIter       int
 	maxDepth      int
 }
@@ -42,7 +65,7 @@ func (e *Engine) registerAgent(ac AgentConfig) error {
 	}
 
 	// Validate effect configs eagerly so registration fails fast on bad config.
-	if _, err := buildEffects(rc.effectConfigs, rc.wiringCtx); err != nil {
+	if _, err := buildEffects(rc.effects.configs, rc.effects.wiringCtx); err != nil {
 		return fmt.Errorf("engine: agent %q: %w", ac.Name, err)
 	}
 
@@ -105,22 +128,30 @@ func (e *Engine) buildRegistrationContext(ac AgentConfig) (registrationContext, 
 	providerLabel := e.resolveProviderInfo(ac.Name).Label()
 
 	return registrationContext{
-		name:          ac.Name,
-		desc:          ac.Description,
-		instr:         ac.Instructions,
-		prefix:        ac.Prefix,
-		providerLabel: providerLabel,
-		completer:     completer,
-		toolboxes:     tbs,
-		skills:        skills,
+		identity: agentIdentity{
+			name:          ac.Name,
+			desc:          ac.Description,
+			instr:         ac.Instructions,
+			prefix:        ac.Prefix,
+			providerLabel: providerLabel,
+		},
+		completer: completer,
+		tooling: agentTooling{
+			toolboxes: tbs,
+			skills:    skills,
+			taskBoard: taskBoard,
+		},
+		effects: effectSetup{
+			configs:   effectConfigs,
+			wiringCtx: wctx,
+		},
+		events: agentEvents{
+			notifier:  e.buildAgentEventNotifier(),
+			eventFunc: e.buildAgentEventFunc(),
+		},
 		contextStr:    e.projectCtx.String(),
 		contextWindow: contextWindow,
-		effectConfigs: effectConfigs,
-		wiringCtx:     wctx,
-		eventNotifier: e.buildAgentEventNotifier(),
-		eventFunc:     e.buildAgentEventFunc(),
 		reflectionDir: reflectionDir,
-		taskBoard:     taskBoard,
 		maxIter:       ac.Options.MaxIterations,
 		maxDepth:      ac.Options.MaxDelegationDepth,
 	}, nil
@@ -261,31 +292,31 @@ func (e *Engine) buildAgentEventFunc() agent.EventFunc {
 // registerFactory captures registration context into a factory closure and
 // registers it with the agent registry.
 func (e *Engine) registerFactory(rc registrationContext) error {
-	e.registry.Register(rc.name, rc.desc, func() *agent.Agent {
+	e.registry.Register(rc.identity.name, rc.identity.desc, func() *agent.Agent {
 		// Build fresh effects for each agent instance so stateful effects
 		// (e.g. SlidingWindowEffect, ReflectionEffect, LoopDetectEffect)
 		// are not shared across agents created by the same factory.
-		agentEffects, bErr := buildEffects(rc.effectConfigs, rc.wiringCtx)
+		agentEffects, bErr := buildEffects(rc.effects.configs, rc.effects.wiringCtx)
 		if bErr != nil {
-			panic(fmt.Sprintf("engine: agent %q: buildEffects failed after validation: %v", rc.name, bErr))
+			panic(fmt.Sprintf("engine: agent %q: buildEffects failed after validation: %v", rc.identity.name, bErr))
 		}
 
 		opts := agent.Options{
 			MaxIterations:      rc.maxIter,
 			MaxDelegationDepth: rc.maxDepth,
-			Skills:             rc.skills,
+			Skills:             rc.tooling.skills,
 			Effects:            agentEffects,
 			Context:            rc.contextStr,
-			EventNotifier:      rc.eventNotifier,
-			EventFunc:          rc.eventFunc,
+			EventNotifier:      rc.events.notifier,
+			EventFunc:          rc.events.eventFunc,
 			ReflectionDir:      rc.reflectionDir,
-			Prefix:             rc.prefix,
-			ProviderLabel:      rc.providerLabel,
-			TaskBoard:          rc.taskBoard,
+			Prefix:             rc.identity.prefix,
+			ProviderLabel:      rc.identity.providerLabel,
+			TaskBoard:          rc.tooling.taskBoard,
 		}
 
-		a := agent.New(rc.name, rc.desc, rc.instr, rc.completer, opts)
-		a.AddToolBoxes(rc.toolboxes...)
+		a := agent.New(rc.identity.name, rc.identity.desc, rc.identity.instr, rc.completer, opts)
+		a.AddToolBoxes(rc.tooling.toolboxes...)
 		return a
 	})
 
