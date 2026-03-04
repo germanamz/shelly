@@ -8,6 +8,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// resetProviders restores the factory map to the built-in defaults, undoing
+// any test-registered providers to avoid cross-test pollution.
+//
+//nolint:unused // available for tests that need provider isolation
+func resetProviders() {
+	factoryMu.Lock()
+	defer factoryMu.Unlock()
+
+	factories = map[string]ProviderFactory{
+		"anthropic": newAnthropic,
+		"openai":    newOpenAI,
+		"grok":      newGrok,
+		"gemini":    newGemini,
+	}
+}
+
 func TestResolveContextWindow_DefaultsForKnownKinds(t *testing.T) {
 	tests := []struct {
 		kind     string

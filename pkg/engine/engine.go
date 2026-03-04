@@ -3,22 +3,10 @@ package engine
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-	"sort"
 	"sync"
-	"time"
 
 	"github.com/germanamz/shelly/pkg/agent"
-	"github.com/germanamz/shelly/pkg/agentctx"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/ask"
-	shellyexec "github.com/germanamz/shelly/pkg/codingtoolbox/exec"
-	"github.com/germanamz/shelly/pkg/codingtoolbox/filesystem"
-	shellygit "github.com/germanamz/shelly/pkg/codingtoolbox/git"
-	shellyhttp "github.com/germanamz/shelly/pkg/codingtoolbox/http"
-	"github.com/germanamz/shelly/pkg/codingtoolbox/notes"
-	"github.com/germanamz/shelly/pkg/codingtoolbox/permissions"
-	"github.com/germanamz/shelly/pkg/codingtoolbox/search"
 	"github.com/germanamz/shelly/pkg/modeladapter"
 	"github.com/germanamz/shelly/pkg/projectctx"
 	"github.com/germanamz/shelly/pkg/shellydir"
@@ -27,9 +15,6 @@ import (
 	"github.com/germanamz/shelly/pkg/tasks"
 	"github.com/germanamz/shelly/pkg/tools/mcpclient"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
-
-	// MCP SDK for Root type used in roots wiring.
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Engine is the composition root that assembles all framework components from
@@ -119,110 +104,10 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		e.completers[pc.Name] = c
 	}
 
-	// Create ask responder (always available).
-	e.responder = ask.NewResponder(func(ctx context.Context, q ask.Question) {
-		sid, _ := sessionIDFromContext(ctx)
-		aname := agentctx.AgentNameFromContext(ctx)
-		e.events.Publish(Event{
-			Kind:      EventAskUser,
-			SessionID: sid,
-			Agent:     aname,
-			Timestamp: time.Now(),
-			Data:      q,
-		})
-	})
-	e.toolboxes["ask"] = e.responder.Tools()
-
-	// Determine which built-in toolboxes are referenced by at least one agent.
-	refs := referencedBuiltins(cfg.Agents)
-
-	// Create state store if referenced.
-	if _, ok := refs["state"]; ok {
-		e.store = &state.Store{}
-		e.toolboxes["state"] = e.store.Tools("shared")
-	}
-
-	// Create task store if referenced.
-	if _, ok := refs["tasks"]; ok {
-		e.taskStore = &tasks.Store{}
-		e.toolboxes["tasks"] = e.taskStore.Tools("shared")
-	}
-
-	// Create notes store if referenced. Notes persist in .shelly/notes/.
-	if _, ok := refs["notes"]; ok {
-		notesDir := dir.NotesDir()
-		notesStore := notes.New(notesDir)
-		e.toolboxes["notes"] = notesStore.Tools()
-	}
-
-	// Resolve permissions file path: prefer shellydir, fall back to config.
-	permFile := dir.PermissionsPath()
-	if !dir.Exists() && cfg.Filesystem.PermissionsFile != "" {
-		permFile = cfg.Filesystem.PermissionsFile
-	}
-
-	// Create permission-gated tools only if referenced by at least one agent.
-	permToolboxes := []string{"filesystem", "exec", "search", "git", "http"}
-	needsPerm := false
-	for _, name := range permToolboxes {
-		if _, ok := refs[name]; ok {
-			needsPerm = true
-			break
-		}
-	}
-
-	if needsPerm {
-		permStore, err := permissions.New(permFile)
-		if err != nil {
-			_ = e.Close()
-			return nil, fmt.Errorf("engine: permissions: %w", err)
-		}
-
-		// Pre-approve the process CWD so sub-agents inherit filesystem
-		// access to the working directory without being prompted.
-		if cwd, cwdErr := os.Getwd(); cwdErr == nil {
-			_ = permStore.ApproveDir(cwd)
-		}
-
-		if _, ok := refs["filesystem"]; ok {
-			notifyFn := func(ctx context.Context, message string) {
-				sid, _ := sessionIDFromContext(ctx)
-				aname := agentctx.AgentNameFromContext(ctx)
-				e.events.Publish(Event{
-					Kind:      EventFileChange,
-					SessionID: sid,
-					Agent:     aname,
-					Timestamp: time.Now(),
-					Data:      message,
-				})
-			}
-			fsTools := filesystem.New(permStore, e.responder.Ask, notifyFn)
-			e.toolboxes["filesystem"] = fsTools.Tools()
-		}
-
-		if _, ok := refs["exec"]; ok {
-			execTools := shellyexec.New(permStore, e.responder.Ask)
-			e.toolboxes["exec"] = execTools.Tools()
-		}
-
-		if _, ok := refs["search"]; ok {
-			searchTools := search.New(permStore, e.responder.Ask)
-			e.toolboxes["search"] = searchTools.Tools()
-		}
-
-		if _, ok := refs["git"]; ok {
-			gitTools := shellygit.New(permStore, e.responder.Ask, cfg.Git.WorkDir)
-			e.toolboxes["git"] = gitTools.Tools()
-		}
-
-		if _, ok := refs["http"]; ok {
-			httpTools := shellyhttp.New(permStore, e.responder.Ask)
-			e.toolboxes["http"] = httpTools.Tools()
-		}
-
-		// Seed MCP clients with currently-approved directories as roots,
-		// and dynamically propagate new approvals.
-		e.wireRoots(permStore)
+	// Wire built-in toolboxes (ask, state, tasks, notes, filesystem, etc.).
+	if err := e.wireBuiltinToolboxes(cfg, dir); err != nil {
+		_ = e.Close()
+		return nil, err
 	}
 
 	// Register agent factories.
@@ -313,158 +198,30 @@ func (e *Engine) RemoveSession(id string) bool {
 	return ok
 }
 
-// parallelInit runs skills loading, project context loading, and MCP server
-// connections concurrently to reduce startup latency.
-func (e *Engine) parallelInit(ctx context.Context, cfg Config, dir shellydir.Dir, status func(string)) error {
-	var (
-		skillsErr      error
-		mcpErr         error
-		loadedSkills   []skill.Skill
-		loadedCtx      projectctx.Context
-		knowledgeStale bool
-		wg             sync.WaitGroup
-	)
+// sessionLifecycle is the subset of Engine that Session needs for coordinating
+// shutdown. Session holds this interface instead of *Engine to avoid reaching
+// into Engine's internal fields.
+type sessionLifecycle interface {
+	acquireSend() error
+	releaseSend()
+}
 
-	skillsDir := dir.SkillsDir()
-	if _, err := os.Stat(skillsDir); err == nil {
-		wg.Go(func() {
-			status("Loading skills...")
-			start := time.Now()
-			skills, err := skill.LoadDir(skillsDir)
-			if err != nil {
-				skillsErr = fmt.Errorf("engine: skills: %w", err)
-				return
-			}
-			loadedSkills = skills
-			status(fmt.Sprintf("Loaded %d skills (%s)", len(skills), time.Since(start).Round(time.Millisecond)))
-		})
+// acquireSend checks that the engine is not closed and increments the in-flight
+// send counter. Returns an error if the engine is closed.
+func (e *Engine) acquireSend() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.closed {
+		return fmt.Errorf("engine: closed")
 	}
-
-	wg.Go(func() {
-		status("Loading project context...")
-		start := time.Now()
-		projectRoot := filepath.Dir(dir.Root())
-		loadedCtx = projectctx.Load(dir, projectRoot)
-		knowledgeStale = projectctx.IsKnowledgeStale(projectRoot, dir)
-		status(fmt.Sprintf("Project context ready (%s)", time.Since(start).Round(time.Millisecond)))
-	})
-
-	wg.Go(func() {
-		mcpErr = e.connectMCPClients(ctx, cfg.MCPServers, status)
-	})
-
-	wg.Wait()
-
-	// Assign after all goroutines are done to avoid data races.
-	e.skills = loadedSkills
-	e.projectCtx = loadedCtx
-	e.knowledgeStale = knowledgeStale
-
-	if skillsErr != nil {
-		return skillsErr
-	}
-	if mcpErr != nil {
-		return mcpErr
-	}
+	e.wg.Add(1)
 	return nil
 }
 
-// mcpResult holds the outcome of a single parallel MCP connection attempt.
-type mcpResult struct {
-	name   string
-	client *mcpclient.MCPClient
-	tb     *toolbox.ToolBox
-	err    error
-}
-
-// connectMCPClients connects to all configured MCP servers in parallel and
-// populates toolboxes. On any error, successfully-connected clients are closed.
-func (e *Engine) connectMCPClients(ctx context.Context, servers []MCPConfig, status func(string)) error {
-	if len(servers) == 0 {
-		return nil
-	}
-
-	results := make([]mcpResult, len(servers))
-
-	var wg sync.WaitGroup
-	for i, mc := range servers {
-		wg.Go(func() {
-			status(fmt.Sprintf("Connecting MCP server %q...", mc.Name))
-			start := time.Now()
-
-			var client *mcpclient.MCPClient
-			var err error
-			if mc.URL != "" {
-				client, err = mcpclient.NewHTTP(ctx, mc.URL)
-			} else {
-				client, err = mcpclient.New(ctx, mc.Command, mc.Args...)
-			}
-			if err != nil {
-				results[i] = mcpResult{name: mc.Name, err: fmt.Errorf("engine: mcp %q: %w", mc.Name, err)}
-				return
-			}
-
-			tools, err := client.ListTools(ctx)
-			if err != nil {
-				_ = client.Close()
-				results[i] = mcpResult{name: mc.Name, err: fmt.Errorf("engine: mcp %q: list tools: %w", mc.Name, err)}
-				return
-			}
-
-			tb := toolbox.New()
-			tb.Register(tools...)
-
-			status(fmt.Sprintf("MCP server %q ready — %d tools (%s)", mc.Name, len(tools), time.Since(start).Round(time.Millisecond)))
-			results[i] = mcpResult{name: mc.Name, client: client, tb: tb}
-		})
-	}
-	wg.Wait()
-
-	// Check results: on first error, close any successfully-connected clients.
-	for _, r := range results {
-		if r.err != nil {
-			for _, r2 := range results {
-				if r2.client != nil {
-					_ = r2.client.Close()
-				}
-			}
-			return r.err
-		}
-	}
-
-	// All succeeded — populate engine state.
-	for _, r := range results {
-		e.mcpClients = append(e.mcpClients, r.client)
-		e.toolboxes[r.name] = r.tb
-	}
-
-	return nil
-}
-
-// wireRoots seeds MCP clients with currently-approved directories as roots and
-// registers an observer that dynamically propagates new approvals.
-func (e *Engine) wireRoots(permStore *permissions.Store) {
-	if len(e.mcpClients) == 0 {
-		return
-	}
-
-	dirs := permStore.ApprovedDirs()
-	if len(dirs) > 0 {
-		roots := make([]*mcp.Root, len(dirs))
-		for i, d := range dirs {
-			roots[i] = mcpclient.DirToRoot(d)
-		}
-		for _, c := range e.mcpClients {
-			c.AddRoots(roots...)
-		}
-	}
-
-	permStore.OnDirApproved(func(dir string) {
-		root := mcpclient.DirToRoot(dir)
-		for _, c := range e.mcpClients {
-			c.AddRoots(root)
-		}
-	})
+// releaseSend decrements the in-flight send counter.
+func (e *Engine) releaseSend() {
+	e.wg.Done()
 }
 
 // Close cancels the engine context, shuts down MCP clients, and releases
@@ -492,278 +249,4 @@ func (e *Engine) Close() error {
 		}
 	})
 	return firstErr
-}
-
-// taskBoardAdapter implements agent.TaskBoard using a *tasks.Store.
-type taskBoardAdapter struct {
-	store *tasks.Store
-}
-
-func (a *taskBoardAdapter) ClaimTask(id, agentName string) error {
-	return a.store.Reassign(id, agentName)
-}
-
-func (a *taskBoardAdapter) UpdateTaskStatus(id, status string) error {
-	s := tasks.Status(status)
-	return a.store.Update(id, tasks.Update{Status: &s})
-}
-
-// builtinToolboxNames are toolbox names managed by the engine itself (not MCP).
-var builtinToolboxNames = map[string]struct{}{
-	"state":      {},
-	"tasks":      {},
-	"ask":        {},
-	"filesystem": {},
-	"exec":       {},
-	"search":     {},
-	"git":        {},
-	"http":       {},
-	"notes":      {},
-}
-
-// BuiltinToolboxNames returns the sorted list of built-in toolbox names.
-func BuiltinToolboxNames() []string {
-	names := make([]string, 0, len(builtinToolboxNames))
-	for name := range builtinToolboxNames {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
-}
-
-// referencedBuiltins returns the set of built-in toolbox names that appear in
-// at least one agent's Toolboxes list.
-func referencedBuiltins(agents []AgentConfig) map[string]struct{} {
-	refs := make(map[string]struct{})
-	for _, a := range agents {
-		for _, ref := range a.Toolboxes {
-			if _, ok := builtinToolboxNames[ref.Name]; ok {
-				refs[ref.Name] = struct{}{}
-			}
-		}
-	}
-	return refs
-}
-
-// registerAgent creates a factory for the given agent config and registers it.
-func (e *Engine) registerAgent(ac AgentConfig) error {
-	// Resolve provider — default to first provider.
-	providerName := ac.Provider
-	if providerName == "" && len(e.cfg.Providers) > 0 {
-		providerName = e.cfg.Providers[0].Name
-	}
-
-	completer, ok := e.completers[providerName]
-	if !ok {
-		return fmt.Errorf("engine: agent %q: provider %q not found", ac.Name, providerName)
-	}
-
-	// Always include the ask toolbox.
-	var tbs []*toolbox.ToolBox
-	if askTB, ok := e.toolboxes["ask"]; ok {
-		tbs = append(tbs, askTB)
-	}
-
-	// Collect the agent's declared toolboxes, skipping ask (already added).
-	seen := map[string]struct{}{"ask": {}}
-	for _, ref := range ac.Toolboxes {
-		if _, dup := seen[ref.Name]; dup {
-			continue
-		}
-		seen[ref.Name] = struct{}{}
-
-		tb, ok := e.toolboxes[ref.Name]
-		if !ok {
-			return fmt.Errorf("engine: agent %q: toolbox %q not found", ac.Name, ref.Name)
-		}
-		tbs = append(tbs, tb.Filter(ref.Tools))
-	}
-
-	// Use engine-level skills, optionally filtered by per-agent config.
-	skills := e.skills
-	if len(ac.Skills) > 0 {
-		allowed := make(map[string]struct{}, len(ac.Skills))
-		for _, name := range ac.Skills {
-			allowed[name] = struct{}{}
-		}
-		filtered := make([]skill.Skill, 0, len(ac.Skills))
-		for _, s := range e.skills {
-			if _, ok := allowed[s.Name]; ok {
-				filtered = append(filtered, s)
-			}
-		}
-		skills = filtered
-	}
-
-	// If any loaded skills have descriptions, create a Store and add its
-	// load_skill toolbox so the agent can retrieve full content on demand.
-	for _, s := range skills {
-		if s.HasDescription() {
-			store := skill.NewStore(skills, filepath.Dir(e.dir.Root()))
-			tbs = append(tbs, store.Tools())
-			break
-		}
-	}
-
-	// Compose project context string.
-	ctxStr := e.projectCtx.String()
-
-	// Resolve context window from the provider config.
-	var contextWindow int
-	for _, pc := range e.cfg.Providers {
-		if pc.Name == providerName {
-			contextWindow = resolveContextWindow(pc, e.cfg.DefaultContextWindows)
-			break
-		}
-	}
-
-	// Default threshold to 0.8 when context window is set but threshold is not.
-	contextThreshold := ac.Options.ContextThreshold
-	if contextWindow > 0 && contextThreshold == 0 {
-		contextThreshold = 0.8
-	}
-
-	// Build notify function for compaction events.
-	var notifyFn func(ctx context.Context, msg string)
-	if contextWindow > 0 {
-		notifyFn = func(ctx context.Context, msg string) {
-			sid, _ := sessionIDFromContext(ctx)
-			aname := agentctx.AgentNameFromContext(ctx)
-			e.events.Publish(Event{
-				Kind:      EventCompaction,
-				SessionID: sid,
-				Agent:     aname,
-				Timestamp: time.Now(),
-				Data:      msg,
-			})
-		}
-	}
-
-	// Build effects from explicit config or auto-generate from legacy options.
-	effectConfigs := ac.Effects
-	if len(effectConfigs) == 0 && contextWindow > 0 {
-		// Auto-generate default effects: trim tool results (lightweight, runs
-		// after each completion) + compact (full summarization as fallback).
-		effectConfigs = []EffectConfig{
-			{Kind: "trim_tool_results"},
-			{Kind: "observation_mask", Params: map[string]any{"threshold": 0.5}},
-			{Kind: "compact", Params: map[string]any{"threshold": contextThreshold}},
-		}
-	}
-
-	wctx := EffectWiringContext{
-		ContextWindow: contextWindow,
-		AgentName:     ac.Name,
-		StorageDir:    e.effectStorageDir(ac.Name),
-		AskFunc:       e.responder.Ask,
-		NotifyFunc:    notifyFn,
-	}
-
-	// Validate effect configs eagerly so registration fails fast on bad config.
-	// The actual construction happens inside the factory closure below so that
-	// each agent instance gets its own fresh (non-shared) effect state.
-	if _, err := buildEffects(effectConfigs, wctx); err != nil {
-		return fmt.Errorf("engine: agent %q: %w", ac.Name, err)
-	}
-
-	// Build EventNotifier that publishes sub-agent lifecycle events.
-	eventNotifier := agent.EventNotifier(func(ctx context.Context, kind string, agentName string, data any) {
-		sid, _ := sessionIDFromContext(ctx)
-		var ek EventKind
-		switch kind {
-		case "agent_start":
-			ek = EventAgentStart
-		case "agent_end":
-			ek = EventAgentEnd
-		default:
-			return
-		}
-		e.events.Publish(Event{
-			Kind:      ek,
-			SessionID: sid,
-			Agent:     agentName,
-			Timestamp: time.Now(),
-			Data:      data,
-		})
-	})
-
-	// Build EventFunc that publishes fine-grained loop events.
-	eventFunc := agent.EventFunc(func(ctx context.Context, kind string, data any) {
-		sid, _ := sessionIDFromContext(ctx)
-		aname := agentctx.AgentNameFromContext(ctx)
-		var ek EventKind
-		switch kind {
-		case "tool_call_start":
-			ek = EventToolCallStart
-		case "tool_call_end":
-			ek = EventToolCallEnd
-		case "message_added":
-			ek = EventMessageAdded
-		default:
-			return
-		}
-		e.events.Publish(Event{
-			Kind:      ek,
-			SessionID: sid,
-			Agent:     aname,
-			Timestamp: time.Now(),
-			Data:      data,
-		})
-	})
-
-	// Resolve reflection directory (enabled when .shelly/ exists).
-	var reflectionDir string
-	if e.dir.Exists() {
-		reflectionDir = e.dir.ReflectionsDir()
-	}
-
-	// Capture values for factory closure.
-	name := ac.Name
-	desc := ac.Description
-	instr := ac.Instructions
-	prefix := ac.Prefix
-	// Wire task board adapter if the task store is available.
-	var taskBoard agent.TaskBoard
-	if e.taskStore != nil {
-		taskBoard = &taskBoardAdapter{store: e.taskStore}
-	}
-
-	e.registry.Register(name, desc, func() *agent.Agent {
-		// Build fresh effects for each agent instance so stateful effects
-		// (e.g. SlidingWindowEffect, ReflectionEffect, LoopDetectEffect)
-		// are not shared across agents created by the same factory.
-		agentEffects, bErr := buildEffects(effectConfigs, wctx)
-		if bErr != nil {
-			panic(fmt.Sprintf("engine: agent %q: buildEffects failed after validation: %v", name, bErr))
-		}
-
-		opts := agent.Options{
-			MaxIterations:      ac.Options.MaxIterations,
-			MaxDelegationDepth: ac.Options.MaxDelegationDepth,
-			Skills:             skills,
-			Effects:            agentEffects,
-			Context:            ctxStr,
-			EventNotifier:      eventNotifier,
-			EventFunc:          eventFunc,
-			ReflectionDir:      reflectionDir,
-			Prefix:             prefix,
-			TaskBoard:          taskBoard,
-		}
-
-		a := agent.New(name, desc, instr, completer, opts)
-		a.AddToolBoxes(tbs...)
-		return a
-	})
-
-	return nil
-}
-
-// effectStorageDir returns a per-agent directory for effects that need
-// persistent storage (e.g. offload). Returns empty string when the .shelly
-// directory does not exist.
-func (e *Engine) effectStorageDir(agentName string) string {
-	if !e.dir.Exists() {
-		return ""
-	}
-	return filepath.Join(e.dir.Root(), "offload", agentName)
 }

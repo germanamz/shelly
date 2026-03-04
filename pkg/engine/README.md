@@ -6,17 +6,19 @@ Framework composition root that assembles all Shelly components from configurati
 
 ```
 engine/
-├── config.go          Config structs + YAML loader + validation
-├── effects.go         Effect factory registry + buildEffects() + sort/priority
-├── engine.go          Engine type: wiring, lifecycle, session management
-├── session.go         Session type: user interaction, Send(), Respond(), chat access
-├── event.go           EventBus, Event, EventKind, Subscription
-├── provider.go        Provider factory registry (kind -> Completer), rate limiting, context window resolution
-├── doc.go             Package documentation
-├── engine_test.go     Engine + session integration tests
-├── config_test.go     Config loading and validation tests
-├── event_test.go      EventBus tests
-├── provider_test.go   Context window resolution tests
+├── config.go              Config structs, YAML loaders, validation
+├── effects.go             Effect factories, param helpers, sort/priority
+├── engine.go              Engine struct, New(), Close(), sessions, accessors
+├── event.go               EventBus, Event, publish helpers, session ctx key
+├── init.go                parallelInit (skills, project context, MCP in parallel)
+├── mcp.go                 MCP connection + roots wiring
+├── provider.go            Provider/batch factories, buildCompleter
+├── registration.go        Agent factory registration + sub-functions
+├── session.go             Session type, Send/SendParts
+├── toolbox_wiring.go      Built-in toolbox creation + permissions
+├── batch_session.go       Batch session runner
+├── doc.go                 Package documentation
+├── *_test.go              Tests
 ```
 
 ### Engine

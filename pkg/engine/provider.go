@@ -40,25 +40,20 @@ func resolveContextWindow(cfg ProviderConfig, configDefaults map[string]int) int
 type ProviderFactory func(cfg ProviderConfig) (modeladapter.Completer, error)
 
 var (
-	factoryMu   sync.RWMutex
-	factories   = map[string]ProviderFactory{}
-	defaultsReg sync.Once
+	factoryMu sync.RWMutex
+	factories = map[string]ProviderFactory{}
 )
 
-func ensureDefaults() {
-	defaultsReg.Do(func() {
-		factories["anthropic"] = newAnthropic
-		factories["openai"] = newOpenAI
-		factories["grok"] = newGrok
-		factories["gemini"] = newGemini
-	})
+func init() {
+	factories["anthropic"] = newAnthropic
+	factories["openai"] = newOpenAI
+	factories["grok"] = newGrok
+	factories["gemini"] = newGemini
 }
 
 // RegisterProvider registers a custom provider factory under the given kind.
 // It can be called before New to extend the engine with additional providers.
 func RegisterProvider(kind string, factory ProviderFactory) {
-	ensureDefaults()
-
 	factoryMu.Lock()
 	defer factoryMu.Unlock()
 
@@ -67,8 +62,6 @@ func RegisterProvider(kind string, factory ProviderFactory) {
 
 // getFactory returns the factory for the given kind.
 func getFactory(kind string) (ProviderFactory, bool) {
-	ensureDefaults()
-
 	factoryMu.RLock()
 	defer factoryMu.RUnlock()
 

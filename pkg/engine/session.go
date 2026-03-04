@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/germanamz/shelly/pkg/agent"
 	"github.com/germanamz/shelly/pkg/agentctx"
@@ -22,7 +21,7 @@ import (
 type Session struct {
 	id           string
 	agent        *agent.Agent
-	engine       *Engine
+	lifecycle    sessionLifecycle
 	events       *EventBus
 	responder    *ask.Responder
 	sessionTrust *filesystem.SessionTrust
@@ -31,12 +30,13 @@ type Session struct {
 	active bool
 }
 
-// newSession creates a session with the given ID, agent, engine, event bus, and responder.
-func newSession(id string, a *agent.Agent, eng *Engine, events *EventBus, responder *ask.Responder) *Session {
+// newSession creates a session with the given ID, agent, lifecycle coordinator,
+// event bus, and responder.
+func newSession(id string, a *agent.Agent, lc sessionLifecycle, events *EventBus, responder *ask.Responder) *Session {
 	return &Session{
 		id:           id,
 		agent:        a,
-		engine:       eng,
+		lifecycle:    lc,
 		events:       events,
 		responder:    responder,
 		sessionTrust: &filesystem.SessionTrust{},
@@ -62,27 +62,17 @@ func (s *Session) Send(ctx context.Context, text string) (message.Message, error
 // ReAct loop. Only one Send may be active per session.
 func (s *Session) SendParts(ctx context.Context, parts ...content.Part) (message.Message, error) {
 	// Check whether the engine has been closed before starting work.
-	s.engine.mu.Lock()
-	if s.engine.closed {
-		s.engine.mu.Unlock()
-		return message.Message{}, fmt.Errorf("engine: closed")
+	if err := s.lifecycle.acquireSend(); err != nil {
+		return message.Message{}, err
 	}
-	s.engine.wg.Add(1)
-	s.engine.mu.Unlock()
-	defer s.engine.wg.Done()
+	defer s.lifecycle.releaseSend()
 
 	if err := s.acquire(); err != nil {
 		return message.Message{}, err
 	}
 	defer s.release()
 
-	s.events.Publish(Event{
-		Kind:      EventAgentStart,
-		SessionID: s.id,
-		Agent:     s.agent.Name(),
-		Timestamp: time.Now(),
-		Data:      agent.AgentEventData{Prefix: s.agent.Prefix()},
-	})
+	s.events.publish(EventAgentStart, s.id, s.agent.Name(), agent.AgentEventData{Prefix: s.agent.Prefix()})
 
 	ctx = withSessionID(ctx, s.id)
 	ctx = agentctx.WithAgentName(ctx, s.agent.Name())
@@ -92,30 +82,12 @@ func (s *Session) SendParts(ctx context.Context, parts ...content.Part) (message
 
 	reply, err := s.agent.Run(ctx)
 	if err != nil {
-		s.events.Publish(Event{
-			Kind:      EventError,
-			SessionID: s.id,
-			Agent:     s.agent.Name(),
-			Timestamp: time.Now(),
-			Data:      err,
-		})
-		s.events.Publish(Event{
-			Kind:      EventAgentEnd,
-			SessionID: s.id,
-			Agent:     s.agent.Name(),
-			Timestamp: time.Now(),
-			Data:      agent.AgentEventData{Prefix: s.agent.Prefix()},
-		})
+		s.events.publish(EventError, s.id, s.agent.Name(), err)
+		s.events.publish(EventAgentEnd, s.id, s.agent.Name(), agent.AgentEventData{Prefix: s.agent.Prefix()})
 		return message.Message{}, err
 	}
 
-	s.events.Publish(Event{
-		Kind:      EventAgentEnd,
-		SessionID: s.id,
-		Agent:     s.agent.Name(),
-		Timestamp: time.Now(),
-		Data:      agent.AgentEventData{Prefix: s.agent.Prefix()},
-	})
+	s.events.publish(EventAgentEnd, s.id, s.agent.Name(), agent.AgentEventData{Prefix: s.agent.Prefix()})
 
 	return reply, nil
 }
@@ -144,17 +116,4 @@ func (s *Session) AgentName() string { return s.agent.Name() }
 // Respond delivers a user response to a pending ask_user question.
 func (s *Session) Respond(questionID, response string) error {
 	return s.responder.Respond(questionID, response)
-}
-
-// --- context helpers ---
-
-type sessionIDCtxKey struct{}
-
-func withSessionID(ctx context.Context, id string) context.Context {
-	return context.WithValue(ctx, sessionIDCtxKey{}, id)
-}
-
-func sessionIDFromContext(ctx context.Context) (string, bool) {
-	v, ok := ctx.Value(sessionIDCtxKey{}).(string)
-	return v, ok
 }

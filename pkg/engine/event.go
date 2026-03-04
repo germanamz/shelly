@@ -1,8 +1,11 @@
 package engine
 
 import (
+	"context"
 	"sync"
 	"time"
+
+	"github.com/germanamz/shelly/pkg/agentctx"
 )
 
 // EventKind identifies the type of engine event.
@@ -90,4 +93,35 @@ func (b *EventBus) Publish(e Event) {
 		default:
 		}
 	}
+}
+
+// publish constructs an Event with time.Now() and publishes it.
+func (b *EventBus) publish(kind EventKind, sessionID, agentName string, data any) {
+	b.Publish(Event{
+		Kind:      kind,
+		SessionID: sessionID,
+		Agent:     agentName,
+		Timestamp: time.Now(),
+		Data:      data,
+	})
+}
+
+// publishFromContext extracts session ID and agent name from ctx and publishes.
+func publishFromContext(bus *EventBus, ctx context.Context, kind EventKind, data any) {
+	sid, _ := sessionIDFromContext(ctx)
+	aname := agentctx.AgentNameFromContext(ctx)
+	bus.publish(kind, sid, aname, data)
+}
+
+// --- context helpers for session ID ---
+
+type sessionIDCtxKey struct{}
+
+func withSessionID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, sessionIDCtxKey{}, id)
+}
+
+func sessionIDFromContext(ctx context.Context) (string, bool) {
+	v, ok := ctx.Value(sessionIDCtxKey{}).(string)
+	return v, ok
 }

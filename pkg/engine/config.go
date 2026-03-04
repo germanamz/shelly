@@ -242,8 +242,6 @@ func ExpandConfigStrings(cfg *Config) {
 
 // KnownProviderKinds returns the list of registered provider kind strings.
 func KnownProviderKinds() []string {
-	ensureDefaults()
-
 	factoryMu.RLock()
 	defer factoryMu.RUnlock()
 

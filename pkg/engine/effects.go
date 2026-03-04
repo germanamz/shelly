@@ -84,20 +84,68 @@ func effectPriority(e agent.Effect) int {
 	}
 }
 
+// paramFloat extracts a float64 from a params map with a default value.
+// Accepts both float64 and int values from YAML.
+func paramFloat(params map[string]any, key string, def float64) (float64, error) {
+	v, ok := params[key]
+	if !ok {
+		return def, nil
+	}
+	switch t := v.(type) {
+	case float64:
+		return t, nil
+	case int:
+		return float64(t), nil
+	default:
+		return 0, fmt.Errorf("%s must be a number, got %T", key, v)
+	}
+}
+
+// paramInt extracts an int from a params map with a default value.
+// Accepts both int and float64 values from YAML.
+func paramInt(params map[string]any, key string, def int) (int, error) {
+	v, ok := params[key]
+	if !ok {
+		return def, nil
+	}
+	switch t := v.(type) {
+	case float64:
+		return int(t), nil
+	case int:
+		return t, nil
+	default:
+		return 0, fmt.Errorf("%s must be a number, got %T", key, v)
+	}
+}
+
+// paramStringSlice extracts a []string from a params map.
+// Returns nil when the key is absent.
+func paramStringSlice(params map[string]any, key string) ([]string, error) {
+	v, ok := params[key]
+	if !ok {
+		return nil, nil
+	}
+	items, ok := v.([]any)
+	if !ok {
+		return nil, fmt.Errorf("%s must be an array, got %T", key, v)
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		s, ok := item.(string)
+		if !ok {
+			return nil, fmt.Errorf("%s items must be strings, got %T", key, item)
+		}
+		out = append(out, s)
+	}
+	return out, nil
+}
+
 // buildCompactEffect creates a CompactEffect from YAML params.
 func buildCompactEffect(params map[string]any, wctx EffectWiringContext) (agent.Effect, error) {
-	threshold := 0.8 // default
-	if v, ok := params["threshold"]; ok {
-		switch t := v.(type) {
-		case float64:
-			threshold = t
-		case int:
-			threshold = float64(t)
-		default:
-			return nil, fmt.Errorf("threshold must be a number, got %T", v)
-		}
+	threshold, err := paramFloat(params, "threshold", 0.8)
+	if err != nil {
+		return nil, err
 	}
-
 	return effects.NewCompactEffect(effects.CompactConfig{
 		ContextWindow: wctx.ContextWindow,
 		Threshold:     threshold,
@@ -108,246 +156,133 @@ func buildCompactEffect(params map[string]any, wctx EffectWiringContext) (agent.
 
 // buildTrimToolResultsEffect creates a TrimToolResultsEffect from YAML params.
 func buildTrimToolResultsEffect(params map[string]any, _ EffectWiringContext) (agent.Effect, error) {
-	cfg := effects.TrimToolResultsConfig{}
-
-	if v, ok := params["max_result_length"]; ok {
-		switch t := v.(type) {
-		case float64:
-			cfg.MaxResultLength = int(t)
-		case int:
-			cfg.MaxResultLength = t
-		default:
-			return nil, fmt.Errorf("max_result_length must be a number, got %T", v)
-		}
+	maxLen, err := paramInt(params, "max_result_length", 0)
+	if err != nil {
+		return nil, err
 	}
-
-	if v, ok := params["preserve_recent"]; ok {
-		switch t := v.(type) {
-		case float64:
-			cfg.PreserveRecent = int(t)
-		case int:
-			cfg.PreserveRecent = t
-		default:
-			return nil, fmt.Errorf("preserve_recent must be a number, got %T", v)
-		}
+	preserve, err := paramInt(params, "preserve_recent", 0)
+	if err != nil {
+		return nil, err
 	}
-
-	return effects.NewTrimToolResultsEffect(cfg), nil
+	return effects.NewTrimToolResultsEffect(effects.TrimToolResultsConfig{
+		MaxResultLength: maxLen,
+		PreserveRecent:  preserve,
+	}), nil
 }
 
 // buildLoopDetectEffect creates a LoopDetectEffect from YAML params.
 func buildLoopDetectEffect(params map[string]any, _ EffectWiringContext) (agent.Effect, error) {
-	cfg := effects.LoopDetectConfig{}
-
-	if v, ok := params["threshold"]; ok {
-		switch t := v.(type) {
-		case float64:
-			cfg.Threshold = int(t)
-		case int:
-			cfg.Threshold = t
-		default:
-			return nil, fmt.Errorf("threshold must be a number, got %T", v)
-		}
+	threshold, err := paramInt(params, "threshold", 0)
+	if err != nil {
+		return nil, err
 	}
-
-	if v, ok := params["window_size"]; ok {
-		switch t := v.(type) {
-		case float64:
-			cfg.WindowSize = int(t)
-		case int:
-			cfg.WindowSize = t
-		default:
-			return nil, fmt.Errorf("window_size must be a number, got %T", v)
-		}
+	windowSize, err := paramInt(params, "window_size", 0)
+	if err != nil {
+		return nil, err
 	}
-
-	return effects.NewLoopDetectEffect(cfg), nil
+	return effects.NewLoopDetectEffect(effects.LoopDetectConfig{
+		Threshold:  threshold,
+		WindowSize: windowSize,
+	}), nil
 }
 
 // buildObservationMaskEffect creates an ObservationMaskEffect from YAML params.
 func buildObservationMaskEffect(params map[string]any, wctx EffectWiringContext) (agent.Effect, error) {
-	cfg := effects.ObservationMaskConfig{
+	threshold, err := paramFloat(params, "threshold", 0)
+	if err != nil {
+		return nil, err
+	}
+	recentWindow, err := paramInt(params, "recent_window", 0)
+	if err != nil {
+		return nil, err
+	}
+	return effects.NewObservationMaskEffect(effects.ObservationMaskConfig{
 		ContextWindow: wctx.ContextWindow,
-	}
-
-	if v, ok := params["threshold"]; ok {
-		switch t := v.(type) {
-		case float64:
-			cfg.Threshold = t
-		case int:
-			cfg.Threshold = float64(t)
-		default:
-			return nil, fmt.Errorf("threshold must be a number, got %T", v)
-		}
-	}
-
-	if v, ok := params["recent_window"]; ok {
-		switch t := v.(type) {
-		case float64:
-			cfg.RecentWindow = int(t)
-		case int:
-			cfg.RecentWindow = t
-		default:
-			return nil, fmt.Errorf("recent_window must be a number, got %T", v)
-		}
-	}
-
-	return effects.NewObservationMaskEffect(cfg), nil
+		Threshold:     threshold,
+		RecentWindow:  recentWindow,
+	}), nil
 }
 
 // buildReflectionEffect creates a ReflectionEffect from YAML params.
 func buildReflectionEffect(params map[string]any, _ EffectWiringContext) (agent.Effect, error) {
-	cfg := effects.ReflectionConfig{}
-
-	if v, ok := params["failure_threshold"]; ok {
-		switch t := v.(type) {
-		case float64:
-			cfg.FailureThreshold = int(t)
-		case int:
-			cfg.FailureThreshold = t
-		default:
-			return nil, fmt.Errorf("failure_threshold must be a number, got %T", v)
-		}
+	threshold, err := paramInt(params, "failure_threshold", 0)
+	if err != nil {
+		return nil, err
 	}
-
-	return effects.NewReflectionEffect(cfg), nil
+	return effects.NewReflectionEffect(effects.ReflectionConfig{
+		FailureThreshold: threshold,
+	}), nil
 }
 
 // buildProgressEffect creates a ProgressEffect from YAML params.
 func buildProgressEffect(params map[string]any, _ EffectWiringContext) (agent.Effect, error) {
-	cfg := effects.ProgressConfig{}
-
-	if v, ok := params["interval"]; ok {
-		switch t := v.(type) {
-		case float64:
-			cfg.Interval = int(t)
-		case int:
-			cfg.Interval = t
-		default:
-			return nil, fmt.Errorf("interval must be a number, got %T", v)
-		}
+	interval, err := paramInt(params, "interval", 0)
+	if err != nil {
+		return nil, err
 	}
-
-	return effects.NewProgressEffect(cfg), nil
+	return effects.NewProgressEffect(effects.ProgressConfig{
+		Interval: interval,
+	}), nil
 }
 
 // buildSlidingWindowEffect creates a SlidingWindowEffect from YAML params.
 func buildSlidingWindowEffect(params map[string]any, wctx EffectWiringContext) (agent.Effect, error) {
-	cfg := effects.SlidingWindowConfig{
+	threshold, err := paramFloat(params, "threshold", 0.7)
+	if err != nil {
+		return nil, err
+	}
+	recentZone, err := paramInt(params, "recent_zone", 0)
+	if err != nil {
+		return nil, err
+	}
+	mediumZone, err := paramInt(params, "medium_zone", 0)
+	if err != nil {
+		return nil, err
+	}
+	trimLength, err := paramInt(params, "trim_length", 0)
+	if err != nil {
+		return nil, err
+	}
+	return effects.NewSlidingWindowEffect(effects.SlidingWindowConfig{
 		ContextWindow: wctx.ContextWindow,
 		NotifyFunc:    wctx.NotifyFunc,
-	}
-
-	threshold := 0.7 // default (lower than compact to trigger earlier)
-	if v, ok := params["threshold"]; ok {
-		switch t := v.(type) {
-		case float64:
-			threshold = t
-		case int:
-			threshold = float64(t)
-		default:
-			return nil, fmt.Errorf("threshold must be a number, got %T", v)
-		}
-	}
-	cfg.Threshold = threshold
-
-	if v, ok := params["recent_zone"]; ok {
-		switch t := v.(type) {
-		case float64:
-			cfg.RecentZone = int(t)
-		case int:
-			cfg.RecentZone = t
-		default:
-			return nil, fmt.Errorf("recent_zone must be a number, got %T", v)
-		}
-	}
-
-	if v, ok := params["medium_zone"]; ok {
-		switch t := v.(type) {
-		case float64:
-			cfg.MediumZone = int(t)
-		case int:
-			cfg.MediumZone = t
-		default:
-			return nil, fmt.Errorf("medium_zone must be a number, got %T", v)
-		}
-	}
-
-	if v, ok := params["trim_length"]; ok {
-		switch t := v.(type) {
-		case float64:
-			cfg.TrimLength = int(t)
-		case int:
-			cfg.TrimLength = t
-		default:
-			return nil, fmt.Errorf("trim_length must be a number, got %T", v)
-		}
-	}
-
-	return effects.NewSlidingWindowEffect(cfg), nil
+		Threshold:     threshold,
+		RecentZone:    recentZone,
+		MediumZone:    mediumZone,
+		TrimLength:    trimLength,
+	}), nil
 }
 
 // buildToolScopeEffect creates a ToolScopeEffect from YAML params.
 func buildToolScopeEffect(params map[string]any, _ EffectWiringContext) (agent.Effect, error) {
-	cfg := effects.ToolScopeConfig{}
-
-	if v, ok := params["exclude"]; ok {
-		switch items := v.(type) {
-		case []any:
-			for _, item := range items {
-				s, ok := item.(string)
-				if !ok {
-					return nil, fmt.Errorf("exclude items must be strings, got %T", item)
-				}
-				cfg.Exclude = append(cfg.Exclude, s)
-			}
-		default:
-			return nil, fmt.Errorf("exclude must be an array, got %T", v)
-		}
+	exclude, err := paramStringSlice(params, "exclude")
+	if err != nil {
+		return nil, err
 	}
-
-	return effects.NewToolScopeEffect(cfg), nil
+	return effects.NewToolScopeEffect(effects.ToolScopeConfig{
+		Exclude: exclude,
+	}), nil
 }
 
 // buildOffloadEffect creates an OffloadEffect from YAML params.
 func buildOffloadEffect(params map[string]any, wctx EffectWiringContext) (agent.Effect, error) {
-	cfg := effects.OffloadConfig{
+	threshold, err := paramFloat(params, "threshold", 0)
+	if err != nil {
+		return nil, err
+	}
+	minResultLen, err := paramInt(params, "min_result_len", 0)
+	if err != nil {
+		return nil, err
+	}
+	recentWindow, err := paramInt(params, "recent_window", 0)
+	if err != nil {
+		return nil, err
+	}
+	return effects.NewOffloadEffect(effects.OffloadConfig{
 		ContextWindow: wctx.ContextWindow,
 		StorageDir:    wctx.StorageDir,
-	}
-
-	if v, ok := params["threshold"]; ok {
-		switch t := v.(type) {
-		case float64:
-			cfg.Threshold = t
-		case int:
-			cfg.Threshold = float64(t)
-		default:
-			return nil, fmt.Errorf("threshold must be a number, got %T", v)
-		}
-	}
-
-	if v, ok := params["min_result_len"]; ok {
-		switch t := v.(type) {
-		case float64:
-			cfg.MinResultLen = int(t)
-		case int:
-			cfg.MinResultLen = t
-		default:
-			return nil, fmt.Errorf("min_result_len must be a number, got %T", v)
-		}
-	}
-
-	if v, ok := params["recent_window"]; ok {
-		switch t := v.(type) {
-		case float64:
-			cfg.RecentWindow = int(t)
-		case int:
-			cfg.RecentWindow = t
-		default:
-			return nil, fmt.Errorf("recent_window must be a number, got %T", v)
-		}
-	}
-
-	return effects.NewOffloadEffect(cfg), nil
+		Threshold:     threshold,
+		MinResultLen:  minResultLen,
+		RecentWindow:  recentWindow,
+	}), nil
 }
