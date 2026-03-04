@@ -41,7 +41,7 @@ func runBatch(args []string) error {
 		return fmt.Errorf("batch: --output flag is required")
 	}
 
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer cancel()
 
 	resolvedConfig := resolveConfigPath(*configPath, *shellyDir)

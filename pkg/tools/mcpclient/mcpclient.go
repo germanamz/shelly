@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -13,18 +15,33 @@ import (
 
 // MCPClient communicates with an MCP server using the official MCP Go SDK.
 type MCPClient struct {
-	client  *mcp.Client
-	session *mcp.ClientSession
+	client   *mcp.Client
+	session  *mcp.ClientSession
+	cmd      *exec.Cmd // non-nil for stdio transport; used to force-kill subprocess
+	done     chan struct{}
+	doneOnce sync.Once
 }
 
 // New spawns an MCP server process and returns a connected client.
-// The SDK handles initialization automatically during Connect.
+// The SDK handles initialization automatically during Connect. A background
+// goroutine ensures the subprocess is killed if the context is cancelled
+// without Close being called (e.g., double signal, unclean exit).
 func New(ctx context.Context, command string, args ...string) (*MCPClient, error) {
+	cmd := exec.Command(command, args...) //nolint:gosec // command is caller-provided by design
 	transport := &mcp.CommandTransport{
-		Command: exec.Command(command, args...), //nolint:gosec // command is caller-provided by design
+		Command: cmd,
 	}
 
-	return newFromTransport(ctx, transport)
+	c, err := newFromTransport(ctx, transport)
+	if err != nil {
+		return nil, err
+	}
+
+	c.cmd = cmd
+
+	go c.reap(ctx)
+
+	return c, nil
 }
 
 // NewHTTP connects to a Streamable HTTP MCP server at the given URL.
@@ -47,7 +64,7 @@ func newFromTransport(ctx context.Context, transport mcp.Transport) (*MCPClient,
 		return nil, fmt.Errorf("mcpclient: connect: %w", err)
 	}
 
-	return &MCPClient{client: client, session: session}, nil
+	return &MCPClient{client: client, session: session, done: make(chan struct{})}, nil
 }
 
 // ListTools fetches available tools from the server and returns them as
@@ -97,12 +114,44 @@ func (c *MCPClient) CallTool(ctx context.Context, name string, arguments json.Ra
 	return text, nil
 }
 
+// reap waits for the context to be cancelled and ensures the MCP subprocess is
+// dead. It gives Close a few seconds to perform graceful shutdown via the SDK
+// before resorting to SIGKILL. This is a safety net for cases where Close is
+// never called (e.g., the process receives a second signal before the defer
+// runs).
+func (c *MCPClient) reap(ctx context.Context) {
+	<-ctx.Done()
+
+	t := time.NewTimer(3 * time.Second)
+	defer t.Stop()
+
+	select {
+	case <-c.done:
+		// Close completed; nothing to do.
+	case <-t.C:
+		// Close didn't finish in time — force-kill the subprocess.
+		if c.cmd != nil && c.cmd.Process != nil {
+			_ = c.cmd.Process.Kill()
+		}
+	}
+}
+
 // Close terminates the session and releases resources. The MCP Go SDK handles
 // subprocess lifecycle automatically: session.Close() chains through
 // jsonrpc2.Connection.Close() → ioConn.Close() → pipeRWC.Close(), which
 // closes stdin, waits with timeout, and escalates through SIGTERM/SIGKILL.
+// As a fallback the subprocess is also killed explicitly.
 func (c *MCPClient) Close() error {
-	return c.session.Close()
+	defer c.doneOnce.Do(func() { close(c.done) })
+
+	err := c.session.Close()
+
+	// Ensure the subprocess is dead even if the SDK's teardown didn't kill it.
+	if c.cmd != nil && c.cmd.Process != nil {
+		_ = c.cmd.Process.Kill()
+	}
+
+	return err
 }
 
 // fromSDKTool converts an SDK *mcp.Tool to a toolbox.Tool. The handler

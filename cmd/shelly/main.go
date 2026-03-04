@@ -71,7 +71,7 @@ func main() {
 }
 
 func run(configPath, shellyDirPath, agentName string) error {
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer cancel()
 
 	// Config resolution: explicit flag → .shelly/config.yaml → shelly.yaml.
