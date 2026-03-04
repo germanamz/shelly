@@ -203,7 +203,7 @@ The existing `deduplicateTools()` function already iterates all toolboxes to bui
 
 **Risks:** Low. The map is built once per iteration, tool dispatch semantics unchanged (first toolbox wins on name collisions — preserve this by iterating toolboxes in the same order).
 
-### 4.2 Extract `delegateTool` closure into named functions
+### 4.2 Extract `delegateTool` closure into named functions ✅
 
 **Problem:** `delegateTool` in `pkg/agent/delegation.go` is a 130-line anonymous closure that handles spawning child agents, task board integration, event notification, error handling, and result aggregation. It's the densest function in the codebase.
 

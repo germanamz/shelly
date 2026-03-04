@@ -111,102 +111,9 @@ func delegateTool(a *Agent) toolbox.Tool {
 			results := make([]delegateResult, len(di.Tasks))
 
 			var wg sync.WaitGroup
-
-			eventNotifier := a.events.notifier
-			eventFunc := a.events.eventFunc
-			reflectionDir := a.delegation.reflectionDir
-			taskBoard := a.delegation.taskBoard
-
 			for i, t := range di.Tasks {
 				wg.Go(func() {
-					child, ok := a.registry.Spawn(t.Agent, a.depth+1)
-					if !ok {
-						results[i] = delegateResult{
-							Agent: t.Agent,
-							Error: fmt.Sprintf("agent %q not found", t.Agent),
-						}
-						return
-					}
-
-					// Generate a unique instance name: "<configName>-<slug>-<counter>".
-					child.name = fmt.Sprintf("%s-%s-%d", t.Agent, taskSlug(t.Task), a.registry.NextID(t.Agent))
-
-					child.registry = a.registry
-					child.events.notifier = eventNotifier
-					child.events.eventFunc = eventFunc
-					child.delegation.reflectionDir = reflectionDir
-					child.delegation.taskBoard = taskBoard
-					prependContext(child, t.Context)
-
-					if reflections := searchReflections(reflectionDir, t.Task); reflections != "" {
-						child.chat.Append(message.NewText("user", role.User, reflections))
-					}
-
-					child.chat.Append(message.NewText("user", role.User, t.Task))
-
-					// Auto-claim task if task_id is provided and TaskBoard is available.
-					if t.TaskID != "" && taskBoard != nil {
-						if claimErr := taskBoard.ClaimTask(t.TaskID, child.name); claimErr != nil {
-							results[i] = delegateResult{
-								Agent: t.Agent,
-								Error: fmt.Sprintf("failed to claim task %q: %v", t.TaskID, claimErr),
-							}
-							return
-						}
-					}
-
-					if eventNotifier != nil {
-						eventNotifier(ctx, "agent_start", child.name, AgentEventData{Prefix: child.Prefix(), Parent: a.name, ProviderLabel: child.ProviderLabel()})
-					}
-
-					reply, err := child.Run(ctx)
-
-					if eventNotifier != nil {
-						endData := AgentEventData{Prefix: child.Prefix(), Parent: a.name, ProviderLabel: child.ProviderLabel()}
-						if cr := child.CompletionResult(); cr != nil && cr.Summary != "" {
-							endData.Summary = cr.Summary
-						} else {
-							endData.Summary = reply.TextContent()
-						}
-						eventNotifier(ctx, "agent_end", child.name, endData)
-					}
-
-					if err != nil {
-						if errors.Is(err, ErrMaxIterations) {
-							cr := &CompletionResult{
-								Status:  "failed",
-								Summary: fmt.Sprintf("Agent %q exhausted its iteration limit without completing the task.", t.Agent),
-								Caveats: "Iteration limit reached. Check progress notes for partial work.",
-							}
-							writeReflection(reflectionDir, t.Agent, t.Task, cr)
-							dr := delegateResult{Agent: t.Agent, Completion: cr}
-							dr.Warning = tryUpdateTask(taskBoard, t.TaskID, cr.Status)
-							results[i] = dr
-							return
-						}
-						// Rollback task to "failed" so it doesn't stay stuck in_progress.
-						dr := delegateResult{Agent: t.Agent, Error: err.Error()}
-						dr.Warning = tryUpdateTask(taskBoard, t.TaskID, "failed")
-						results[i] = dr
-						return
-					}
-
-					// Auto-update task status based on completion result.
-					cr := child.CompletionResult()
-					if cr != nil {
-						if cr.Status == "failed" {
-							writeReflection(reflectionDir, t.Agent, t.Task, cr)
-						}
-						dr := buildDelegateResult(t.Agent, reply, cr)
-						dr.Warning = tryUpdateTask(taskBoard, t.TaskID, cr.Status)
-						results[i] = dr
-					} else {
-						// Child finished without calling task_complete — mark as completed
-						// since it ran to natural conclusion without error.
-						dr := buildDelegateResult(t.Agent, reply, nil)
-						dr.Warning = tryUpdateTask(taskBoard, t.TaskID, "completed")
-						results[i] = dr
-					}
+					results[i] = runDelegateTask(ctx, a, t)
 				})
 			}
 
@@ -220,6 +127,110 @@ func delegateTool(a *Agent) toolbox.Tool {
 			return string(data), nil
 		},
 	}
+}
+
+// runDelegateTask builds a child agent for the given task, runs it, and returns
+// a delegateResult. It handles task board claiming, agent lifecycle events,
+// error cases (including iteration exhaustion), and result aggregation.
+func runDelegateTask(ctx context.Context, a *Agent, t delegateTask) delegateResult {
+	child, err := buildDelegateChild(a, t)
+	if err != nil {
+		return delegateResult{Agent: t.Agent, Error: err.Error()}
+	}
+
+	taskBoard := a.delegation.taskBoard
+
+	// Auto-claim task if task_id is provided and TaskBoard is available.
+	if t.TaskID != "" && taskBoard != nil {
+		if claimErr := taskBoard.ClaimTask(t.TaskID, child.name); claimErr != nil {
+			return delegateResult{
+				Agent: t.Agent,
+				Error: fmt.Sprintf("failed to claim task %q: %v", t.TaskID, claimErr),
+			}
+		}
+	}
+
+	notifier := a.events.notifier
+	if notifier != nil {
+		notifier(ctx, "agent_start", child.name, AgentEventData{Prefix: child.Prefix(), Parent: a.name, ProviderLabel: child.ProviderLabel()})
+	}
+
+	reply, runErr := child.Run(ctx)
+
+	if notifier != nil {
+		endData := AgentEventData{Prefix: child.Prefix(), Parent: a.name, ProviderLabel: child.ProviderLabel()}
+		if cr := child.CompletionResult(); cr != nil && cr.Summary != "" {
+			endData.Summary = cr.Summary
+		} else {
+			endData.Summary = reply.TextContent()
+		}
+		notifier(ctx, "agent_end", child.name, endData)
+	}
+
+	if runErr != nil {
+		if errors.Is(runErr, ErrMaxIterations) {
+			cr := &CompletionResult{
+				Status:  "failed",
+				Summary: fmt.Sprintf("Agent %q exhausted its iteration limit without completing the task.", t.Agent),
+				Caveats: "Iteration limit reached. Check progress notes for partial work.",
+			}
+			writeReflection(a.delegation.reflectionDir, t.Agent, t.Task, cr)
+			dr := delegateResult{Agent: t.Agent, Completion: cr}
+			dr.Warning = tryUpdateTask(taskBoard, t.TaskID, cr.Status)
+			return dr
+		}
+		// Rollback task to "failed" so it doesn't stay stuck in_progress.
+		dr := delegateResult{Agent: t.Agent, Error: runErr.Error()}
+		dr.Warning = tryUpdateTask(taskBoard, t.TaskID, "failed")
+		return dr
+	}
+
+	// Auto-update task status based on completion result.
+	cr := child.CompletionResult()
+	if cr != nil {
+		if cr.Status == "failed" {
+			writeReflection(a.delegation.reflectionDir, t.Agent, t.Task, cr)
+		}
+		dr := buildDelegateResult(t.Agent, reply, cr)
+		dr.Warning = tryUpdateTask(taskBoard, t.TaskID, cr.Status)
+		return dr
+	}
+
+	// Child finished without calling task_complete — mark as completed
+	// since it ran to natural conclusion without error.
+	dr := buildDelegateResult(t.Agent, reply, nil)
+	dr.Warning = tryUpdateTask(taskBoard, t.TaskID, "completed")
+	return dr
+}
+
+// buildDelegateChild spawns a child agent from the registry and configures it
+// for delegation. It sets a unique instance name, propagates the parent's
+// registry, event handlers, reflection directory, and task board. It prepends
+// delegation context, relevant prior reflections, and the task message.
+func buildDelegateChild(a *Agent, t delegateTask) (*Agent, error) {
+	child, ok := a.registry.Spawn(t.Agent, a.depth+1)
+	if !ok {
+		return nil, fmt.Errorf("agent %q not found", t.Agent)
+	}
+
+	// Generate a unique instance name: "<configName>-<slug>-<counter>".
+	child.name = fmt.Sprintf("%s-%s-%d", t.Agent, taskSlug(t.Task), a.registry.NextID(t.Agent))
+
+	child.registry = a.registry
+	child.events.notifier = a.events.notifier
+	child.events.eventFunc = a.events.eventFunc
+	child.delegation.reflectionDir = a.delegation.reflectionDir
+	child.delegation.taskBoard = a.delegation.taskBoard
+
+	prependContext(child, t.Context)
+
+	if reflections := searchReflections(a.delegation.reflectionDir, t.Task); reflections != "" {
+		child.chat.Append(message.NewText("user", role.User, reflections))
+	}
+
+	child.chat.Append(message.NewText("user", role.User, t.Task))
+
+	return child, nil
 }
 
 // tryUpdateTask updates a task's status on the board. Returns a non-empty
