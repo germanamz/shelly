@@ -57,10 +57,14 @@ func (tb *ToolBox) Len() int { return len(tb.items) }
 
 // Filter returns a new ToolBox containing only the tools whose names appear in
 // the provided list, in the order given. Unknown names are silently skipped.
-// If names is empty, the original ToolBox is returned unchanged.
+// A nil slice means "no filter" and returns the original ToolBox unchanged.
+// An explicit empty slice means "filter to nothing" and returns an empty ToolBox.
 func (tb *ToolBox) Filter(names []string) *ToolBox {
-	if len(names) == 0 {
+	if names == nil {
 		return tb
+	}
+	if len(names) == 0 {
+		return New()
 	}
 	filtered := New()
 	for _, name := range names {

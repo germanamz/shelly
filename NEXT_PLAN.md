@@ -247,7 +247,7 @@ The `staleFilter` accepts this interface instead of switching on concrete types.
 
 **Risks:** Minimal. Standard Go interface extraction.
 
-### 5.2 Make `ToolBox.Filter([]string{})` return empty toolbox
+### 5.2 Make `ToolBox.Filter([]string{})` return empty toolbox ✅
 
 **Problem:** `ToolBox.Filter(names)` returns the *original* (unfiltered) toolbox when `names` is empty. This means `Filter(nil)` and `Filter([]string{})` both mean "no filter" — but the latter intuitively means "filter to nothing." In YAML config, writing `tools: []` would unexpectedly give all tools.
 

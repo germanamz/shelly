@@ -157,15 +157,21 @@ func TestFilterPreservesRequestedOrder(t *testing.T) {
 	assert.Equal(t, "a", tools[1].Name)
 }
 
-func TestFilterEmptyReturnsSamePointer(t *testing.T) {
+func TestFilterNilReturnsSamePointer(t *testing.T) {
 	tb := New()
 	tb.Register(newEchoTool("a"))
 
 	filtered := tb.Filter(nil)
 	assert.Same(t, tb, filtered)
+}
 
-	filtered = tb.Filter([]string{})
-	assert.Same(t, tb, filtered)
+func TestFilterEmptySliceReturnsEmptyToolBox(t *testing.T) {
+	tb := New()
+	tb.Register(newEchoTool("a"))
+
+	filtered := tb.Filter([]string{})
+	assert.NotSame(t, tb, filtered)
+	assert.Equal(t, 0, filtered.Len())
 }
 
 func TestFilterMissingNamesSkipped(t *testing.T) {
