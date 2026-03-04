@@ -89,8 +89,8 @@ All providers follow the same pattern:
 
 ### `grok`
 
-- **`GrokAdapter`** -- Embeds `modeladapter.ModelAdapter`. Implements `Completer`.
-- **`New(apiKey string, client *http.Client) *GrokAdapter`** -- Creates a configured adapter. A nil client falls back to `http.DefaultClient`.
+- **`Adapter`** -- Embeds `modeladapter.ModelAdapter`. Implements `Completer`.
+- **`New(apiKey string, client *http.Client) *Adapter`** -- Creates a configured adapter. A nil client falls back to `http.DefaultClient`.
 - **`MarshalToolDef(name, description string, schema json.RawMessage) apiTool`** -- Convenience helper to build an OpenAI-compatible tool definition.
 - **`DefaultBaseURL`** -- Constant: `https://api.x.ai`.
 

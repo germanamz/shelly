@@ -1264,7 +1264,7 @@ type Factory func() *Agent
 | `agent.RunnerFunc` | `Runner` |
 | `anthropic.Adapter` | `Completer` |
 | `openai.Adapter` | `Completer` |
-| `grok.GrokAdapter` | `Completer` |
+| `grok.Adapter` | `Completer` |
 | `content.Text` | `Part` |
 | `content.Image` | `Part` |
 | `content.ToolCall` | `Part` |

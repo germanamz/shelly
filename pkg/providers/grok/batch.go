@@ -14,8 +14,8 @@ type BatchSubmitter struct {
 	config modeladapter.ModelConfig
 }
 
-// NewBatchSubmitter creates a BatchSubmitter using the given GrokAdapter.
-func NewBatchSubmitter(adapter *GrokAdapter) *BatchSubmitter {
+// NewBatchSubmitter creates a BatchSubmitter using the given Adapter.
+func NewBatchSubmitter(adapter *Adapter) *BatchSubmitter {
 	return &BatchSubmitter{
 		helper: openaicompat.BatchHelper{Client: adapter.client, ErrPrefix: "grok batch"},
 		config: adapter.Config,

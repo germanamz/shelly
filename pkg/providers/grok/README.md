@@ -12,11 +12,11 @@ response parsing, and token usage tracking.
 
 ## Architecture
 
-`GrokAdapter` embeds `modeladapter.ModelAdapter` and adds Grok-specific request
+`Adapter` embeds `modeladapter.ModelAdapter` and adds Grok-specific request
 and response mapping. It uses `ModelAdapter.PostJSON` for HTTP calls with Bearer
 token authentication.
 
-Unlike the `anthropic` and `openai` providers, `GrokAdapter` uses the
+Unlike the `anthropic` and `openai` providers, `Adapter` uses the
 `modeladapter.New()` constructor to initialize the embedded `ModelAdapter` and
 accepts an `*http.Client` parameter (nil falls back to `http.DefaultClient`).
 The model name is not set by the constructor -- callers set `adapter.Name`
@@ -49,13 +49,13 @@ Key mapping details:
 
 ### Types
 
-- **`GrokAdapter`** -- Main type. Embeds `modeladapter.ModelAdapter`. Implements
+- **`Adapter`** -- Main type. Embeds `modeladapter.ModelAdapter`. Implements
   `modeladapter.Completer`.
 
 ### Functions
 
-- **`New(apiKey string, client *http.Client) *GrokAdapter`** -- Creates a
-  `GrokAdapter` configured with the default xAI base URL and Bearer
+- **`New(apiKey string, client *http.Client) *Adapter`** -- Creates a
+  `Adapter` configured with the default xAI base URL and Bearer
   authentication. A nil client falls back to `http.DefaultClient`. Callers
   must set `adapter.Name` to the desired model (e.g. `"grok-3"`) after
   creation. Does not set `MaxTokens` by default.
@@ -69,7 +69,7 @@ Key mapping details:
 
 ### Methods
 
-- **`(*GrokAdapter) Complete(ctx context.Context, c *chat.Chat, tools []toolbox.Tool) (message.Message, error)`**
+- **`(*Adapter) Complete(ctx context.Context, c *chat.Chat, tools []toolbox.Tool) (message.Message, error)`**
   -- Sends a conversation to the Grok chat completions endpoint and returns the
   assistant's reply. Tools available for this call are passed directly as a
   parameter. Token usage is accumulated in `adapter.Usage`.

@@ -18,8 +18,8 @@ import (
 
 func strPtr(s string) *string { return &s }
 
-func TestGrokAdapter_ImplementsCompleter(t *testing.T) {
-	var _ modeladapter.Completer = (*GrokAdapter)(nil)
+func TestAdapter_ImplementsCompleter(t *testing.T) {
+	var _ modeladapter.Completer = (*Adapter)(nil)
 }
 
 func TestNew(t *testing.T) {

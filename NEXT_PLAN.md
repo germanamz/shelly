@@ -93,7 +93,7 @@ Changes that fix API inconsistencies and improve type safety.
 
 **Risks:** Minimal. Adds allocation cost proportional to message count, but `BySender` is not a hot path.
 
-### 2.3 Rename `GrokAdapter` to `Adapter`
+### 2.3 Rename `GrokAdapter` to `Adapter` ✅
 
 **Problem:** All providers name their exported type `Adapter` (`openai.Adapter`, `anthropic.Adapter`, `gemini.Adapter`) except Grok which uses `grok.GrokAdapter` — redundant stuttering.
 

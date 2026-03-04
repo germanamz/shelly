@@ -164,9 +164,9 @@ func newOpenAIBatchSubmitter(_ ProviderConfig, completer modeladapter.Completer)
 }
 
 func newGrokBatchSubmitter(_ ProviderConfig, completer modeladapter.Completer) (batch.Submitter, error) {
-	adapter, ok := completer.(*grok.GrokAdapter)
+	adapter, ok := completer.(*grok.Adapter)
 	if !ok {
-		return nil, fmt.Errorf("engine: grok batch: completer is not *grok.GrokAdapter")
+		return nil, fmt.Errorf("engine: grok batch: completer is not *grok.Adapter")
 	}
 	return grok.NewBatchSubmitter(adapter), nil
 }

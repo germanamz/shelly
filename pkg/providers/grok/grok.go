@@ -20,28 +20,28 @@ import (
 const DefaultBaseURL = "https://api.x.ai"
 
 var (
-	_ modeladapter.Completer             = (*GrokAdapter)(nil)
-	_ modeladapter.UsageReporter         = (*GrokAdapter)(nil)
-	_ modeladapter.RateLimitInfoReporter = (*GrokAdapter)(nil)
+	_ modeladapter.Completer             = (*Adapter)(nil)
+	_ modeladapter.UsageReporter         = (*Adapter)(nil)
+	_ modeladapter.RateLimitInfoReporter = (*Adapter)(nil)
 )
 
-// GrokAdapter sends chat completions to xAI's Grok API.
-type GrokAdapter struct {
+// Adapter sends chat completions to xAI's Grok API.
+type Adapter struct {
 	client *modeladapter.Client
 	Config modeladapter.ModelConfig
 	usage  usage.Tracker
 }
 
-// New creates a GrokAdapter with the given base URL, API key, model, and HTTP client.
+// New creates a Adapter with the given base URL, API key, model, and HTTP client.
 // A nil client falls back to a default HTTP client with a 10-minute timeout.
-func New(baseURL, apiKey, model string, httpClient *http.Client) *GrokAdapter {
+func New(baseURL, apiKey, model string, httpClient *http.Client) *Adapter {
 	opts := []modeladapter.ClientOption{
 		modeladapter.WithHeaderParser(modeladapter.ParseOpenAIRateLimitHeaders),
 	}
 	if httpClient != nil {
 		opts = append(opts, modeladapter.WithHTTPClient(httpClient))
 	}
-	return &GrokAdapter{
+	return &Adapter{
 		client: modeladapter.NewClient(baseURL, modeladapter.Auth{Key: apiKey}, opts...),
 		Config: modeladapter.ModelConfig{
 			Name:      model,
@@ -51,19 +51,19 @@ func New(baseURL, apiKey, model string, httpClient *http.Client) *GrokAdapter {
 }
 
 // UsageTracker returns the adapter's token usage tracker.
-func (g *GrokAdapter) UsageTracker() *usage.Tracker { return &g.usage }
+func (g *Adapter) UsageTracker() *usage.Tracker { return &g.usage }
 
 // ModelMaxTokens returns the maximum tokens the model will generate per response.
-func (g *GrokAdapter) ModelMaxTokens() int { return g.Config.MaxTokens }
+func (g *Adapter) ModelMaxTokens() int { return g.Config.MaxTokens }
 
 // LastRateLimitInfo returns the most recently observed rate limit info, or nil.
-func (g *GrokAdapter) LastRateLimitInfo() *modeladapter.RateLimitInfo {
+func (g *Adapter) LastRateLimitInfo() *modeladapter.RateLimitInfo {
 	return g.client.LastRateLimitInfo()
 }
 
 // Complete sends a conversation to the Grok chat completions endpoint
 // and returns the assistant's reply.
-func (g *GrokAdapter) Complete(ctx context.Context, c *chat.Chat, tools []toolbox.Tool) (message.Message, error) {
+func (g *Adapter) Complete(ctx context.Context, c *chat.Chat, tools []toolbox.Tool) (message.Message, error) {
 	req := openaicompat.BuildRequest(g.Config, c, tools)
 
 	var resp openaicompat.Response
