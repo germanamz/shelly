@@ -45,13 +45,14 @@ func Start(ctx context.Context, p *tea.Program, c *chat.Chat, events *engine.Eve
 					p.Send(msgs.AskUserMsg{Question: q, Agent: ev.Agent})
 
 				case engine.EventAgentStart:
-					var prefix, parent, providerLabel string
+					var prefix, parent, providerLabel, task string
 					if d, ok := ev.Data.(agent.AgentEventData); ok {
 						prefix = d.Prefix
 						parent = d.Parent
 						providerLabel = d.ProviderLabel
+						task = d.Task
 					}
-					p.Send(msgs.AgentStartMsg{Agent: ev.Agent, Prefix: prefix, Parent: parent, ProviderLabel: providerLabel})
+					p.Send(msgs.AgentStartMsg{Agent: ev.Agent, Prefix: prefix, Parent: parent, ProviderLabel: providerLabel, Task: task})
 
 				case engine.EventAgentEnd:
 					var parent, summary string

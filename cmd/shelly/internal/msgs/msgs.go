@@ -22,6 +22,7 @@ type AgentStartMsg struct {
 	Prefix        string // display prefix (e.g. "🤖", "📝")
 	Parent        string // parent agent name (empty for top-level)
 	ProviderLabel string // provider display label (e.g. "anthropic/claude-sonnet-4")
+	Task          string // delegation task description (empty for top-level)
 }
 
 // AgentEndMsg signals that the named agent finished its ReAct loop.

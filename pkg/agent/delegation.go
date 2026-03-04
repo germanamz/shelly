@@ -20,6 +20,7 @@ type AgentEventData struct {
 	Parent        string // Name of the parent agent (empty for top-level).
 	Summary       string // Completion summary (populated on agent_end events).
 	ProviderLabel string // Provider display label (e.g. "anthropic/claude-sonnet-4").
+	Task          string // Delegation task description (populated on agent_start events).
 }
 
 // orchestrationToolBox builds a ToolBox containing the built-in orchestration
@@ -152,7 +153,7 @@ func runDelegateTask(ctx context.Context, a *Agent, t delegateTask) delegateResu
 
 	notifier := a.events.notifier
 	if notifier != nil {
-		notifier(ctx, "agent_start", child.name, AgentEventData{Prefix: child.Prefix(), Parent: a.name, ProviderLabel: child.ProviderLabel()})
+		notifier(ctx, "agent_start", child.name, AgentEventData{Prefix: child.Prefix(), Parent: a.name, ProviderLabel: child.ProviderLabel(), Task: t.Task})
 	}
 
 	reply, runErr := child.Run(ctx)

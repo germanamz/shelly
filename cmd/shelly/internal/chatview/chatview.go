@@ -83,7 +83,7 @@ func (m ChatViewModel) Update(msg tea.Msg) (ChatViewModel, tea.Cmd) {
 		m.rebuildContent()
 		return m, nil
 	case msgs.AgentStartMsg:
-		m.startAgent(msg.Agent, msg.Prefix, msg.Parent, msg.ProviderLabel)
+		m.startAgent(msg.Agent, msg.Prefix, msg.Parent, msg.ProviderLabel, msg.Task)
 		return m, nil
 	case msgs.AgentEndMsg:
 		m.endAgent(msg.Agent, msg.Summary)
@@ -360,7 +360,7 @@ func (m *ChatViewModel) getOrCreateContainer(agentName, prefix string) *AgentCon
 }
 
 // startAgent creates or retrieves an agent container with the given prefix.
-func (m *ChatViewModel) startAgent(agentName, prefix, parent, providerLabel string) {
+func (m *ChatViewModel) startAgent(agentName, prefix, parent, providerLabel, task string) {
 	if parent != "" {
 		parentAC := m.resolveContainer(parent)
 		if parentAC == nil {
@@ -370,6 +370,9 @@ func (m *ChatViewModel) startAgent(agentName, prefix, parent, providerLabel stri
 		m.nextColorSlot++
 		m.colorRegistry[agentName] = color
 		childAC := NewAgentContainer(agentName, prefix, 4, color, providerLabel)
+		if task != "" {
+			childAC.Items = append(childAC.Items, &TaskMessageItem{Text: task, Color: color})
+		}
 		sa := &SubAgentItem{Container: childAC}
 		parentAC.Items = append(parentAC.Items, sa)
 		m.subAgents[agentName] = sa

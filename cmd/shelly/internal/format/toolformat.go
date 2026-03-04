@@ -104,23 +104,15 @@ var ToolFormatters = map[string]ToolFormatter{
 		if tasks, ok := args["tasks"]; ok {
 			if arr, ok := tasks.([]any); ok {
 				var agents []string
-				var taskLines []string
 				for _, t := range arr {
 					if m, ok := t.(map[string]any); ok {
 						if agent, ok := m["agent"].(string); ok {
 							agents = append(agents, agent)
-							if task, ok := m["task"].(string); ok && task != "" {
-								taskLines = append(taskLines, task)
-							}
 						}
 					}
 				}
 				if len(agents) > 0 {
-					title := fmt.Sprintf("Delegating to %s", strings.Join(agents, ", "))
-					if len(taskLines) > 0 {
-						return title + "\n" + strings.Join(taskLines, "\n")
-					}
-					return title
+					return fmt.Sprintf("Delegating to %s", strings.Join(agents, ", "))
 				}
 			}
 		}

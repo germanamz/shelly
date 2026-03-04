@@ -370,6 +370,24 @@ func (m *SubAgentItem) View(width int) string {
 func (m *SubAgentItem) IsLive() bool { return !m.Container.Done }
 func (m *SubAgentItem) Kind() string { return "sub_agent" }
 
+// --- TaskMessageItem ---
+
+// TaskMessageItem displays the delegation task sent from parent to sub-agent.
+type TaskMessageItem struct {
+	Text  string
+	Color string // hex color string; empty means use default
+}
+
+func (m *TaskMessageItem) View(width int) string {
+	rendered := format.RenderMarkdown(m.Text)
+	// Trim trailing whitespace from rendered output.
+	rendered = strings.TrimRight(rendered, "\n ")
+	return styles.DimStyle.Render("📋 " + rendered)
+}
+
+func (m *TaskMessageItem) IsLive() bool { return false }
+func (m *TaskMessageItem) Kind() string { return "task_message" }
+
 // --- PlanItem ---
 
 // PlanItem displays agent plan text.
