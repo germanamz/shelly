@@ -105,7 +105,7 @@ func (s *Session) SendParts(ctx context.Context, parts ...content.Part) (message
 		return message.Message{}, err
 	}
 
-	s.events.publish(EventAgentEnd, s.id, s.agent.Name(), agent.AgentEventData{Prefix: s.agent.Prefix(), ProviderLabel: s.agent.ProviderLabel()})
+	s.events.publish(EventAgentEnd, s.id, s.agent.Name(), agent.AgentEventData{Prefix: s.agent.Prefix(), ProviderLabel: s.agent.ProviderLabel(), Summary: reply.TextContent()})
 
 	return reply, nil
 }

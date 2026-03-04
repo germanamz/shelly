@@ -208,6 +208,15 @@ func (ac *AgentContainer) View(width int) string {
 		sb.WriteString("\n")
 	}
 
+	// Show a spinner when all items are completed but the agent is still
+	// processing (e.g., after delegation results return and the agent makes
+	// another LLM call to summarize).
+	if !ac.Done && !ac.hasLiveItems() {
+		frame := format.SpinnerFrames[ac.FrameIdx%len(format.SpinnerFrames)]
+		fmt.Fprintf(&sb, "%s %s is thinking... %s\n",
+			ac.prefixOrDefault(), ac.Agent, styles.SpinnerStyle.Render(frame))
+	}
+
 	return sb.String()
 }
 
@@ -265,6 +274,24 @@ func (ac *AgentContainer) CollapsedSummary() string {
 		fmt.Fprintf(&sb, " %s%s", styles.TreeCorner, styles.DimStyle.Render(fmt.Sprintf("Finished in %s", elapsed)))
 	}
 	return sb.String()
+}
+
+// prefixOrDefault returns the container's prefix or the default "🤖".
+func (ac *AgentContainer) prefixOrDefault() string {
+	if ac.Prefix == "" {
+		return "🤖"
+	}
+	return ac.Prefix
+}
+
+// hasLiveItems returns true if any item in the container is still in progress.
+func (ac *AgentContainer) hasLiveItems() bool {
+	for _, item := range ac.Items {
+		if item.IsLive() {
+			return true
+		}
+	}
+	return false
 }
 
 // AdvanceSpinners increments spinner frames for all live items.
