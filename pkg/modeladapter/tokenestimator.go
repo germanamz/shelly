@@ -31,7 +31,7 @@ func charsToTokens(chars int) int {
 // EstimateChat estimates the total input tokens for a chat conversation.
 // It accounts for the system prompt, each message's text content, tool calls,
 // tool results, and per-message structural overhead.
-func (e *TokenEstimator) EstimateChat(c *chat.Chat) int {
+func (e TokenEstimator) EstimateChat(c *chat.Chat) int {
 	tokens := 0
 
 	// System prompt.
@@ -66,7 +66,7 @@ func (e *TokenEstimator) EstimateChat(c *chat.Chat) int {
 // EstimateTools estimates the token cost of tool definitions. For each tool it
 // sums the name, description, and serialized input schema, then applies the
 // character-to-token heuristic plus a per-tool structural overhead.
-func (e *TokenEstimator) EstimateTools(tools []toolbox.Tool) int {
+func (e TokenEstimator) EstimateTools(tools []toolbox.Tool) int {
 	tokens := 0
 
 	for _, t := range tools {
@@ -79,6 +79,6 @@ func (e *TokenEstimator) EstimateTools(tools []toolbox.Tool) int {
 
 // EstimateTotal estimates total input tokens for a chat conversation combined
 // with tool definitions. This is the primary entry point for pre-call estimation.
-func (e *TokenEstimator) EstimateTotal(c *chat.Chat, tools []toolbox.Tool) int {
+func (e TokenEstimator) EstimateTotal(c *chat.Chat, tools []toolbox.Tool) int {
 	return e.EstimateChat(c) + e.EstimateTools(tools)
 }

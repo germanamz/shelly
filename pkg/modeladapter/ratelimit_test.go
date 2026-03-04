@@ -75,12 +75,13 @@ func TestRateLimitedCompleter_RetryOn429(t *testing.T) {
 	rl := modeladapter.NewRateLimitedCompleter(fc, modeladapter.RateLimitOpts{
 		MaxRetries: 3,
 		BaseDelay:  time.Millisecond,
-	})
-	rl.SetSleepFunc(func(_ context.Context, _ time.Duration) error {
-		sleeps++
-		return nil
-	})
-	rl.SetRandFunc(func() float64 { return 0.5 }) // zero jitter
+	},
+		modeladapter.WithSleepFunc(func(_ context.Context, _ time.Duration) error {
+			sleeps++
+			return nil
+		}),
+		modeladapter.WithRandFunc(func() float64 { return 0.5 }),
+	)
 
 	msg, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
 	require.NoError(t, err)
@@ -99,8 +100,9 @@ func TestRateLimitedCompleter_MaxRetriesExhausted(t *testing.T) {
 	rl := modeladapter.NewRateLimitedCompleter(fc, modeladapter.RateLimitOpts{
 		MaxRetries: 2,
 		BaseDelay:  time.Millisecond,
-	})
-	rl.SetSleepFunc(func(_ context.Context, _ time.Duration) error { return nil })
+	},
+		modeladapter.WithSleepFunc(func(_ context.Context, _ time.Duration) error { return nil }),
+	)
 
 	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
 	require.Error(t, err)
@@ -121,11 +123,12 @@ func TestRateLimitedCompleter_ContextCancellation(t *testing.T) {
 	rl := modeladapter.NewRateLimitedCompleter(fc, modeladapter.RateLimitOpts{
 		MaxRetries: 5,
 		BaseDelay:  time.Millisecond,
-	})
-	rl.SetSleepFunc(func(_ context.Context, _ time.Duration) error {
-		cancel()
-		return ctx.Err()
-	})
+	},
+		modeladapter.WithSleepFunc(func(_ context.Context, _ time.Duration) error {
+			cancel()
+			return ctx.Err()
+		}),
+	)
 
 	_, err := rl.Complete(ctx, &chat.Chat{}, nil)
 	assert.ErrorIs(t, err, context.Canceled)
@@ -146,13 +149,14 @@ func TestRateLimitedCompleter_InputTPMThrottling(t *testing.T) {
 		InputTPM:   80, // exactly matches per-call input usage
 		MaxRetries: 1,
 		BaseDelay:  time.Millisecond,
-	})
-	rl.SetNowFunc(func() time.Time { return currentTime })
-	rl.SetSleepFunc(func(_ context.Context, d time.Duration) error {
-		sleepCalled = true
-		currentTime = currentTime.Add(d)
-		return nil
-	})
+	},
+		modeladapter.WithNowFunc(func() time.Time { return currentTime }),
+		modeladapter.WithSleepFunc(func(_ context.Context, d time.Duration) error {
+			sleepCalled = true
+			currentTime = currentTime.Add(d)
+			return nil
+		}),
+	)
 
 	// First call: 80 input tokens used, hits the 80 input TPM limit.
 	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
@@ -180,13 +184,14 @@ func TestRateLimitedCompleter_OutputTPMThrottling(t *testing.T) {
 		OutputTPM:  80, // exactly matches per-call output usage
 		MaxRetries: 1,
 		BaseDelay:  time.Millisecond,
-	})
-	rl.SetNowFunc(func() time.Time { return currentTime })
-	rl.SetSleepFunc(func(_ context.Context, d time.Duration) error {
-		sleepCalled = true
-		currentTime = currentTime.Add(d)
-		return nil
-	})
+	},
+		modeladapter.WithNowFunc(func() time.Time { return currentTime }),
+		modeladapter.WithSleepFunc(func(_ context.Context, d time.Duration) error {
+			sleepCalled = true
+			currentTime = currentTime.Add(d)
+			return nil
+		}),
+	)
 
 	// First call: 80 output tokens used, hits the 80 output TPM limit.
 	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
@@ -216,13 +221,14 @@ func TestRateLimitedCompleter_IndependentLimits(t *testing.T) {
 		OutputTPM:  200, // output limit is generous
 		MaxRetries: 1,
 		BaseDelay:  time.Millisecond,
-	})
-	rl.SetNowFunc(func() time.Time { return currentTime })
-	rl.SetSleepFunc(func(_ context.Context, d time.Duration) error {
-		sleepCalled = true
-		currentTime = currentTime.Add(d)
-		return nil
-	})
+	},
+		modeladapter.WithNowFunc(func() time.Time { return currentTime }),
+		modeladapter.WithSleepFunc(func(_ context.Context, d time.Duration) error {
+			sleepCalled = true
+			currentTime = currentTime.Add(d)
+			return nil
+		}),
+	)
 
 	// First call: 90 input, 10 output — hits input limit but output is fine.
 	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
@@ -287,12 +293,13 @@ func TestRateLimitedCompleter_RetryAfterUsed(t *testing.T) {
 	rl := modeladapter.NewRateLimitedCompleter(fc, modeladapter.RateLimitOpts{
 		MaxRetries: 2,
 		BaseDelay:  time.Second,
-	})
-	rl.SetSleepFunc(func(_ context.Context, d time.Duration) error {
-		sleepDur = d
-		return nil
-	})
-	rl.SetRandFunc(func() float64 { return 0.5 }) // zero jitter (factor = 1.0)
+	},
+		modeladapter.WithSleepFunc(func(_ context.Context, d time.Duration) error {
+			sleepDur = d
+			return nil
+		}),
+		modeladapter.WithRandFunc(func() float64 { return 0.5 }),
+	)
 
 	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
 	require.NoError(t, err)
@@ -315,13 +322,14 @@ func TestRateLimitedCompleter_RPMThrottling(t *testing.T) {
 		RPM:        1, // only 1 request per minute
 		MaxRetries: 1,
 		BaseDelay:  time.Millisecond,
-	})
-	rl.SetNowFunc(func() time.Time { return currentTime })
-	rl.SetSleepFunc(func(_ context.Context, d time.Duration) error {
-		sleepCalled = true
-		currentTime = currentTime.Add(d)
-		return nil
-	})
+	},
+		modeladapter.WithNowFunc(func() time.Time { return currentTime }),
+		modeladapter.WithSleepFunc(func(_ context.Context, d time.Duration) error {
+			sleepCalled = true
+			currentTime = currentTime.Add(d)
+			return nil
+		}),
+	)
 
 	// First call succeeds without throttling.
 	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
@@ -350,13 +358,14 @@ func TestRateLimitedCompleter_RPMAndTPMCombined(t *testing.T) {
 		InputTPM:   100, // generous TPM limit
 		MaxRetries: 1,
 		BaseDelay:  time.Millisecond,
-	})
-	rl.SetNowFunc(func() time.Time { return currentTime })
-	rl.SetSleepFunc(func(_ context.Context, d time.Duration) error {
-		sleepCount++
-		currentTime = currentTime.Add(d)
-		return nil
-	})
+	},
+		modeladapter.WithNowFunc(func() time.Time { return currentTime }),
+		modeladapter.WithSleepFunc(func(_ context.Context, d time.Duration) error {
+			sleepCount++
+			currentTime = currentTime.Add(d)
+			return nil
+		}),
+	)
 
 	// Two calls should succeed without throttling.
 	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
@@ -386,13 +395,14 @@ func TestRateLimitedCompleter_BackoffJitter(t *testing.T) {
 	rl := modeladapter.NewRateLimitedCompleter(fc, modeladapter.RateLimitOpts{
 		MaxRetries: 2,
 		BaseDelay:  time.Second,
-	})
-	rl.SetSleepFunc(func(_ context.Context, d time.Duration) error {
-		sleepDur = d
-		return nil
-	})
-	// randFunc returning 0.0 → factor = 0.75 (minimum jitter)
-	rl.SetRandFunc(func() float64 { return 0.0 })
+	},
+		modeladapter.WithSleepFunc(func(_ context.Context, d time.Duration) error {
+			sleepDur = d
+			return nil
+		}),
+		// randFunc returning 0.0 → factor = 0.75 (minimum jitter)
+		modeladapter.WithRandFunc(func() float64 { return 0.0 }),
+	)
 
 	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
 	require.NoError(t, err)
@@ -417,12 +427,13 @@ func TestRateLimitedCompleter_AdaptiveThrottle_LowRemaining(t *testing.T) {
 	}
 
 	var sleepDur time.Duration
-	rl := modeladapter.NewRateLimitedCompleter(fc, modeladapter.RateLimitOpts{})
-	rl.SetNowFunc(func() time.Time { return now })
-	rl.SetSleepFunc(func(_ context.Context, d time.Duration) error {
-		sleepDur = d
-		return nil
-	})
+	rl := modeladapter.NewRateLimitedCompleter(fc, modeladapter.RateLimitOpts{},
+		modeladapter.WithNowFunc(func() time.Time { return now }),
+		modeladapter.WithSleepFunc(func(_ context.Context, d time.Duration) error {
+			sleepDur = d
+			return nil
+		}),
+	)
 
 	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
 	require.NoError(t, err)
@@ -461,14 +472,15 @@ func TestRateLimitedCompleter_BusyLoopPrevention(t *testing.T) {
 		InputTPM:   100,
 		MaxRetries: 1,
 		BaseDelay:  time.Millisecond,
-	})
-	rl.SetNowFunc(func() time.Time { return currentTime })
-	rl.SetSleepFunc(func(_ context.Context, d time.Duration) error {
-		sleepDurations = append(sleepDurations, d)
-		// Advance time past the window to unblock.
-		currentTime = currentTime.Add(time.Minute + time.Second)
-		return nil
-	})
+	},
+		modeladapter.WithNowFunc(func() time.Time { return currentTime }),
+		modeladapter.WithSleepFunc(func(_ context.Context, d time.Duration) error {
+			sleepDurations = append(sleepDurations, d)
+			// Advance time past the window to unblock.
+			currentTime = currentTime.Add(time.Minute + time.Second)
+			return nil
+		}),
+	)
 
 	// First call fills the window.
 	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
@@ -499,12 +511,13 @@ func TestRateLimitedCompleter_AdaptiveThrottle_NotTriggered(t *testing.T) {
 	}
 
 	sleepCalled := false
-	rl := modeladapter.NewRateLimitedCompleter(fc, modeladapter.RateLimitOpts{})
-	rl.SetNowFunc(func() time.Time { return now })
-	rl.SetSleepFunc(func(_ context.Context, _ time.Duration) error {
-		sleepCalled = true
-		return nil
-	})
+	rl := modeladapter.NewRateLimitedCompleter(fc, modeladapter.RateLimitOpts{},
+		modeladapter.WithNowFunc(func() time.Time { return now }),
+		modeladapter.WithSleepFunc(func(_ context.Context, _ time.Duration) error {
+			sleepCalled = true
+			return nil
+		}),
+	)
 
 	_, err := rl.Complete(context.Background(), &chat.Chat{}, nil)
 	require.NoError(t, err)

@@ -24,9 +24,7 @@ func newBatchTestServer(t *testing.T, handler http.HandlerFunc) (*httptest.Serve
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 
-	adapter := grok.New("test-key", nil)
-	adapter.BaseURL = srv.URL
-	adapter.Name = "grok-3"
+	adapter := grok.New(srv.URL, "test-key", "grok-3", nil)
 
 	return srv, grok.NewBatchSubmitter(adapter)
 }

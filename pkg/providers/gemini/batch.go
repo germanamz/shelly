@@ -61,16 +61,16 @@ func (b *BatchSubmitter) SubmitBatch(ctx context.Context, reqs []batch.Request) 
 	inlineReqs := make([]inlineRequest, len(reqs))
 	for i, r := range reqs {
 		inlineReqs[i] = inlineRequest{
-			Model:   fmt.Sprintf("models/%s", b.adapter.Name),
+			Model:   fmt.Sprintf("models/%s", b.adapter.Config.Name),
 			Request: b.adapter.buildRequest(r.Chat, r.Tools),
 		}
 	}
 
 	payload := batchGenerateRequest{Requests: inlineReqs}
-	path := fmt.Sprintf("/v1beta/models/%s:batchGenerateContent", b.adapter.Name)
+	path := fmt.Sprintf("/v1beta/models/%s:batchGenerateContent", b.adapter.Config.Name)
 
 	var resp batchGenerateResponse
-	if err := b.adapter.PostJSON(ctx, path, payload, &resp); err != nil {
+	if err := b.adapter.client.PostJSON(ctx, path, payload, &resp); err != nil {
 		return "", fmt.Errorf("gemini batch: submit: %w", err)
 	}
 

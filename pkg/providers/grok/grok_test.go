@@ -23,11 +23,10 @@ func TestGrokAdapter_ImplementsCompleter(t *testing.T) {
 }
 
 func TestNew(t *testing.T) {
-	g := New("test-key", nil)
+	g := New(DefaultBaseURL, "test-key", "grok-3", nil)
 
-	assert.Equal(t, DefaultBaseURL, g.BaseURL)
-	assert.Equal(t, "test-key", g.Auth.Key)
-	assert.Equal(t, 4096, g.MaxTokens)
+	assert.Equal(t, "grok-3", g.Config.Name)
+	assert.Equal(t, 4096, g.Config.MaxTokens)
 }
 
 func TestComplete_TextResponse(t *testing.T) {
@@ -59,9 +58,7 @@ func TestComplete_TextResponse(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	g := New("test-key", srv.Client())
-	g.BaseURL = srv.URL
-	g.Name = "grok-3"
+	g := New(srv.URL, "test-key", "grok-3", srv.Client())
 
 	c := chat.New(
 		message.NewText("", role.System, "You are helpful."),
@@ -74,7 +71,7 @@ func TestComplete_TextResponse(t *testing.T) {
 	assert.Equal(t, role.Assistant, msg.Role)
 	assert.Equal(t, "Hi there!", msg.TextContent())
 
-	last, ok := g.Usage.Last()
+	last, ok := g.usage.Last()
 	assert.True(t, ok)
 	assert.Equal(t, 10, last.InputTokens)
 	assert.Equal(t, 5, last.OutputTokens)
@@ -105,9 +102,7 @@ func TestComplete_ToolCallResponse(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	g := New("key", srv.Client())
-	g.BaseURL = srv.URL
-	g.Name = "grok-3"
+	g := New(srv.URL, "key", "grok-3", srv.Client())
 
 	c := chat.New(message.NewText("", role.User, "What's the weather?"))
 	msg, err := g.Complete(context.Background(), c, nil)
@@ -131,9 +126,7 @@ func TestComplete_EmptyChoices(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	g := New("key", srv.Client())
-	g.BaseURL = srv.URL
-	g.Name = "grok-3"
+	g := New(srv.URL, "key", "grok-3", srv.Client())
 
 	_, err := g.Complete(context.Background(), chat.New(message.NewText("", role.User, "hi")), nil)
 	assert.ErrorContains(t, err, "grok: empty response")
@@ -146,9 +139,7 @@ func TestComplete_APIError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	g := New("bad-key", srv.Client())
-	g.BaseURL = srv.URL
-	g.Name = "grok-3"
+	g := New(srv.URL, "bad-key", "grok-3", srv.Client())
 
 	_, err := g.Complete(context.Background(), chat.New(message.NewText("", role.User, "hi")), nil)
 	require.Error(t, err)
@@ -171,11 +162,9 @@ func TestComplete_TemperatureAndMaxTokens(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	g := New("key", srv.Client())
-	g.BaseURL = srv.URL
-	g.Name = "grok-3"
-	g.Temperature = 0.7
-	g.MaxTokens = 256
+	g := New(srv.URL, "key", "grok-3", srv.Client())
+	g.Config.Temperature = 0.7
+	g.Config.MaxTokens = 256
 
 	_, err := g.Complete(context.Background(), chat.New(message.NewText("", role.User, "hi")), nil)
 	require.NoError(t, err)

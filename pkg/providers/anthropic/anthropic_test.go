@@ -94,7 +94,7 @@ func TestComplete_SimpleText(t *testing.T) {
 	assert.Equal(t, role.Assistant, msg.Role)
 	assert.Equal(t, "Hello there!", msg.TextContent())
 
-	last, ok := adapter.Usage.Last()
+	last, ok := adapter.UsageTracker().Last()
 	require.True(t, ok)
 	assert.Equal(t, 10, last.InputTokens)
 	assert.Equal(t, 5, last.OutputTokens)
@@ -197,7 +197,7 @@ func TestComplete_ToolCall(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "The weather in Paris is sunny.", msg.TextContent())
 
-	total := adapter.Usage.Total()
+	total := adapter.UsageTracker().Total()
 	assert.Equal(t, 40, total.InputTokens)
 	assert.Equal(t, 20, total.OutputTokens)
 }
@@ -356,7 +356,7 @@ func TestComplete_CacheControl(t *testing.T) {
 	_, err := adapter.Complete(context.Background(), c, nil)
 	require.NoError(t, err)
 
-	last, ok := adapter.Usage.Last()
+	last, ok := adapter.UsageTracker().Last()
 	require.True(t, ok)
 	assert.Equal(t, 10, last.InputTokens)
 	assert.Equal(t, 5, last.OutputTokens)

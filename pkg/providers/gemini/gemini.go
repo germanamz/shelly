@@ -17,41 +17,44 @@ import (
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
-var _ modeladapter.Completer = (*Adapter)(nil)
+var (
+	_ modeladapter.Completer     = (*Adapter)(nil)
+	_ modeladapter.UsageReporter = (*Adapter)(nil)
+)
 
 // Adapter implements modeladapter.Completer for the Google Gemini API.
 type Adapter struct {
-	modeladapter.ModelAdapter
+	client *modeladapter.Client
+	Config modeladapter.ModelConfig
+	usage  usage.Tracker
 }
 
 // New creates an Adapter configured for the Gemini API.
 // The baseURL should be "https://generativelanguage.googleapis.com" (no trailing slash).
 func New(baseURL, apiKey, model string) *Adapter {
-	a := &Adapter{}
-	a.BaseURL = baseURL
-	a.Auth = modeladapter.Auth{
-		Key:    apiKey,
-		Header: "x-goog-api-key",
+	return &Adapter{
+		client: modeladapter.NewClient(baseURL,
+			modeladapter.Auth{Key: apiKey, Header: "x-goog-api-key"}),
+		Config: modeladapter.ModelConfig{
+			Name:      model,
+			MaxTokens: 8192,
+		},
 	}
-	a.Name = model
-	a.MaxTokens = 8192
-
-	// HeaderParser is intentionally not set. The Gemini API does not return
-	// rate limit headers as of 2026-03. Adaptive throttling
-	// (adaptFromServerInfo) is unavailable; the RateLimitedCompleter falls
-	// back to proactive throttling only. When Google adds rate limit headers,
-	// set a.HeaderParser here (likely ParseOpenAIRateLimitHeaders).
-
-	return a
 }
+
+// UsageTracker returns the adapter's token usage tracker.
+func (a *Adapter) UsageTracker() *usage.Tracker { return &a.usage }
+
+// ModelMaxTokens returns the maximum tokens the model will generate per response.
+func (a *Adapter) ModelMaxTokens() int { return a.Config.MaxTokens }
 
 // Complete sends a conversation to the Gemini API and returns the assistant's reply.
 func (a *Adapter) Complete(ctx context.Context, c *chat.Chat, tools []toolbox.Tool) (message.Message, error) {
 	req := a.buildRequest(c, tools)
-	path := fmt.Sprintf("/v1beta/models/%s:generateContent", a.Name)
+	path := fmt.Sprintf("/v1beta/models/%s:generateContent", a.Config.Name)
 
 	var resp apiResponse
-	if err := a.PostJSON(ctx, path, req, &resp); err != nil {
+	if err := a.client.PostJSON(ctx, path, req, &resp); err != nil {
 		return message.Message{}, fmt.Errorf("gemini: %w", err)
 	}
 
@@ -59,7 +62,7 @@ func (a *Adapter) Complete(ctx context.Context, c *chat.Chat, tools []toolbox.To
 		return message.Message{}, fmt.Errorf("gemini: empty candidates in response")
 	}
 
-	a.Usage.Add(usage.TokenCount{
+	a.usage.Add(usage.TokenCount{
 		InputTokens:          resp.UsageMetadata.PromptTokenCount,
 		OutputTokens:         resp.UsageMetadata.CandidatesTokenCount,
 		CacheReadInputTokens: resp.UsageMetadata.CachedContentTokenCount,
@@ -138,12 +141,12 @@ type apiUsageMeta struct {
 func (a *Adapter) buildRequest(c *chat.Chat, tools []toolbox.Tool) apiRequest {
 	req := apiRequest{
 		GenerationConfig: generationConfig{
-			MaxOutputTokens: a.MaxTokens,
+			MaxOutputTokens: a.Config.MaxTokens,
 		},
 	}
 
-	if a.Temperature != 0 {
-		t := a.Temperature
+	if a.Config.Temperature != 0 {
+		t := a.Config.Temperature
 		req.GenerationConfig.Temperature = &t
 	}
 

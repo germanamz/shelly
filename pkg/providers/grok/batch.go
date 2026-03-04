@@ -91,7 +91,7 @@ func (b *BatchSubmitter) SubmitBatch(ctx context.Context, reqs []batch.Request) 
 	}
 
 	var resp batchStatusResp
-	if err := b.adapter.PostJSON(ctx, batchesPath, createReq, &resp); err != nil {
+	if err := b.adapter.client.PostJSON(ctx, batchesPath, createReq, &resp); err != nil {
 		return "", fmt.Errorf("grok batch: create: %w", err)
 	}
 
@@ -102,12 +102,12 @@ func (b *BatchSubmitter) SubmitBatch(ctx context.Context, reqs []batch.Request) 
 func (b *BatchSubmitter) PollBatch(ctx context.Context, batchID string) (map[string]batch.Result, bool, error) {
 	path := batchesPath + "/" + batchID
 
-	req, err := b.adapter.NewRequest(ctx, http.MethodGet, path, nil)
+	req, err := b.adapter.client.NewRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, false, fmt.Errorf("grok batch: poll: %w", err)
 	}
 
-	resp, err := b.adapter.Do(req)
+	resp, err := b.adapter.client.Do(req)
 	if err != nil {
 		return nil, false, fmt.Errorf("grok batch: poll: %w", err)
 	}
@@ -140,16 +140,16 @@ func (b *BatchSubmitter) PollBatch(ctx context.Context, batchID string) (map[str
 // CancelBatch attempts to cancel an in-progress batch.
 func (b *BatchSubmitter) CancelBatch(ctx context.Context, batchID string) error {
 	path := batchesPath + "/" + batchID + "/cancel"
-	return b.adapter.PostJSON(ctx, path, nil, nil)
+	return b.adapter.client.PostJSON(ctx, path, nil, nil)
 }
 
 // buildChatRequest converts a batch.Request into a Grok chatRequest.
 func (b *BatchSubmitter) buildChatRequest(r batch.Request) chatRequest {
 	req := chatRequest{
-		Model:       b.adapter.Name,
+		Model:       b.adapter.Config.Name,
 		Messages:    convertMessages(r.Chat),
-		Temperature: b.adapter.Temperature,
-		MaxTokens:   b.adapter.MaxTokens,
+		Temperature: b.adapter.Config.Temperature,
+		MaxTokens:   b.adapter.Config.MaxTokens,
 	}
 
 	for _, t := range r.Tools {
@@ -185,13 +185,13 @@ func (b *BatchSubmitter) uploadFile(ctx context.Context, data []byte) (string, e
 		return "", fmt.Errorf("grok batch: close writer: %w", err)
 	}
 
-	req, err := b.adapter.NewRequest(ctx, http.MethodPost, filesPath, &body)
+	req, err := b.adapter.client.NewRequest(ctx, http.MethodPost, filesPath, &body)
 	if err != nil {
 		return "", fmt.Errorf("grok batch: upload: %w", err)
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	resp, err := b.adapter.Do(req)
+	resp, err := b.adapter.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("grok batch: upload: %w", err)
 	}
@@ -216,12 +216,12 @@ func (b *BatchSubmitter) uploadFile(ctx context.Context, data []byte) (string, e
 func (b *BatchSubmitter) downloadResults(ctx context.Context, fileID string) (map[string]batch.Result, error) {
 	path := filesPath + "/" + fileID + "/content"
 
-	req, err := b.adapter.NewRequest(ctx, http.MethodGet, path, nil)
+	req, err := b.adapter.client.NewRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("grok batch: download: %w", err)
 	}
 
-	resp, err := b.adapter.Do(req)
+	resp, err := b.adapter.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("grok batch: download: %w", err)
 	}

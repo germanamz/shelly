@@ -17,30 +17,43 @@ import (
 
 const messagesPath = "/v1/messages"
 
-var _ modeladapter.Completer = (*Adapter)(nil)
+var (
+	_ modeladapter.Completer             = (*Adapter)(nil)
+	_ modeladapter.UsageReporter         = (*Adapter)(nil)
+	_ modeladapter.RateLimitInfoReporter = (*Adapter)(nil)
+)
 
 // Adapter implements modeladapter.Completer for the Anthropic Messages API.
 type Adapter struct {
-	modeladapter.ModelAdapter
+	client *modeladapter.Client
+	Config modeladapter.ModelConfig
+	usage  usage.Tracker
 }
 
 // New creates an Adapter configured for the Anthropic API.
 // The baseURL should be "https://api.anthropic.com" (no trailing slash).
 func New(baseURL, apiKey, model string) *Adapter {
-	a := &Adapter{}
-	a.BaseURL = baseURL
-	a.Auth = modeladapter.Auth{
-		Key:    apiKey,
-		Header: "x-api-key",
+	return &Adapter{
+		client: modeladapter.NewClient(baseURL,
+			modeladapter.Auth{Key: apiKey, Header: "x-api-key"},
+			modeladapter.WithHeaders(map[string]string{"anthropic-version": "2023-06-01"}),
+			modeladapter.WithHeaderParser(modeladapter.ParseAnthropicRateLimitHeaders)),
+		Config: modeladapter.ModelConfig{
+			Name:      model,
+			MaxTokens: 4096,
+		},
 	}
-	a.Name = model
-	a.MaxTokens = 4096
-	a.Headers = map[string]string{
-		"anthropic-version": "2023-06-01",
-	}
-	a.HeaderParser = modeladapter.ParseAnthropicRateLimitHeaders
+}
 
-	return a
+// UsageTracker returns the adapter's token usage tracker.
+func (a *Adapter) UsageTracker() *usage.Tracker { return &a.usage }
+
+// ModelMaxTokens returns the maximum tokens the model will generate per response.
+func (a *Adapter) ModelMaxTokens() int { return a.Config.MaxTokens }
+
+// LastRateLimitInfo returns the most recently observed rate limit info, or nil.
+func (a *Adapter) LastRateLimitInfo() *modeladapter.RateLimitInfo {
+	return a.client.LastRateLimitInfo()
 }
 
 // Complete sends a conversation to the Anthropic Messages API and returns the
@@ -49,11 +62,11 @@ func (a *Adapter) Complete(ctx context.Context, c *chat.Chat, tools []toolbox.To
 	req := a.buildRequest(c, tools)
 
 	var resp apiResponse
-	if err := a.PostJSON(ctx, messagesPath, req, &resp); err != nil {
+	if err := a.client.PostJSON(ctx, messagesPath, req, &resp); err != nil {
 		return message.Message{}, fmt.Errorf("anthropic: %w", err)
 	}
 
-	a.Usage.Add(usage.TokenCount{
+	a.usage.Add(usage.TokenCount{
 		InputTokens:              resp.Usage.InputTokens,
 		OutputTokens:             resp.Usage.OutputTokens,
 		CacheCreationInputTokens: resp.Usage.CacheCreationInputTokens,
@@ -120,13 +133,13 @@ type apiUsage struct {
 
 func (a *Adapter) buildRequest(c *chat.Chat, tools []toolbox.Tool) apiRequest {
 	req := apiRequest{
-		Model:     a.Name,
-		MaxTokens: a.MaxTokens,
+		Model:     a.Config.Name,
+		MaxTokens: a.Config.MaxTokens,
 		System:    c.SystemPrompt(),
 	}
 
-	if a.Temperature != 0 {
-		t := a.Temperature
+	if a.Config.Temperature != 0 {
+		t := a.Config.Temperature
 		req.Temperature = &t
 	}
 

@@ -77,7 +77,7 @@ func newAnthropic(cfg ProviderConfig) (modeladapter.Completer, error) {
 
 	a := anthropic.New(baseURL, cfg.APIKey, cfg.Model)
 	if cfg.MaxTokens != nil {
-		a.MaxTokens = *cfg.MaxTokens
+		a.Config.MaxTokens = *cfg.MaxTokens
 	}
 	return a, nil
 }
@@ -90,21 +90,20 @@ func newOpenAI(cfg ProviderConfig) (modeladapter.Completer, error) {
 
 	a := openai.New(baseURL, cfg.APIKey, cfg.Model)
 	if cfg.MaxTokens != nil {
-		a.MaxTokens = *cfg.MaxTokens
+		a.Config.MaxTokens = *cfg.MaxTokens
 	}
 	return a, nil
 }
 
 func newGrok(cfg ProviderConfig) (modeladapter.Completer, error) {
-	a := grok.New(cfg.APIKey, nil)
-	if cfg.BaseURL != "" {
-		a.BaseURL = cfg.BaseURL
+	baseURL := cfg.BaseURL
+	if baseURL == "" {
+		baseURL = grok.DefaultBaseURL
 	}
-	if cfg.Model != "" {
-		a.Name = cfg.Model
-	}
+
+	a := grok.New(baseURL, cfg.APIKey, cfg.Model, nil)
 	if cfg.MaxTokens != nil {
-		a.MaxTokens = *cfg.MaxTokens
+		a.Config.MaxTokens = *cfg.MaxTokens
 	}
 
 	return a, nil
@@ -118,7 +117,7 @@ func newGemini(cfg ProviderConfig) (modeladapter.Completer, error) {
 
 	a := gemini.New(baseURL, cfg.APIKey, cfg.Model)
 	if cfg.MaxTokens != nil {
-		a.MaxTokens = *cfg.MaxTokens
+		a.Config.MaxTokens = *cfg.MaxTokens
 	}
 	return a, nil
 }

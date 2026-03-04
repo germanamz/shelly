@@ -7,11 +7,12 @@ An abstraction layer for LLM completion adapters. The modeladapter package defin
 ```
 modeladapter/
 ├── doc.go               Package documentation
-├── modeladapter.go      Completer interface, UsageReporter interface, RateLimitError,
-│                        ParseRetryAfter, embeddable ModelAdapter base struct with
-│                        HTTP/WebSocket helpers, auth, and custom headers
-├── ratelimitinfo.go     RateLimitInfo struct, RateLimitInfoReporter interface,
-│                        RateLimitHeaderParser type, Anthropic/OpenAI header parsers
+├── modeladapter.go      Client type with HTTP/WebSocket helpers, auth, and custom headers;
+│                        Auth struct; ModelConfig struct; ClientOption functional options
+├── completer.go         Completer, UsageReporter, and RateLimitInfoReporter interfaces
+├── error.go             RateLimitError and ParseRetryAfter
+├── ratelimitinfo.go     RateLimitInfo struct, RateLimitHeaderParser type,
+│                        Anthropic/OpenAI header parsers
 ├── ratelimit.go         RateLimitedCompleter — proactive TPM/RPM throttling with
 │                        reactive 429 retry, exponential backoff, and jitter
 ├── tokenestimator.go    Pre-call token estimation using character-to-token heuristics
@@ -32,7 +33,7 @@ type Completer interface {
 
 ### `UsageReporter` — Token Usage Interface
 
-Completers that embed `ModelAdapter` implement this interface automatically:
+Providers that track token usage implement this interface:
 
 ```go
 type UsageReporter interface {
@@ -43,21 +44,21 @@ type UsageReporter interface {
 
 `UsageTracker` returns a pointer to the adapter's token usage tracker. `ModelMaxTokens` returns the configured maximum output tokens per response. This interface is consumed by `RateLimitedCompleter` to track token consumption for throttling, and by any code that needs usage statistics from a completer.
 
-### `ModelAdapter` — Embeddable Base Struct
+### `Client` — HTTP/WebSocket Transport
 
-`ModelAdapter` is an embeddable base struct that provides HTTP helpers, authentication, custom headers, rate limit header parsing, and usage tracking. It implements `Completer` with a stub that returns an error -- concrete types embed `ModelAdapter` and define their own `Complete` method to shadow the stub.
+`Client` provides HTTP and WebSocket transport with auth, custom headers, rate limit header parsing, and rate limit info storage. It does NOT implement `Completer` — concrete providers compose a `*Client` and implement `Complete` themselves.
 
-| Field          | Type                     | Description                                      |
-|----------------|--------------------------|--------------------------------------------------|
-| `Name`         | `string`                 | Model identifier (e.g. `"gpt-4"`)               |
-| `Temperature`  | `float64`                | Sampling temperature                             |
-| `MaxTokens`    | `int`                    | Maximum tokens in the response                   |
-| `Auth`         | `Auth`                   | API key, header name, and scheme                 |
-| `BaseURL`      | `string`                 | API base URL (no trailing slash)                 |
-| `Client`       | `*http.Client`           | HTTP client (nil uses a cached default with 10 min timeout) |
-| `Headers`      | `map[string]string`      | Extra headers applied to every request           |
-| `Usage`        | `usage.Tracker`          | Token usage tracker                              |
-| `HeaderParser` | `RateLimitHeaderParser`  | Optional parser for rate limit response headers  |
+```go
+client := modeladapter.NewClient(baseURL, auth, opts...)
+```
+
+Construction uses functional options:
+
+| Option              | Description                                              |
+|---------------------|----------------------------------------------------------|
+| `WithHTTPClient`    | Use a custom `*http.Client` (nil uses a cached default)  |
+| `WithHeaders`       | Extra headers applied to every request                   |
+| `WithHeaderParser`  | Parser for rate limit response headers                   |
 
 Key methods:
 
@@ -65,13 +66,21 @@ Key methods:
 |----------------------|-------------------------------------------------------------------------------------------|
 | `NewRequest`         | Builds an `*http.Request` with base URL, auth, and custom headers applied                 |
 | `PostJSON`           | Marshals payload, sends POST, checks 2xx, unmarshals response into dest                   |
-| `Do`                 | Low-level passthrough to `Client.Do`                                                       |
+| `Do`                 | Low-level passthrough to the underlying HTTP client                                        |
 | `DialWS`             | Establishes a WebSocket connection with auth and custom headers (scheme auto-converted)    |
-| `UsageTracker`       | Returns a pointer to the embedded `Usage` tracker (implements `UsageReporter`)             |
-| `ModelMaxTokens`     | Returns the configured `MaxTokens` value (implements `UsageReporter`)                      |
 | `LastRateLimitInfo`  | Returns the most recently observed `RateLimitInfo`, or nil                                 |
 
-`PostJSON` automatically returns a `*RateLimitError` on HTTP 429 responses (with `RetryAfter` parsed from the response header). On successful 2xx responses, if `HeaderParser` is set, it parses rate limit headers and stores the resulting `RateLimitInfo` atomically.
+`PostJSON` automatically returns a `*RateLimitError` on HTTP 429 responses (with `RetryAfter` parsed from the response header). On successful 2xx responses, if a header parser is set, it parses rate limit headers and stores the resulting `RateLimitInfo` atomically.
+
+### `ModelConfig` — Model Settings
+
+```go
+type ModelConfig struct {
+    Name        string  // Model identifier (e.g. "gpt-4").
+    Temperature float64 // Sampling temperature.
+    MaxTokens   int     // Maximum tokens in the response.
+}
+```
 
 ### `Auth` — Authentication Settings
 
@@ -124,7 +133,7 @@ type RateLimitInfoReporter interface {
 }
 ```
 
-`ModelAdapter` implements this interface. `RateLimitedCompleter` consumes it for adaptive pre-emptive throttling.
+`Client` implements this interface. `RateLimitedCompleter` consumes it for adaptive pre-emptive throttling.
 
 ### `RateLimitedCompleter` — Rate-Limited Completer Wrapper
 
@@ -154,7 +163,7 @@ rl := modeladapter.NewRateLimitedCompleter(inner, modeladapter.RateLimitOpts{
 
 `RateLimitedCompleter` also implements `UsageReporter`, forwarding `UsageTracker()` and `ModelMaxTokens()` to the inner completer if it implements `UsageReporter`, or falling back to a stable internal tracker.
 
-Test hooks for deterministic testing: `SetNowFunc`, `SetSleepFunc`, `SetRandFunc`.
+Test hooks are provided as functional options: `WithNowFunc`, `WithSleepFunc`, `WithRandFunc`.
 
 ### `TokenEstimator` — Pre-Call Token Estimation
 
@@ -169,7 +178,7 @@ Test hooks for deterministic testing: `SetNowFunc`, `SetSleepFunc`, `SetRandFunc
 The estimator is intentionally simple -- accuracy within ~20% is sufficient for threshold-based decisions like compaction triggers. The zero value is ready to use.
 
 ```go
-estimator := &modeladapter.TokenEstimator{}
+var estimator modeladapter.TokenEstimator
 tokens := estimator.EstimateTotal(chat, tools)
 if tokens > contextWindow * 0.8 {
     // trigger compaction
@@ -213,64 +222,61 @@ Cache fields are populated automatically by providers that support prompt cachin
 
 ### Implementing a Concrete Provider
 
-Embed `modeladapter.ModelAdapter` to inherit HTTP helpers, auth, and usage tracking. Define your own `Complete` method to shadow the base stub:
+Compose a `*modeladapter.Client` for HTTP transport and a `modeladapter.ModelConfig` for model settings. Implement `Completer` directly:
 
 ```go
-// OpenAI is a concrete provider that calls the OpenAI chat completions API.
 type OpenAI struct {
-    modeladapter.ModelAdapter
+    client *modeladapter.Client
+    Config modeladapter.ModelConfig
+    usage  usage.Tracker
 }
 
-// NewOpenAI creates an OpenAI provider with the given API key and model config.
-func NewOpenAI(apiKey string) *OpenAI {
-    o := &OpenAI{
-        ModelAdapter: modeladapter.New(
+func NewOpenAI(apiKey, model string) *OpenAI {
+    return &OpenAI{
+        client: modeladapter.NewClient(
             "https://api.openai.com",
-            modeladapter.Auth{Key: apiKey},  // defaults to Authorization: Bearer <key>
-            nil,                        // uses default client (10 min timeout)
+            modeladapter.Auth{Key: apiKey},
+            modeladapter.WithHeaderParser(modeladapter.ParseOpenAIRateLimitHeaders),
         ),
+        Config: modeladapter.ModelConfig{
+            Name:      model,
+            MaxTokens: 4096,
+        },
     }
-    o.Name = "gpt-4"
-    o.MaxTokens = 1024
-    o.HeaderParser = modeladapter.ParseOpenAIRateLimitHeaders
-
-    return o
 }
 
-// Complete shadows the ModelAdapter stub -- converts the chat to the OpenAI wire
-// format, calls the API via PostJSON, tracks usage, and returns the reply.
 func (o *OpenAI) Complete(ctx context.Context, c *chat.Chat, tools []toolbox.Tool) (message.Message, error) {
-    req := toOpenAIRequest(c, o.Name, o.Temperature, o.MaxTokens, tools)
+    req := toOpenAIRequest(c, o.Config.Name, o.Config.Temperature, o.Config.MaxTokens, tools)
 
     var resp openAIResponse
-    if err := o.PostJSON(ctx, "/v1/chat/completions", req, &resp); err != nil {
+    if err := o.client.PostJSON(ctx, "/v1/chat/completions", req, &resp); err != nil {
         return message.Message{}, err
     }
 
-    o.Usage.Add(usage.TokenCount{
+    tc := usage.TokenCount{
         InputTokens:  resp.Usage.PromptTokens,
         OutputTokens: resp.Usage.CompletionTokens,
-    })
+    }
+    o.usage.Add(tc)
 
     return toMessage(resp), nil
 }
+
+func (o *OpenAI) UsageTracker() *usage.Tracker { return &o.usage }
+func (o *OpenAI) ModelMaxTokens() int          { return o.Config.MaxTokens }
 ```
 
-### Using a ModelAdapter with the Agent
+### Custom Auth and Headers (Anthropic Example)
 
-The `Completer` interface lets the Agent accept any concrete model adapter:
+Providers with non-standard auth (e.g. `x-api-key` header instead of Bearer) configure it through `Auth`:
 
 ```go
-// NewOpenAI returns a *OpenAI, which satisfies modeladapter.Completer
-p := NewOpenAI(os.Getenv("OPENAI_API_KEY"))
-
-c := chat.New(
-    message.NewText("", role.System, "You are a helpful assistant."),
-    message.NewText("user", role.User, "Explain goroutines."),
+client := modeladapter.NewClient(
+    "https://api.anthropic.com",
+    modeladapter.Auth{Key: apiKey, Header: "x-api-key"},
+    modeladapter.WithHeaders(map[string]string{"anthropic-version": "2023-06-01"}),
+    modeladapter.WithHeaderParser(modeladapter.ParseAnthropicRateLimitHeaders),
 )
-
-a := agent.New("bot", p, c)
-reply, err := a.Complete(ctx)
 ```
 
 ### Wrapping with Rate Limiting
@@ -278,7 +284,7 @@ reply, err := a.Complete(ctx)
 Wrap any `Completer` with `RateLimitedCompleter` to add TPM/RPM throttling and 429 retry:
 
 ```go
-p := NewOpenAI(os.Getenv("OPENAI_API_KEY"))
+p := NewOpenAI(os.Getenv("OPENAI_API_KEY"), "gpt-4")
 
 rl := modeladapter.NewRateLimitedCompleter(p, modeladapter.RateLimitOpts{
     InputTPM:   100000,
@@ -293,98 +299,56 @@ rl := modeladapter.NewRateLimitedCompleter(p, modeladapter.RateLimitOpts{
 msg, err := rl.Complete(ctx, myChat, myTools)
 ```
 
-### Custom Auth and Headers (Anthropic Example)
-
-Providers with non-standard auth (e.g. `x-api-key` header instead of Bearer) configure it through `Auth`:
-
-```go
-type Anthropic struct {
-    modeladapter.ModelAdapter
-}
-
-func NewAnthropic(apiKey string) *Anthropic {
-    a := &Anthropic{
-        ModelAdapter: modeladapter.New(
-            "https://api.anthropic.com",
-            modeladapter.Auth{Key: apiKey, Header: "x-api-key"},
-            nil,
-        ),
-    }
-    a.Name = "claude-sonnet-4-6-20250514"
-    a.Headers = map[string]string{"anthropic-version": "2024-01-01"}
-    a.HeaderParser = modeladapter.ParseAnthropicRateLimitHeaders
-
-    return a
-}
-```
-
 ### WebSocket Streaming
 
-For providers that offer WebSocket-based APIs (e.g. realtime or streaming endpoints), use `DialWS` to establish a connection with auth and headers pre-applied:
+For providers that offer WebSocket-based APIs, use `DialWS` to establish a connection with auth and headers pre-applied:
 
 ```go
-func (o *OpenAI) StreamRealtime(ctx context.Context) error {
-    conn, _, err := o.DialWS(ctx, "/v1/realtime?model=gpt-4o-realtime")
-    if err != nil {
-        return err
-    }
-    defer conn.CloseNow()
-
-    // Send and receive messages over the WebSocket...
-    err = conn.Write(ctx, websocket.MessageText, []byte(`{"type":"session.update"}`))
-    if err != nil {
-        return err
-    }
-
-    _, msg, err := conn.Read(ctx)
-    if err != nil {
-        return err
-    }
-
-    fmt.Println(string(msg))
-
-    return conn.Close(websocket.StatusNormalClosure, "done")
+conn, _, err := client.DialWS(ctx, "/v1/realtime?model=gpt-4o-realtime")
+if err != nil {
+    return err
 }
+defer conn.CloseNow()
+
+// Send and receive messages over the WebSocket...
 ```
 
-The URL scheme is derived from `BaseURL` automatically: `https` becomes `wss`, `http` becomes `ws`.
+The URL scheme is derived from the base URL automatically: `https` becomes `wss`, `http` becomes `ws`.
 
 ### Low-Level HTTP Access
 
 For APIs that don't fit `PostJSON`, use `NewRequest` and `Do` directly:
 
 ```go
-func (o *OpenAI) ListModels(ctx context.Context) ([]string, error) {
-    req, err := o.NewRequest(ctx, http.MethodGet, "/v1/models", nil)
-    if err != nil {
-        return nil, err
-    }
-
-    resp, err := o.Do(req)
-    if err != nil {
-        return nil, err
-    }
-    defer resp.Body.Close()
-
-    // ... decode response
+req, err := client.NewRequest(ctx, http.MethodGet, "/v1/models", nil)
+if err != nil {
+    return nil, err
 }
+
+resp, err := client.Do(req)
+if err != nil {
+    return nil, err
+}
+defer resp.Body.Close()
+// ... decode response
 ```
 
 ### Tracking Token Usage
 
-The embedded `Usage` tracker accumulates token counts across calls:
+The `usage.Tracker` accumulates token counts across calls:
 
 ```go
-p := NewOpenAI(apiKey)
+p := NewOpenAI(apiKey, "gpt-4")
 
 p.Complete(ctx, chat1, tools)
 p.Complete(ctx, chat2, tools)
 
-fmt.Println(p.Usage.Count())              // 2
-fmt.Println(p.Usage.Total().InputTokens)  // sum of both calls
-fmt.Println(p.Usage.Total().Total())      // total input + output
+tracker := p.UsageTracker()
+fmt.Println(tracker.Count())              // 2
+fmt.Println(tracker.Total().InputTokens)  // sum of both calls
+fmt.Println(tracker.Total().Total())      // total input + output
 
-last, _ := p.Usage.Last()
+last, _ := tracker.Last()
 fmt.Println(last.OutputTokens)            // output tokens from chat2
 ```
 

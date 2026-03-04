@@ -1,10 +1,12 @@
 // Package modeladapter defines the interface and types for LLM completion adapters.
 //
 // It contains:
-//   - [Completer] interface and embeddable [ModelAdapter] base struct with HTTP and WebSocket helpers, auth, and custom headers
+//   - [Completer] interface for LLM completions
+//   - [Client] type with HTTP and WebSocket helpers, auth, and custom headers
+//   - [ModelConfig] struct for model-specific settings (name, temperature, max tokens)
+//   - [RateLimitedCompleter] wrapper with proactive TPM/RPM throttling and 429 retry
 //   - [github.com/germanamz/shelly/pkg/modeladapter/usage] — thread-safe token usage tracker
 //
-// Model configuration (name, temperature, max tokens) is inlined directly on
-// the ModelAdapter struct. This package contains no provider-specific code — concrete
-// adapters live in separate packages that import modeladapter.
+// This package contains no provider-specific code — concrete adapters live in
+// separate packages that compose a Client and implement Completer.
 package modeladapter

@@ -21,30 +21,56 @@ import (
 // consistent with the OpenAI and Anthropic providers).
 const DefaultBaseURL = "https://api.x.ai"
 
+var (
+	_ modeladapter.Completer             = (*GrokAdapter)(nil)
+	_ modeladapter.UsageReporter         = (*GrokAdapter)(nil)
+	_ modeladapter.RateLimitInfoReporter = (*GrokAdapter)(nil)
+)
+
 // GrokAdapter sends chat completions to xAI's Grok API.
 type GrokAdapter struct {
-	modeladapter.ModelAdapter
+	client *modeladapter.Client
+	Config modeladapter.ModelConfig
+	usage  usage.Tracker
 }
 
-// New creates a GrokAdapter with the given API key and HTTP client.
-// A nil client falls back to http.DefaultClient.
-func New(apiKey string, client *http.Client) *GrokAdapter {
-	a := &GrokAdapter{
-		ModelAdapter: modeladapter.New(DefaultBaseURL, modeladapter.Auth{Key: apiKey}, client),
+// New creates a GrokAdapter with the given base URL, API key, model, and HTTP client.
+// A nil client falls back to a default HTTP client with a 10-minute timeout.
+func New(baseURL, apiKey, model string, httpClient *http.Client) *GrokAdapter {
+	opts := []modeladapter.ClientOption{
+		modeladapter.WithHeaderParser(modeladapter.ParseOpenAIRateLimitHeaders),
 	}
-	a.HeaderParser = modeladapter.ParseOpenAIRateLimitHeaders
-	a.MaxTokens = 4096
-	return a
+	if httpClient != nil {
+		opts = append(opts, modeladapter.WithHTTPClient(httpClient))
+	}
+	return &GrokAdapter{
+		client: modeladapter.NewClient(baseURL, modeladapter.Auth{Key: apiKey}, opts...),
+		Config: modeladapter.ModelConfig{
+			Name:      model,
+			MaxTokens: 4096,
+		},
+	}
+}
+
+// UsageTracker returns the adapter's token usage tracker.
+func (g *GrokAdapter) UsageTracker() *usage.Tracker { return &g.usage }
+
+// ModelMaxTokens returns the maximum tokens the model will generate per response.
+func (g *GrokAdapter) ModelMaxTokens() int { return g.Config.MaxTokens }
+
+// LastRateLimitInfo returns the most recently observed rate limit info, or nil.
+func (g *GrokAdapter) LastRateLimitInfo() *modeladapter.RateLimitInfo {
+	return g.client.LastRateLimitInfo()
 }
 
 // Complete sends a conversation to the Grok chat completions endpoint
 // and returns the assistant's reply.
 func (g *GrokAdapter) Complete(ctx context.Context, c *chat.Chat, tools []toolbox.Tool) (message.Message, error) {
 	req := chatRequest{
-		Model:       g.Name,
+		Model:       g.Config.Name,
 		Messages:    convertMessages(c),
-		Temperature: g.Temperature,
-		MaxTokens:   g.MaxTokens,
+		Temperature: g.Config.Temperature,
+		MaxTokens:   g.Config.MaxTokens,
 	}
 
 	for _, t := range tools {
@@ -57,7 +83,7 @@ func (g *GrokAdapter) Complete(ctx context.Context, c *chat.Chat, tools []toolbo
 	}
 
 	var resp chatResponse
-	if err := g.PostJSON(ctx, "/v1/chat/completions", req, &resp); err != nil {
+	if err := g.client.PostJSON(ctx, "/v1/chat/completions", req, &resp); err != nil {
 		return message.Message{}, fmt.Errorf("grok: %w", err)
 	}
 
@@ -65,7 +91,7 @@ func (g *GrokAdapter) Complete(ctx context.Context, c *chat.Chat, tools []toolbo
 		return message.Message{}, fmt.Errorf("grok: empty response")
 	}
 
-	g.Usage.Add(usage.TokenCount{
+	g.usage.Add(usage.TokenCount{
 		InputTokens:  resp.Usage.PromptTokens,
 		OutputTokens: resp.Usage.CompletionTokens,
 	})
@@ -189,9 +215,6 @@ func convertResponse(am apiMessage) message.Message {
 
 	return message.New("", role.Assistant, parts...)
 }
-
-// verifyCompleter ensures GrokAdapter satisfies the Completer interface at compile time.
-var _ modeladapter.Completer = (*GrokAdapter)(nil)
 
 // MarshalToolDef converts a tool name, description, and JSON schema into the
 // API tool format used in the chat request. This is a convenience for callers

@@ -54,8 +54,26 @@ type RateLimitOpts struct {
 	BaseDelay  time.Duration // Initial backoff delay (default 1s).
 }
 
+// RateLimitOption configures a RateLimitedCompleter.
+type RateLimitOption func(*RateLimitedCompleter)
+
+// WithNowFunc overrides the time source (for testing).
+func WithNowFunc(fn func() time.Time) RateLimitOption {
+	return func(r *RateLimitedCompleter) { r.nowFunc = fn }
+}
+
+// WithSleepFunc overrides the sleep function (for testing).
+func WithSleepFunc(fn func(ctx context.Context, d time.Duration) error) RateLimitOption {
+	return func(r *RateLimitedCompleter) { r.sleepFunc = fn }
+}
+
+// WithRandFunc overrides the random number generator (for testing).
+func WithRandFunc(fn func() float64) RateLimitOption {
+	return func(r *RateLimitedCompleter) { r.randFunc = fn }
+}
+
 // NewRateLimitedCompleter wraps a Completer with rate limiting.
-func NewRateLimitedCompleter(inner Completer, opts RateLimitOpts) *RateLimitedCompleter {
+func NewRateLimitedCompleter(inner Completer, opts RateLimitOpts, options ...RateLimitOption) *RateLimitedCompleter {
 	if opts.MaxRetries <= 0 {
 		opts.MaxRetries = 3
 	}
@@ -63,7 +81,7 @@ func NewRateLimitedCompleter(inner Completer, opts RateLimitOpts) *RateLimitedCo
 		opts.BaseDelay = time.Second
 	}
 
-	return &RateLimitedCompleter{
+	r := &RateLimitedCompleter{
 		inner:      inner,
 		inputTPM:   opts.InputTPM,
 		outputTPM:  opts.OutputTPM,
@@ -74,18 +92,13 @@ func NewRateLimitedCompleter(inner Completer, opts RateLimitOpts) *RateLimitedCo
 		sleepFunc:  contextSleep,
 		randFunc:   rand.Float64,
 	}
+
+	for _, opt := range options {
+		opt(r)
+	}
+
+	return r
 }
-
-// SetNowFunc overrides the time source (for testing).
-func (r *RateLimitedCompleter) SetNowFunc(fn func() time.Time) { r.nowFunc = fn }
-
-// SetSleepFunc overrides the sleep function (for testing).
-func (r *RateLimitedCompleter) SetSleepFunc(fn func(ctx context.Context, d time.Duration) error) {
-	r.sleepFunc = fn
-}
-
-// SetRandFunc overrides the random number generator (for testing).
-func (r *RateLimitedCompleter) SetRandFunc(fn func() float64) { r.randFunc = fn }
 
 // contextSleep sleeps for d or until ctx is cancelled.
 func contextSleep(ctx context.Context, d time.Duration) error {
