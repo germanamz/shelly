@@ -4,9 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
-	lipgloss "charm.land/lipgloss/v2"
+	"github.com/germanamz/shelly/cmd/shelly/internal/basetextarea"
 	"github.com/germanamz/shelly/cmd/shelly/internal/msgs"
 	"github.com/germanamz/shelly/cmd/shelly/internal/styles"
 )
@@ -21,7 +20,7 @@ type askEntry struct {
 	options       []string
 	checked       []bool // for multi-select: which options are checked
 	cursor        int
-	textarea      textarea.Model
+	textarea      basetextarea.Model
 	customMode    bool
 	answered      bool
 	response      string
@@ -38,15 +37,18 @@ type AskBatchModel struct {
 	// Confirm tab state.
 	confirmCursor int  // 0=Yes, 1=No, 2=custom
 	confirmCustom bool // true when typing custom text
-	confirmTA     textarea.Model
+	confirmTA     basetextarea.Model
 }
 
 // NewAskBatch creates a new AskBatchModel from the given questions.
 // agentName identifies the agent that posed these questions.
 func NewAskBatch(questions []msgs.AskUserMsg, agentName string, width int) AskBatchModel {
+	innerWidth := max(width-4, 10)
+
 	entries := make([]askEntry, len(questions))
 	for i, q := range questions {
-		ta := newAskTextarea()
+		ta := basetextarea.New("Your answer...", 1, 5)
+		ta.SetWidth(innerWidth)
 
 		isChoice := len(q.Question.Options) > 0
 		var options []string
@@ -78,8 +80,8 @@ func NewAskBatch(questions []msgs.AskUserMsg, agentName string, width int) AskBa
 		entries[0].textarea.Focus()
 	}
 
-	confirmTA := newAskTextarea()
-	confirmTA.Placeholder = "Type a custom answer..."
+	confirmTA := basetextarea.New("Type a custom answer...", 1, 5)
+	confirmTA.SetWidth(innerWidth)
 	confirmTA.Blur()
 
 	return AskBatchModel{
@@ -99,22 +101,6 @@ func (e *askEntry) checkedCount() int {
 		}
 	}
 	return n
-}
-
-func newAskTextarea() textarea.Model {
-	ta := textarea.New()
-	ta.Placeholder = "Your answer..."
-	ta.ShowLineNumbers = false
-	ta.SetHeight(1)
-	ta.CharLimit = 0
-	s := ta.Styles()
-	s.Focused.CursorLine = lipgloss.NewStyle()
-	s.Blurred.CursorLine = lipgloss.NewStyle()
-	s.Focused.Prompt = lipgloss.NewStyle()
-	s.Blurred.Prompt = lipgloss.NewStyle()
-	ta.SetStyles(s)
-	ta.Focus()
-	return ta
 }
 
 func (m AskBatchModel) Update(msg tea.Msg) (AskBatchModel, tea.Cmd) {
