@@ -17,6 +17,7 @@ type Config struct {
 	Agents                []AgentConfig    `yaml:"agents"`
 	EntryAgent            string           `yaml:"entry_agent"`
 	Filesystem            FilesystemConfig `yaml:"filesystem"`
+	Context               ContextConfig    `yaml:"context"`
 	Git                   GitConfig        `yaml:"git"`
 	DefaultContextWindows map[string]int   `yaml:"default_context_windows"` // Per-kind context window overrides (e.g. anthropic: 200000).
 	StatusFunc            func(string)     `yaml:"-"`                       // Called with progress messages during initialization. Nil means silent.
@@ -25,6 +26,11 @@ type Config struct {
 // FilesystemConfig holds filesystem tool settings.
 type FilesystemConfig struct {
 	PermissionsFile string `yaml:"permissions_file"`
+}
+
+// ContextConfig holds project context loading settings.
+type ContextConfig struct {
+	MaxExternalFileSize int `yaml:"max_external_file_size"` // Max bytes to read per external context file (0 = default 512 KB).
 }
 
 // GitConfig holds git tool settings.

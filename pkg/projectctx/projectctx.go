@@ -58,9 +58,11 @@ func (c Context) String() string {
 
 // Load assembles project context from external tool files and curated files.
 // All sources are best-effort: missing files are silently skipped.
-func Load(d shellydir.Dir, projectRoot string) Context {
+// maxExternalFileSize caps the bytes read per external context file; zero or
+// negative values fall back to DefaultMaxExternalFileSize.
+func Load(d shellydir.Dir, projectRoot string, maxExternalFileSize int) Context {
 	return Context{
-		External: LoadExternal(projectRoot),
+		External: LoadExternal(projectRoot, maxExternalFileSize),
 		Curated:  LoadCurated(d),
 	}
 }

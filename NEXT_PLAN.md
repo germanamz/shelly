@@ -69,43 +69,15 @@ Recommend **Option A** — it's self-maintaining and requires no caller coordina
 
 **Risks:** Low. Internal change. The `Total()` and `Last()` APIs remain the same. `Count()` may need to return the actual total count vs. the entries-in-buffer count — clarify semantics.
 
-### 2.2 Add size cap to `projectctx.LoadExternal`
+### 2.2 Add size cap to `projectctx.LoadExternal` ✅
 
-**Problem:** `LoadExternal` in `pkg/projectctx/external.go` uses `os.ReadFile` with no size limit. A 100MB `CLAUDE.md` would be read entirely into memory before the downstream rune-based truncation in `Context.String()`.
+**Status:** Complete.
 
-**Current code:**
-```go
-func readFileContent(path string) string {
-    data, err := os.ReadFile(path)   // no size limit
-    if err != nil { return "" }
-    return strings.TrimSpace(string(data))
-}
-```
-
-**Solution:** Replace `os.ReadFile` with a size-capped reader:
-
-```go
-const maxExternalFileSize = 512 * 1024 // 512 KB
-
-func readFileContent(path string) string {
-    f, err := os.Open(path)
-    if err != nil { return "" }
-    defer f.Close()
-
-    lr := io.LimitReader(f, maxExternalFileSize)
-    data, err := io.ReadAll(lr)
-    if err != nil { return "" }
-    return strings.TrimSpace(string(data))
-}
-```
-
-Also consider capping the total number of `.mdc` files processed by `globSorted`.
-
-**Files to modify:**
-- `pkg/projectctx/external.go` — add size cap to `readFileContent`
-- `pkg/projectctx/external_test.go` — test that oversized files are truncated
-
-**Risks:** Low. Files exceeding 512KB are almost certainly not legitimate project context files. The cap prevents accidental memory issues while being generous enough for real use cases.
+**What was done:**
+- Replaced `os.ReadFile` with `io.LimitReader` capped at 512 KB (`DefaultMaxExternalFileSize`) in `readFileContent`
+- Made the cap configurable via `ContextConfig.MaxExternalFileSize` in engine config (`context.max_external_file_size` YAML key); 0 = default 512 KB
+- Threaded the setting through `Load` → `LoadExternal` → `readFileContent`
+- Added `TestReadFileContent_OversizedFile` and `TestLoadExternal_OversizedFileIsTruncated` tests
 
 ### 2.3 Make `state.Store` enforce JSON-only values
 

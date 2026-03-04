@@ -1,31 +1,41 @@
 package projectctx
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 )
 
+// DefaultMaxExternalFileSize is the default maximum number of bytes read per
+// external context file (512 KB).
+const DefaultMaxExternalFileSize = 512 * 1024
+
 // LoadExternal reads context files from external AI coding tools (Claude Code,
 // Cursor) and returns their concatenated content. Missing files are silently
-// skipped.
-func LoadExternal(projectRoot string) string {
+// skipped. maxFileSize caps the bytes read per file; zero or negative values
+// fall back to DefaultMaxExternalFileSize.
+func LoadExternal(projectRoot string, maxFileSize int) string {
+	if maxFileSize <= 0 {
+		maxFileSize = DefaultMaxExternalFileSize
+	}
+
 	var parts []string
 
 	// Claude Code: CLAUDE.md at project root.
-	if s := readFileContent(filepath.Join(projectRoot, "CLAUDE.md")); s != "" {
+	if s := readFileContent(filepath.Join(projectRoot, "CLAUDE.md"), maxFileSize); s != "" {
 		parts = append(parts, s)
 	}
 
 	// Cursor legacy: .cursorrules at project root.
-	if s := readFileContent(filepath.Join(projectRoot, ".cursorrules")); s != "" {
+	if s := readFileContent(filepath.Join(projectRoot, ".cursorrules"), maxFileSize); s != "" {
 		parts = append(parts, s)
 	}
 
 	// Cursor modern: .cursor/rules/*.mdc sorted alphabetically.
 	for _, f := range globSorted(filepath.Join(projectRoot, ".cursor", "rules", "*.mdc")) {
-		s := readFileContent(f)
+		s := readFileContent(f, maxFileSize)
 		if s == "" {
 			continue
 		}
@@ -35,10 +45,16 @@ func LoadExternal(projectRoot string) string {
 	return strings.Join(parts, "\n\n")
 }
 
-// readFileContent reads a file and returns its trimmed content.
-// Returns empty string on any error.
-func readFileContent(path string) string {
-	data, err := os.ReadFile(path) //nolint:gosec // paths are constructed from project root
+// readFileContent reads up to maxSize bytes from a file and returns the trimmed
+// content. Returns empty string on any error.
+func readFileContent(path string, maxSize int) string {
+	f, err := os.Open(path) //nolint:gosec // paths are constructed from project root
+	if err != nil {
+		return ""
+	}
+	defer f.Close() //nolint:errcheck // read-only; close error is harmless
+
+	data, err := io.ReadAll(io.LimitReader(f, int64(maxSize)))
 	if err != nil {
 		return ""
 	}

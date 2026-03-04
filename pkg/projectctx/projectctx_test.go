@@ -136,14 +136,14 @@ func TestLoad(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "context.md"), []byte("Project info"), 0o600))
 
 	d := shellydir.New(tmp)
-	ctx := Load(d, filepath.Dir(tmp))
+	ctx := Load(d, filepath.Dir(tmp), 0)
 
 	assert.Equal(t, "Project info", ctx.Curated)
 }
 
 func TestLoad_MissingDir(t *testing.T) {
 	d := shellydir.New("/nonexistent/.shelly")
-	ctx := Load(d, "/nonexistent")
+	ctx := Load(d, "/nonexistent", 0)
 
 	assert.Empty(t, ctx.Curated)
 }

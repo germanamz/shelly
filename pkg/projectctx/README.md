@@ -44,6 +44,14 @@ const MaxContextRunes = 32000
 
 Default maximum number of runes (~8000 tokens) for the combined context string returned by `String()`.
 
+### DefaultMaxExternalFileSize
+
+```go
+const DefaultMaxExternalFileSize = 512 * 1024
+```
+
+Default maximum bytes read per external context file (512 KB). Used when `maxExternalFileSize` is 0 or negative.
+
 ## Exported Types
 
 ### Context
@@ -63,10 +71,10 @@ type Context struct {
 ### Load
 
 ```go
-func Load(d shellydir.Dir, projectRoot string) Context
+func Load(d shellydir.Dir, projectRoot string, maxExternalFileSize int) Context
 ```
 
-Assembles project context from both sources (external, curated). All sources are best-effort: missing files are silently skipped.
+Assembles project context from both sources (external, curated). All sources are best-effort: missing files are silently skipped. `maxExternalFileSize` caps bytes read per external context file (0 = default 512 KB).
 
 ### LoadCurated
 
@@ -79,10 +87,10 @@ Reads all `*.md` files from the `.shelly/` root directory (via `Dir.ContextFiles
 ### LoadExternal
 
 ```go
-func LoadExternal(projectRoot string) string
+func LoadExternal(projectRoot string, maxFileSize int) string
 ```
 
-Reads context files from external AI coding tools at the project root. Returns concatenated content separated by `\n\n`. Missing files and empty files are silently skipped.
+Reads context files from external AI coding tools at the project root. Returns concatenated content separated by `\n\n`. Missing files and empty files are silently skipped. `maxFileSize` caps bytes read per file (0 = default 512 KB).
 
 ### IsKnowledgeStale
 
@@ -98,7 +106,7 @@ Checks whether the knowledge graph entry point (`context.md`) is outdated relati
 d := shellydir.New(".shelly")
 
 // Load all context sources.
-ctx := projectctx.Load(d, "/path/to/project")
+ctx := projectctx.Load(d, "/path/to/project", 0) // 0 = default 512 KB per file
 
 // Check if knowledge graph needs refreshing.
 if projectctx.IsKnowledgeStale("/path/to/project", d) {

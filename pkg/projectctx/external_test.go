@@ -13,7 +13,7 @@ func TestLoadExternal_ClaudeMD(t *testing.T) {
 	tmp := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "CLAUDE.md"), []byte("# Claude\nProject rules."), 0o600))
 
-	result := LoadExternal(tmp)
+	result := LoadExternal(tmp, 0)
 
 	assert.Equal(t, "# Claude\nProject rules.", result)
 }
@@ -22,7 +22,7 @@ func TestLoadExternal_CursorRules(t *testing.T) {
 	tmp := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, ".cursorrules"), []byte("Always use tabs."), 0o600))
 
-	result := LoadExternal(tmp)
+	result := LoadExternal(tmp, 0)
 
 	assert.Equal(t, "Always use tabs.", result)
 }
@@ -34,7 +34,7 @@ func TestLoadExternal_CursorMDC(t *testing.T) {
 
 	require.NoError(t, os.WriteFile(filepath.Join(rulesDir, "style.mdc"), []byte("Use gofumpt."), 0o600))
 
-	result := LoadExternal(tmp)
+	result := LoadExternal(tmp, 0)
 
 	assert.Equal(t, "Use gofumpt.", result)
 }
@@ -47,7 +47,7 @@ func TestLoadExternal_CursorMDC_WithFrontmatter(t *testing.T) {
 	content := "---\ndescription: Style guide\nglobs: \"*.go\"\n---\nUse gofumpt for formatting."
 	require.NoError(t, os.WriteFile(filepath.Join(rulesDir, "style.mdc"), []byte(content), 0o600))
 
-	result := LoadExternal(tmp)
+	result := LoadExternal(tmp, 0)
 
 	assert.Equal(t, "Use gofumpt for formatting.", result)
 }
@@ -60,7 +60,7 @@ func TestLoadExternal_CursorMDC_SortedAlphabetically(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(rulesDir, "b-testing.mdc"), []byte("Use testify."), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(rulesDir, "a-style.mdc"), []byte("Use gofumpt."), 0o600))
 
-	result := LoadExternal(tmp)
+	result := LoadExternal(tmp, 0)
 
 	assert.Equal(t, "Use gofumpt.\n\nUse testify.", result)
 }
@@ -74,7 +74,7 @@ func TestLoadExternal_AllSources(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, ".cursorrules"), []byte("Cursor rules"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(rulesDir, "extra.mdc"), []byte("MDC rules"), 0o600))
 
-	result := LoadExternal(tmp)
+	result := LoadExternal(tmp, 0)
 
 	assert.Equal(t, "Claude rules\n\nCursor rules\n\nMDC rules", result)
 }
@@ -83,15 +83,46 @@ func TestLoadExternal_EmptyFiles(t *testing.T) {
 	tmp := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "CLAUDE.md"), []byte("  \n\n  "), 0o600))
 
-	result := LoadExternal(tmp)
+	result := LoadExternal(tmp, 0)
 
 	assert.Empty(t, result)
 }
 
 func TestLoadExternal_NonexistentPath(t *testing.T) {
-	result := LoadExternal("/nonexistent/path")
+	result := LoadExternal("/nonexistent/path", 0)
 
 	assert.Empty(t, result)
+}
+
+func TestReadFileContent_OversizedFile(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "big.md")
+
+	// Write a file larger than the 512 KB cap.
+	data := make([]byte, DefaultMaxExternalFileSize+1024)
+	for i := range data {
+		data[i] = 'A'
+	}
+	require.NoError(t, os.WriteFile(path, data, 0o600))
+
+	result := readFileContent(path, DefaultMaxExternalFileSize)
+
+	assert.Len(t, result, DefaultMaxExternalFileSize)
+}
+
+func TestLoadExternal_OversizedFileIsTruncated(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Write an oversized CLAUDE.md — content beyond the cap is discarded.
+	data := make([]byte, DefaultMaxExternalFileSize+4096)
+	for i := range data {
+		data[i] = 'X'
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "CLAUDE.md"), data, 0o600))
+
+	result := LoadExternal(tmp, 0)
+
+	assert.Len(t, result, DefaultMaxExternalFileSize)
 }
 
 func TestStripFrontmatter(t *testing.T) {
