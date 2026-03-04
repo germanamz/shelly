@@ -178,9 +178,12 @@ func (m *ChatViewModel) rebuildContent() {
 		full.WriteString(c)
 	}
 
-	// Append live agent content.
+	// Append live agent content with a blank-line separator.
 	live := m.liveContent()
 	if live != "" {
+		if len(m.committed) > 0 {
+			full.WriteString("\n")
+		}
 		full.WriteString(live)
 	}
 
@@ -195,13 +198,16 @@ func (m *ChatViewModel) rebuildContent() {
 func (m *ChatViewModel) liveContent() string {
 	var live strings.Builder
 
-	for _, name := range m.agentOrder {
+	for i, name := range m.agentOrder {
 		ac, ok := m.agents[name]
 		if !ok {
 			continue
 		}
 		liveView := ac.View(m.Width)
 		if liveView != "" {
+			if i > 0 {
+				live.WriteString("\n")
+			}
 			live.WriteString(liveView)
 		}
 	}
