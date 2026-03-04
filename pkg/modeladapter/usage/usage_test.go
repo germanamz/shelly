@@ -131,6 +131,60 @@ func TestTracker_Total_CacheFields(t *testing.T) {
 	assert.Equal(t, 80, total.CacheReadInputTokens)
 }
 
+func TestTracker_RingBuffer_Total_Preserved(t *testing.T) {
+	var tr usage.Tracker
+
+	// Add more entries than the ring buffer capacity (100).
+	const n = 250
+	for i := range n {
+		tr.Add(usage.TokenCount{InputTokens: i + 1, OutputTokens: 1})
+	}
+
+	// Total must reflect all entries, not just the buffered ones.
+	total := tr.Total()
+	assert.Equal(t, n*(n+1)/2, total.InputTokens) // sum 1..250
+	assert.Equal(t, n, total.OutputTokens)
+
+	// Count returns total entries ever added.
+	assert.Equal(t, n, tr.Count())
+}
+
+func TestTracker_RingBuffer_Last_After_Wrap(t *testing.T) {
+	var tr usage.Tracker
+
+	const n = 150
+	for i := range n {
+		tr.Add(usage.TokenCount{InputTokens: i})
+	}
+
+	last, ok := tr.Last()
+	assert.True(t, ok)
+	assert.Equal(t, n-1, last.InputTokens)
+}
+
+func TestTracker_Reset_After_RingWrap(t *testing.T) {
+	var tr usage.Tracker
+
+	for range 150 {
+		tr.Add(usage.TokenCount{InputTokens: 10, OutputTokens: 5})
+	}
+
+	tr.Reset()
+	assert.Equal(t, 0, tr.Count())
+	assert.Equal(t, usage.TokenCount{}, tr.Total())
+
+	_, ok := tr.Last()
+	assert.False(t, ok)
+
+	// Can add again after reset.
+	tr.Add(usage.TokenCount{InputTokens: 42})
+	last, ok := tr.Last()
+	assert.True(t, ok)
+	assert.Equal(t, 42, last.InputTokens)
+	assert.Equal(t, 1, tr.Count())
+	assert.Equal(t, 42, tr.Total().InputTokens)
+}
+
 func TestTracker_Concurrent_Add(t *testing.T) {
 	var tr usage.Tracker
 

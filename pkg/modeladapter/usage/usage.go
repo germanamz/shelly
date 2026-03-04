@@ -25,11 +25,20 @@ func (tc TokenCount) CacheSavings() float64 {
 	return float64(tc.CacheReadInputTokens) / float64(total)
 }
 
+// maxRecentEntries is the maximum number of recent entries kept in the ring
+// buffer. Older entries are discarded but their totals are preserved in the
+// running accumulator.
+const maxRecentEntries = 100
+
 // Tracker accumulates token usage across multiple LLM calls.
-// It is safe for concurrent use.
+// It maintains a running total for O(1) aggregation and a bounded ring buffer
+// of the most recent entries for Last(). It is safe for concurrent use.
 type Tracker struct {
 	mu      sync.Mutex
-	entries []TokenCount
+	total   TokenCount   // running accumulator
+	entries []TokenCount // ring buffer, last maxRecentEntries entries
+	head    int          // next write position in the ring buffer
+	count   int          // total entries ever added
 }
 
 // Add records a token count entry.
@@ -37,7 +46,18 @@ func (t *Tracker) Add(tc TokenCount) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	t.entries = append(t.entries, tc)
+	t.total.InputTokens += tc.InputTokens
+	t.total.OutputTokens += tc.OutputTokens
+	t.total.CacheCreationInputTokens += tc.CacheCreationInputTokens
+	t.total.CacheReadInputTokens += tc.CacheReadInputTokens
+
+	if len(t.entries) < maxRecentEntries {
+		t.entries = append(t.entries, tc)
+	} else {
+		t.entries[t.head] = tc
+	}
+	t.head = (t.head + 1) % maxRecentEntries
+	t.count++
 }
 
 // Last returns the most recent token count entry.
@@ -46,11 +66,12 @@ func (t *Tracker) Last() (TokenCount, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if len(t.entries) == 0 {
+	if t.count == 0 {
 		return TokenCount{}, false
 	}
 
-	return t.entries[len(t.entries)-1], true
+	idx := (t.head - 1 + maxRecentEntries) % maxRecentEntries
+	return t.entries[idx], true
 }
 
 // Total returns the aggregate token count across all entries.
@@ -58,29 +79,24 @@ func (t *Tracker) Total() TokenCount {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	var total TokenCount
-	for _, e := range t.entries {
-		total.InputTokens += e.InputTokens
-		total.OutputTokens += e.OutputTokens
-		total.CacheCreationInputTokens += e.CacheCreationInputTokens
-		total.CacheReadInputTokens += e.CacheReadInputTokens
-	}
-
-	return total
+	return t.total
 }
 
-// Count returns the number of recorded entries.
+// Count returns the total number of entries ever added to the tracker.
 func (t *Tracker) Count() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	return len(t.entries)
+	return t.count
 }
 
-// Reset clears all recorded entries.
+// Reset clears all recorded entries and the running total.
 func (t *Tracker) Reset() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	t.entries = nil
+	t.head = 0
+	t.count = 0
+	t.total = TokenCount{}
 }
