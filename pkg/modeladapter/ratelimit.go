@@ -89,7 +89,7 @@ func NewRateLimitedCompleter(inner Completer, opts RateLimitOpts, options ...Rat
 		maxRetries: opts.MaxRetries,
 		baseDelay:  opts.BaseDelay,
 		nowFunc:    time.Now,
-		sleepFunc:  contextSleep,
+		sleepFunc:  ContextSleep,
 		randFunc:   rand.Float64,
 	}
 
@@ -100,8 +100,8 @@ func NewRateLimitedCompleter(inner Completer, opts RateLimitOpts, options ...Rat
 	return r
 }
 
-// contextSleep sleeps for d or until ctx is cancelled.
-func contextSleep(ctx context.Context, d time.Duration) error {
+// ContextSleep sleeps for d or until ctx is cancelled.
+func ContextSleep(ctx context.Context, d time.Duration) error {
 	t := time.NewTimer(d)
 	defer t.Stop()
 	select {

@@ -48,7 +48,7 @@ Both `openai.Adapter` and `grok.Adapter` then compose with `openaicompat` functi
 
 **Risks:** Minimal. The functions are nearly identical; any behavioral difference is likely a bug.
 
-### 1.3 Deduplicate `contextSleep`
+### 1.3 Deduplicate `contextSleep` ✅
 
 **Problem:** `contextSleep(ctx, duration)` is defined identically in both `pkg/modeladapter/ratelimit.go` and `pkg/modeladapter/batch/collector.go`.
 

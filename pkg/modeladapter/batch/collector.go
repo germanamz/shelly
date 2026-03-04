@@ -103,7 +103,7 @@ func NewCollector(inner modeladapter.Completer, submitter Submitter, opts Collec
 		lifecycleCtx:    ctx,
 		lifecycleCancel: cancel,
 		nowFunc:         time.Now,
-		sleepFunc:       contextSleep,
+		sleepFunc:       modeladapter.ContextSleep,
 		uuidFunc:        func() string { return uuid.New().String() },
 	}
 }
@@ -341,17 +341,5 @@ func (c *Collector) fallbackSingle(pr pendingRequest) {
 func (c *Collector) emitEvent(kind EventKind, data map[string]any) {
 	if h := c.onEvent.Load(); h != nil {
 		(*h)(kind, data)
-	}
-}
-
-// contextSleep sleeps for d or until ctx is cancelled.
-func contextSleep(ctx context.Context, d time.Duration) error {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-t.C:
-		return nil
 	}
 }
