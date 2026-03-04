@@ -163,7 +163,7 @@ func (m *ChatViewModel) appendContent(text string) {
 // commitUserMessage renders a user message and appends it to the committed buffer.
 func (m *ChatViewModel) commitUserMessage(text string) {
 	highlighted := highlightFilePaths(text)
-	userLine := "\n" + format.RenderUserMessage(highlighted) + "\n"
+	userLine := "\n" + format.RenderUserMessage(highlighted, m.Width) + "\n"
 	m.HasMessages = true
 	m.committed = append(m.committed, userLine)
 }

@@ -294,10 +294,14 @@ type TaskMessageItem struct {
 }
 
 func (m *TaskMessageItem) View(width int) string {
-	rendered := format.RenderMarkdown(m.Text)
-	// Trim trailing whitespace from rendered output.
-	rendered = strings.TrimRight(rendered, "\n ")
-	return styles.DimStyle.Render("📋 " + rendered)
+	// Use plain word-wrap instead of markdown rendering — the task message is
+	// a brief delegation label that doesn't need glamour formatting, and the
+	// width must account for the "📋 " prefix (3 columns).
+	text := strings.TrimRight(m.Text, "\n ")
+	if w := width - 3; w > 0 {
+		text = format.WordWrap(text, w)
+	}
+	return styles.DimStyle.Render("📋 " + text)
 }
 
 func (m *TaskMessageItem) IsLive() bool { return false }

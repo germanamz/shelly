@@ -124,8 +124,15 @@ func FmtDuration(d time.Duration) string {
 }
 
 // RenderUserMessage formats a user message for display.
-func RenderUserMessage(text string) string {
+// width is the available terminal width; content is word-wrapped to fit.
+func RenderUserMessage(text string, width int) string {
 	header := styles.UserPrefixStyle.Render("🧑‍💻 User")
+	// Content is indented by 3 columns (e.g. " └ " or "   ").
+	const indent = 3
+	contentWidth := width - indent
+	if contentWidth > 0 {
+		text = WordWrap(text, contentWidth)
+	}
 	lines := strings.Split(text, "\n")
 	var sb strings.Builder
 	sb.WriteString(header)

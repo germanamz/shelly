@@ -52,14 +52,14 @@ func TestTruncate(t *testing.T) {
 }
 
 func TestRenderUserMessage(t *testing.T) {
-	msg := RenderUserMessage("hello")
+	msg := RenderUserMessage("hello", 80)
 	assert.Contains(t, msg, "User")
 	assert.Contains(t, msg, "hello")
 	assert.Contains(t, msg, "└ ")
 }
 
 func TestRenderUserMessageMultiLine(t *testing.T) {
-	msg := RenderUserMessage("line1\nline2")
+	msg := RenderUserMessage("line1\nline2", 80)
 	assert.Contains(t, msg, "line1")
 	assert.Contains(t, msg, "line2")
 }
