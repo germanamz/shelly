@@ -82,7 +82,7 @@ Changes that fix API inconsistencies and improve type safety.
 
 **Risks:** Low for Option A (mechanically find-and-replace all `.SetMeta` calls). High for Option B (cascade).
 
-### 2.2 Make `BySender()` return deep copies (consistent with `Messages()`)
+### 2.2 Make `BySender()` return deep copies (consistent with `Messages()`) ✅
 
 **Problem:** `chat.Chat.Messages()` returns deep-copied messages, but `BySender()` returns shallow copies. Callers who mutate messages from `BySender()` could corrupt internal chat state (shared Part slices, shared Metadata maps).
 

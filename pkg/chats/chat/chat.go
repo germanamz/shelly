@@ -89,6 +89,21 @@ func (c *Chat) Last() (message.Message, bool) {
 	return c.messages[len(c.messages)-1], true
 }
 
+// copyMessage returns a deep copy of m. Parts slices and Metadata maps are
+// copied so that callers cannot mutate the original conversation data.
+func copyMessage(m message.Message) message.Message {
+	if m.Parts != nil {
+		m.Parts = append([]content.Part(nil), m.Parts...)
+	}
+	if m.Metadata != nil {
+		orig := m.Metadata
+		m.Metadata = make(map[string]any, len(orig))
+		maps.Copy(m.Metadata, orig)
+	}
+
+	return m
+}
+
 // Messages returns a deep copy of all messages in the conversation.
 // Parts slices and Metadata maps are copied so that callers cannot
 // mutate the original conversation data.
@@ -98,15 +113,7 @@ func (c *Chat) Messages() []message.Message {
 
 	cp := make([]message.Message, len(c.messages))
 	for i, m := range c.messages {
-		cp[i] = m
-		if m.Parts != nil {
-			cp[i].Parts = make([]content.Part, len(m.Parts))
-			copy(cp[i].Parts, m.Parts)
-		}
-		if m.Metadata != nil {
-			cp[i].Metadata = make(map[string]any, len(m.Metadata))
-			maps.Copy(cp[i].Metadata, m.Metadata)
-		}
+		cp[i] = copyMessage(m)
 	}
 
 	return cp
@@ -126,7 +133,7 @@ func (c *Chat) Each(fn func(int, message.Message) bool) {
 	}
 }
 
-// BySender returns all messages from the given sender.
+// BySender returns deep copies of all messages from the given sender.
 func (c *Chat) BySender(sender string) []message.Message {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -134,7 +141,7 @@ func (c *Chat) BySender(sender string) []message.Message {
 	var out []message.Message
 	for _, m := range c.messages {
 		if m.Sender == sender {
-			out = append(out, m)
+			out = append(out, copyMessage(m))
 		}
 	}
 
@@ -156,8 +163,8 @@ func (c *Chat) SystemPrompt() string {
 	return ""
 }
 
-// Since returns a copy of messages starting from offset. Returns nil if offset
-// is out of range.
+// Since returns a deep copy of messages starting from offset. Returns nil if
+// offset is out of range.
 func (c *Chat) Since(offset int) []message.Message {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -168,15 +175,7 @@ func (c *Chat) Since(offset int) []message.Message {
 
 	cp := make([]message.Message, len(c.messages)-offset)
 	for i, m := range c.messages[offset:] {
-		cp[i] = m
-		if m.Parts != nil {
-			cp[i].Parts = make([]content.Part, len(m.Parts))
-			copy(cp[i].Parts, m.Parts)
-		}
-		if m.Metadata != nil {
-			cp[i].Metadata = make(map[string]any, len(m.Metadata))
-			maps.Copy(cp[i].Metadata, m.Metadata)
-		}
+		cp[i] = copyMessage(m)
 	}
 
 	return cp
