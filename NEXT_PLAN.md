@@ -228,7 +228,7 @@ The closure still exists for closure-captured variables (`a *Agent`, config) but
 
 Higher-level design improvements following Go composition best practices.
 
-### 5.1 Introduce `InputEnabler` interface in TUI
+### 5.1 Introduce `InputEnabler` interface in TUI ✅
 
 **Problem:** The `staleFilter` in `cmd/shelly/internal/tty/` uses a type switch on the concrete `app.AppModel` type to determine if input is enabled. This creates a tight coupling from the I/O layer to the UI model.
 

@@ -110,16 +110,7 @@ func run(configPath, shellyDirPath, agentName string) error {
 	format.IsDarkBG = lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
 	tty.FlushStdinBuffer()
 
-	staleFilter := tty.NewStaleEscapeFilter(func(m tea.Model) bool {
-		switch v := m.(type) {
-		case app.AppModel:
-			return v.InputEnabled()
-		case *app.AppModel:
-			return v.InputEnabled()
-		default:
-			return true
-		}
-	})
+	staleFilter := tty.NewStaleEscapeFilter()
 	p := tea.NewProgram(model, tea.WithFilter(staleFilter))
 
 	// Send the program reference so the model can start bridge goroutines.

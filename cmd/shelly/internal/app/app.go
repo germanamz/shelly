@@ -71,7 +71,7 @@ func NewAppModel(ctx context.Context, sess *engine.Session, eng *engine.Engine) 
 }
 
 // InputEnabled returns whether the input box is enabled.
-// Used by tty.NewStaleEscapeFilter closure.
+// Implements tty.InputEnabler for use with tty.NewStaleEscapeFilter.
 func (m AppModel) InputEnabled() bool {
 	return m.inputBox.Enabled
 }
