@@ -3,7 +3,7 @@ providers:
       kind: anthropic
       base_url: ""
       api_key: ${ANTHROPIC_API_KEY}
-      model: claude-sonnet-4-20250514
+      model: claude-opus-4-6
       context_window: null
       max_tokens: null
       rate_limit:
