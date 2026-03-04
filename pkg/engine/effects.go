@@ -36,6 +36,18 @@ var effectFactories = map[string]EffectFactory{
 	"offload":           buildOffloadEffect,
 }
 
+// KnownEffectKinds returns the sorted list of recognised effect kind strings,
+// derived from the effect factory registry.
+func KnownEffectKinds() []string {
+	kinds := make([]string, 0, len(effectFactories))
+	for k := range effectFactories {
+		kinds = append(kinds, k)
+	}
+
+	sort.Strings(kinds)
+	return kinds
+}
+
 // buildEffects constructs all effects for an agent from its config.
 func buildEffects(ecs []EffectConfig, wctx EffectWiringContext) ([]agent.Effect, error) {
 	if len(ecs) == 0 {

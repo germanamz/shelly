@@ -254,29 +254,6 @@ func KnownProviderKinds() []string {
 	return kinds
 }
 
-// KnownEffectKinds returns the list of recognised effect kind strings.
-func KnownEffectKinds() []string {
-	kinds := make([]string, 0, len(knownEffectKinds))
-	for k := range knownEffectKinds {
-		kinds = append(kinds, k)
-	}
-
-	sort.Strings(kinds)
-	return kinds
-}
-
-// knownEffectKinds lists all recognised effect kind strings.
-var knownEffectKinds = map[string]struct{}{
-	"compact":           {},
-	"trim_tool_results": {},
-	"loop_detect":       {},
-	"sliding_window":    {},
-	"observation_mask":  {},
-	"reflection":        {},
-	"progress":          {},
-	"tool_scope":        {},
-	"offload":           {},
-}
 
 // Validate checks that the configuration is internally consistent.
 func (c Config) Validate() error {
@@ -400,7 +377,7 @@ func validateAgents(agents []AgentConfig, providerNames, mcpNames map[string]str
 			if ef.Kind == "" {
 				return nil, fmt.Errorf("engine: config: agent %q: effect[%d]: kind is required", a.Name, i)
 			}
-			if _, ok := knownEffectKinds[ef.Kind]; !ok {
+			if _, ok := effectFactories[ef.Kind]; !ok {
 				return nil, fmt.Errorf("engine: config: agent %q: effect[%d]: unknown kind %q", a.Name, i, ef.Kind)
 			}
 		}

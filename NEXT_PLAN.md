@@ -126,7 +126,7 @@ Changes that fix API inconsistencies and improve type safety.
 
 Make the engine's registration and validation self-maintaining.
 
-### 3.1 Unify effect kind registration
+### 3.1 Unify effect kind registration ✅
 
 **Problem:** `knownEffectKinds` in `pkg/engine/config.go` must be manually kept in sync with the effect factory map in `pkg/engine/effects.go`. Adding a new effect requires updating both maps independently — a maintenance trap.
 
