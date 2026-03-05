@@ -22,6 +22,7 @@ const (
     StatusInProgress Status = "in_progress"
     StatusCompleted  Status = "completed"
     StatusFailed     Status = "failed"
+    StatusCanceled   Status = "canceled"
 )
 ```
 
@@ -83,8 +84,9 @@ A thread-safe task board. The zero value is ready to use. Internally uses `sync.
 - **`Get(id string) (Task, bool)`** -- returns a deep copy of the task with the given ID, or `false` if not found.
 - **`List(filter Filter) []Task`** -- returns tasks matching the filter, sorted by ID. Supports filtering by status, assignee, and blocked state.
 - **`Update(id string, upd Update) error`** -- applies a partial update to the task. Validates status values. Metadata is merged into existing metadata. Does not validate `BlockedBy` IDs.
-- **`Claim(id, agent string) error`** -- atomically assigns a task to the given agent and sets status to `in_progress`. Returns an error if the task is blocked, already assigned to a different agent, or in a terminal state (`completed`/`failed`). Re-claiming by the same agent is idempotent.
+- **`Claim(id, agent string) error`** -- atomically assigns a task to the given agent and sets status to `in_progress`. Returns an error if the task is blocked, already assigned to a different agent, or in a terminal state (`completed`/`failed`/`canceled`). Re-claiming by the same agent is idempotent.
 - **`Reassign(id, agent string) error`** -- atomically assigns a task to a new agent, overriding any existing assignee. Used by delegation tools to transfer ownership. Returns an error if the task is blocked or in a terminal state.
+- **`Cancel(id string) error`** -- sets a task's status to `canceled` if it is `pending` or `in_progress`. Returns an error if the task is already in a terminal state or not found. Broadcasts to `WatchCompleted` watchers.
 - **`IsBlocked(id string) bool`** -- returns `true` if any of the task's `BlockedBy` dependencies are not yet completed. Nonexistent dependencies are considered blocking.
 
 ### Blocking Watch
@@ -93,7 +95,15 @@ A thread-safe task board. The zero value is ready to use. Internally uses `sync.
 func (s *Store) WatchCompleted(ctx context.Context, id string) (Task, error)
 ```
 
-Blocks until the task reaches `completed` or `failed` status, or the context is cancelled. Returns a deep copy of the final task state.
+Blocks until the task reaches a terminal status (`completed`, `failed`, or `canceled`), or the context is cancelled. Returns a deep copy of the final task state.
+
+### Cancel Watch
+
+```go
+func (s *Store) WatchCanceled(ctx context.Context, id string) <-chan struct{}
+```
+
+Returns a channel that is closed when the task transitions to `canceled` status, or when the provided context is done. Used by delegation tools to propagate cancellation to child agents.
 
 ### Tool Integration
 
@@ -101,7 +111,7 @@ Blocks until the task reaches `completed` or `failed` status, or the context is 
 func (s *Store) Tools(namespace string) *toolbox.ToolBox
 ```
 
-Returns a `ToolBox` with six tools namespaced under the given prefix:
+Returns a `ToolBox` with seven tools namespaced under the given prefix:
 
 | Tool | Input | Output |
 |------|-------|--------|
@@ -111,6 +121,7 @@ Returns a `ToolBox` with six tools namespaced under the given prefix:
 | `{ns}_tasks_claim` | `{id}` | `"ok"` |
 | `{ns}_tasks_update` | `{id, status?, description?, blocked_by?, metadata?}` | `"ok"` |
 | `{ns}_tasks_watch` | `{id}` | Final task JSON |
+| `{ns}_tasks_cancel` | `{id}` | `"ok"` |
 
 Tool handlers read agent identity via `agentctx.AgentNameFromContext(ctx)` for `create` (sets `created_by`) and `claim` (sets `assignee`).
 
@@ -119,13 +130,16 @@ Tool handlers read agent identity via `agentctx.AgentNameFromContext(ctx)` for `
 ```
 pending --> in_progress --> completed
                        --> failed
+                       --> canceled
+pending --> canceled
 ```
 
 - `Create` always sets status to `pending`
 - `Claim` atomically sets assignee + status to `in_progress` (rejects if already assigned to a different agent)
 - `Reassign` atomically overrides the assignee + status to `in_progress` (used by delegation tools to transfer ownership)
 - `Update` can set any valid status
-- `WatchCompleted` blocks until `completed` or `failed`
+- `Cancel` sets status to `canceled` from `pending` or `in_progress`
+- `WatchCompleted` blocks until `completed`, `failed`, or `canceled`
 
 ## Blocking and Dependencies
 

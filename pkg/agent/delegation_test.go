@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/germanamz/shelly/pkg/chats/chat"
 	"github.com/germanamz/shelly/pkg/chats/content"
@@ -385,6 +386,49 @@ func TestDelegateToolToolboxInheritance(t *testing.T) {
 }
 
 // --- task_id integration tests ---
+
+// mockTaskCancelWatcher extends mockTaskBoard with WatchCanceled support.
+type mockTaskCancelWatcher struct {
+	mockTaskBoard
+	cancelMu sync.Mutex
+	channels map[string]chan struct{}
+}
+
+func newMockTaskCancelWatcher() *mockTaskCancelWatcher {
+	return &mockTaskCancelWatcher{channels: make(map[string]chan struct{})}
+}
+
+func (m *mockTaskCancelWatcher) WatchCanceled(ctx context.Context, id string) <-chan struct{} {
+	m.cancelMu.Lock()
+	ch, ok := m.channels[id]
+	if !ok {
+		ch = make(chan struct{})
+		m.channels[id] = ch
+	}
+	m.cancelMu.Unlock()
+
+	out := make(chan struct{})
+	go func() {
+		defer close(out)
+		select {
+		case <-ch:
+		case <-ctx.Done():
+		}
+	}()
+	return out
+}
+
+// cancelTask simulates task cancellation by closing the channel.
+func (m *mockTaskCancelWatcher) cancelTask(id string) {
+	m.cancelMu.Lock()
+	ch, ok := m.channels[id]
+	if !ok {
+		ch = make(chan struct{})
+		m.channels[id] = ch
+	}
+	m.cancelMu.Unlock()
+	close(ch)
+}
 
 // mockTaskBoard records ClaimTask and UpdateTaskStatus calls for testing.
 // It is safe for concurrent use.
@@ -1429,4 +1473,63 @@ func TestDelegateToolNoCompletionUpdatesTask(t *testing.T) {
 	require.Len(t, board.updates, 1)
 	assert.Equal(t, "task-nc", board.updates[0].ID)
 	assert.Equal(t, "completed", board.updates[0].Status)
+}
+
+// contextCompleter blocks until the context is canceled, then returns context.Canceled.
+type contextCompleter struct{}
+
+func (c *contextCompleter) Complete(ctx context.Context, _ *chat.Chat, _ []toolbox.Tool) (message.Message, error) {
+	<-ctx.Done()
+	return message.Message{}, ctx.Err()
+}
+
+func TestDelegateTaskCancellationPropagation(t *testing.T) {
+	board := newMockTaskCancelWatcher()
+
+	reg := NewRegistry()
+	reg.Register("worker", "Does work", func() *Agent {
+		return New("worker", "", "", &contextCompleter{}, Options{MaxIterations: 100})
+	})
+
+	a := &Agent{name: "orch", configName: "orch", registry: reg, chat: chat.New(), delegation: delegationConfig{maxDepth: 1, taskBoard: board}}
+	tool := delegateTool(a)
+
+	done := make(chan string, 1)
+	go func() {
+		result, err := tool.Handler(context.Background(), json.RawMessage(`{"tasks":[{"agent":"worker","task":"do work","context":"ctx","task_id":"task-42"}]}`))
+		if err != nil {
+			done <- err.Error()
+		} else {
+			done <- result
+		}
+	}()
+
+	// Wait for the claim to be recorded.
+	require.Eventually(t, func() bool {
+		board.mu.Lock()
+		defer board.mu.Unlock()
+		return len(board.claims) > 0
+	}, 2*time.Second, 10*time.Millisecond)
+
+	// Cancel the task on the board.
+	board.cancelTask("task-42")
+
+	// The delegation should complete with a canceled result.
+	select {
+	case result := <-done:
+		var results []delegateResult
+		require.NoError(t, json.Unmarshal([]byte(result), &results))
+		require.Len(t, results, 1)
+		assert.Equal(t, "task canceled", results[0].Error)
+	case <-time.After(5 * time.Second):
+		t.Fatal("delegation did not complete after task cancellation")
+	}
+
+	// Task should have been updated to canceled.
+	board.mu.Lock()
+	defer board.mu.Unlock()
+	require.NotEmpty(t, board.updates)
+	lastUpdate := board.updates[len(board.updates)-1]
+	assert.Equal(t, "task-42", lastUpdate.ID)
+	assert.Equal(t, "canceled", lastUpdate.Status)
 }

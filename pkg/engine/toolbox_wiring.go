@@ -179,3 +179,7 @@ func (a *taskBoardAdapter) UpdateTaskStatus(id, status string) error {
 	s := tasks.Status(status)
 	return a.store.Update(id, tasks.Update{Status: &s})
 }
+
+func (a *taskBoardAdapter) WatchCanceled(ctx context.Context, id string) <-chan struct{} {
+	return a.store.WatchCanceled(ctx, id)
+}

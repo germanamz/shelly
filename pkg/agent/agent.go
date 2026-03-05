@@ -59,6 +59,14 @@ type TaskBoard interface {
 	UpdateTaskStatus(id, status string) error
 }
 
+// TaskCancelWatcher is an optional interface that TaskBoard implementations
+// can provide to support cancellation propagation. When a task is canceled
+// on the board, the returned channel is closed, allowing the delegation
+// handler to cancel the child agent's context.
+type TaskCancelWatcher interface {
+	WatchCanceled(ctx context.Context, id string) <-chan struct{}
+}
+
 // Options configures an Agent.
 type Options struct {
 	MaxIterations          int               // ReAct loop limit (0 = unlimited).

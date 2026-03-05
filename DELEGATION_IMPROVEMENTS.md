@@ -125,7 +125,7 @@ Full schemas remain available via the `list_agents` tool for the LLM to inspect 
 
 ---
 
-## Phase 2: Task Cancellation
+## Phase 2: Task Cancellation ✅ COMPLETE
 
 **Priority:** P0 | **Complexity:** Low | **Prerequisite for streaming (Phase 3)**
 

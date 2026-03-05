@@ -711,7 +711,8 @@ func TestToolNamespace(t *testing.T) {
 	assert.True(t, names["myapp_tasks_claim"])
 	assert.True(t, names["myapp_tasks_update"])
 	assert.True(t, names["myapp_tasks_watch"])
-	assert.Len(t, names, 6)
+	assert.True(t, names["myapp_tasks_cancel"])
+	assert.Len(t, names, 7)
 }
 
 func TestCreateDoesNotNotify(t *testing.T) {
@@ -765,6 +766,213 @@ func TestWatchCompletedRaceSafe(t *testing.T) {
 	assert.Equal(t, StatusCompleted, task.Status)
 }
 
+// --- Cancel tests ---
+
+func TestCancelFromPending(t *testing.T) {
+	s := &Store{}
+
+	id := mustCreate(t, s, Task{Title: "task"})
+
+	require.NoError(t, s.Cancel(id))
+
+	task, ok := s.Get(id)
+	require.True(t, ok)
+	assert.Equal(t, StatusCanceled, task.Status)
+}
+
+func TestCancelFromInProgress(t *testing.T) {
+	s := &Store{}
+
+	id := mustCreate(t, s, Task{Title: "task"})
+	require.NoError(t, s.Claim(id, "worker"))
+
+	require.NoError(t, s.Cancel(id))
+
+	task, ok := s.Get(id)
+	require.True(t, ok)
+	assert.Equal(t, StatusCanceled, task.Status)
+}
+
+func TestCancelFromTerminalCompleted(t *testing.T) {
+	s := &Store{}
+
+	id := mustCreate(t, s, Task{Title: "task"})
+	completed := StatusCompleted
+	require.NoError(t, s.Update(id, Update{Status: &completed}))
+
+	err := s.Cancel(id)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "terminal")
+}
+
+func TestCancelFromTerminalFailed(t *testing.T) {
+	s := &Store{}
+
+	id := mustCreate(t, s, Task{Title: "task"})
+	failed := StatusFailed
+	require.NoError(t, s.Update(id, Update{Status: &failed}))
+
+	err := s.Cancel(id)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "terminal")
+}
+
+func TestCancelFromTerminalCanceled(t *testing.T) {
+	s := &Store{}
+
+	id := mustCreate(t, s, Task{Title: "task"})
+	require.NoError(t, s.Cancel(id))
+
+	err := s.Cancel(id)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "terminal")
+}
+
+func TestCancelNotFound(t *testing.T) {
+	s := &Store{}
+
+	err := s.Cancel("task-999")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+func TestWatchCompletedUnblocksOnCancel(t *testing.T) {
+	s := &Store{}
+
+	id := mustCreate(t, s, Task{Title: "task"})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	var result Task
+	var watchErr error
+
+	go func() {
+		result, watchErr = s.WatchCompleted(ctx, id)
+		close(done)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	require.NoError(t, s.Cancel(id))
+
+	<-done
+	require.NoError(t, watchErr)
+	assert.Equal(t, StatusCanceled, result.Status)
+}
+
+func TestClaimCanceledTask(t *testing.T) {
+	s := &Store{}
+
+	id := mustCreate(t, s, Task{Title: "task"})
+	require.NoError(t, s.Cancel(id))
+
+	err := s.Claim(id, "worker")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "terminal")
+}
+
+func TestReassignCanceledTask(t *testing.T) {
+	s := &Store{}
+
+	id := mustCreate(t, s, Task{Title: "task"})
+	require.NoError(t, s.Cancel(id))
+
+	err := s.Reassign(id, "worker")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "terminal")
+}
+
+func TestWatchCanceled(t *testing.T) {
+	s := &Store{}
+
+	id := mustCreate(t, s, Task{Title: "task"})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	ch := s.WatchCanceled(ctx, id)
+
+	// Cancel the task.
+	require.NoError(t, s.Cancel(id))
+
+	// Channel should close promptly.
+	select {
+	case <-ch:
+		// success
+	case <-time.After(time.Second):
+		t.Fatal("WatchCanceled channel did not close after Cancel")
+	}
+}
+
+func TestWatchCanceledContextDone(t *testing.T) {
+	s := &Store{}
+
+	id := mustCreate(t, s, Task{Title: "task"})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ch := s.WatchCanceled(ctx, id)
+
+	cancel()
+
+	select {
+	case <-ch:
+		// success — channel closed when context was canceled
+	case <-time.After(time.Second):
+		t.Fatal("WatchCanceled channel did not close when context canceled")
+	}
+}
+
+func TestWatchCanceledAlreadyCanceled(t *testing.T) {
+	s := &Store{}
+
+	id := mustCreate(t, s, Task{Title: "task"})
+	require.NoError(t, s.Cancel(id))
+
+	ch := s.WatchCanceled(context.Background(), id)
+
+	select {
+	case <-ch:
+		// success — already canceled, should return immediately
+	case <-time.After(time.Second):
+		t.Fatal("WatchCanceled should return immediately for already-canceled task")
+	}
+}
+
+// --- Cancel tool tests ---
+
+func TestToolCancel(t *testing.T) {
+	s := &Store{}
+
+	id := mustCreate(t, s, Task{Title: "task"})
+
+	tb := s.Tools("ns")
+	tool, ok := tb.Get("ns_tasks_cancel")
+	require.True(t, ok)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(fmt.Sprintf(`{"id":%q}`, id)))
+	require.NoError(t, err)
+	assert.Equal(t, "ok", result)
+
+	task, _ := s.Get(id)
+	assert.Equal(t, StatusCanceled, task.Status)
+}
+
+func TestToolCancelTerminal(t *testing.T) {
+	s := &Store{}
+
+	id := mustCreate(t, s, Task{Title: "task"})
+	completed := StatusCompleted
+	require.NoError(t, s.Update(id, Update{Status: &completed}))
+
+	tb := s.Tools("ns")
+	tool, _ := tb.Get("ns_tasks_cancel")
+
+	_, err := tool.Handler(context.Background(), json.RawMessage(fmt.Sprintf(`{"id":%q}`, id)))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "terminal")
+}
+
 func TestToolInvalidInput(t *testing.T) {
 	s := &Store{}
 	tb := s.Tools("ns")
@@ -772,6 +980,7 @@ func TestToolInvalidInput(t *testing.T) {
 	toolNames := []string{
 		"ns_tasks_create", "ns_tasks_list", "ns_tasks_get",
 		"ns_tasks_claim", "ns_tasks_update", "ns_tasks_watch",
+		"ns_tasks_cancel",
 	}
 
 	for _, name := range toolNames {

@@ -90,6 +90,18 @@ type TaskBoard interface {
 }
 ```
 
+### TaskCancelWatcher
+
+Optional interface that `TaskBoard` implementations can provide to support cancellation propagation. When a task is canceled on the board, the delegation handler detects it and cancels the child agent's context.
+
+```go
+type TaskCancelWatcher interface {
+    WatchCanceled(ctx context.Context, id string) <-chan struct{}
+}
+```
+
+If the `TaskBoard` also implements `TaskCancelWatcher`, the `delegate` tool starts a goroutine per child that watches for task cancellation and calls the child's context cancel function. This allows external callers (e.g., other agents or the TUI) to cancel in-flight delegations by canceling the task on the board.
+
 ### EventNotifier
 
 Called by orchestration tools to publish sub-agent lifecycle events.
@@ -364,7 +376,7 @@ When `Options.TaskBoard` is set, the `delegate` tool supports an optional `task_
 
 1. **Before `child.Run()`**: `TaskBoard.ClaimTask(taskID, childName)` is called. Claim errors cause the task to fail immediately.
 2. **After `child.Run()`**: if the child produced a `CompletionResult`, `TaskBoard.UpdateTaskStatus(taskID, cr.Status)` is called automatically. If the child exhausts iterations, a synthetic `CompletionResult` with status "failed" is created and the task is updated accordingly.
-3. **On child error**: if `child.Run()` returns a non-`ErrMaxIterations` error (e.g. context cancellation, completer failure), the task is rolled back to `"failed"` so it doesn't stay stuck in `in_progress`.
+3. **On child error**: if `child.Run()` returns a non-`ErrMaxIterations` error (e.g. completer failure), the task is rolled back to `"failed"` so it doesn't stay stuck in `in_progress`. If the error is `context.Canceled` due to task cancellation (child context canceled but parent context still active), the task is updated to `"canceled"` instead.
 4. **No completion fallback**: if the child finishes without error but never called `task_complete`, the task is automatically updated to `"completed"` since the child ran to natural conclusion.
 
 ### Structured Completion Protocol

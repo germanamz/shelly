@@ -155,6 +155,20 @@ func runDelegateTask(ctx context.Context, a *Agent, t delegateTask) delegateResu
 	childCtx, childCancel := context.WithCancel(ctx)
 	defer childCancel()
 
+	// Watch for task cancellation on the board and propagate to child context.
+	if t.TaskID != "" && taskBoard != nil {
+		if watcher, ok := taskBoard.(TaskCancelWatcher); ok {
+			cancelCh := watcher.WatchCanceled(childCtx, t.TaskID)
+			go func() {
+				select {
+				case <-cancelCh:
+					childCancel()
+				case <-childCtx.Done():
+				}
+			}()
+		}
+	}
+
 	if a.events.cancelRegistrar != nil {
 		a.events.cancelRegistrar(child.name, childCancel)
 		defer func() {
@@ -191,6 +205,13 @@ func runDelegateTask(ctx context.Context, a *Agent, t delegateTask) delegateResu
 			writeReflection(a.delegation.reflectionDir, t.Agent, t.Task, cr)
 			dr := delegateResult{Agent: t.Agent, Completion: cr}
 			dr.Warning = tryUpdateTask(taskBoard, t.TaskID, cr.Status)
+			return dr
+		}
+		// If the child context was canceled due to task cancellation,
+		// report it as canceled rather than a generic error.
+		if errors.Is(runErr, context.Canceled) && childCtx.Err() != nil && ctx.Err() == nil {
+			dr := delegateResult{Agent: t.Agent, Error: "task canceled"}
+			dr.Warning = tryUpdateTask(taskBoard, t.TaskID, "canceled")
 			return dr
 		}
 		// Rollback task to "failed" so it doesn't stay stuck in_progress.

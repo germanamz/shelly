@@ -28,6 +28,7 @@ const (
 	StatusInProgress Status = "in_progress"
 	StatusCompleted  Status = "completed"
 	StatusFailed     Status = "failed"
+	StatusCanceled   Status = "canceled"
 )
 
 // Task represents a unit of work on the shared task board.
@@ -204,7 +205,7 @@ func (s *Store) Update(id string, upd Update) error {
 
 	if upd.Status != nil {
 		switch *upd.Status {
-		case StatusPending, StatusInProgress, StatusCompleted, StatusFailed:
+		case StatusPending, StatusInProgress, StatusCompleted, StatusFailed, StatusCanceled:
 		default:
 			return fmt.Errorf("tasks: invalid status %q", *upd.Status)
 		}
@@ -242,7 +243,7 @@ func (s *Store) Claim(id, agent string) error {
 		return fmt.Errorf("tasks: task %q not found", id)
 	}
 
-	if t.Status == StatusCompleted || t.Status == StatusFailed {
+	if t.Status == StatusCompleted || t.Status == StatusFailed || t.Status == StatusCanceled {
 		return fmt.Errorf("tasks: task %q is in terminal state %q", id, t.Status)
 	}
 
@@ -276,7 +277,7 @@ func (s *Store) Reassign(id, agent string) error {
 		return fmt.Errorf("tasks: task %q not found", id)
 	}
 
-	if t.Status == StatusCompleted || t.Status == StatusFailed {
+	if t.Status == StatusCompleted || t.Status == StatusFailed || t.Status == StatusCanceled {
 		return fmt.Errorf("tasks: task %q is in terminal state %q", id, t.Status)
 	}
 
@@ -290,6 +291,60 @@ func (s *Store) Reassign(id, agent string) error {
 	s.notifyChange()
 
 	return nil
+}
+
+// Cancel sets a task's status to "canceled" if it is in "pending" or
+// "in_progress" state. Returns an error if the task is already in a
+// terminal state (completed, failed, canceled) or not found.
+func (s *Store) Cancel(id string) error {
+	s.init()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	t, ok := s.tasks[id]
+	if !ok {
+		return fmt.Errorf("tasks: task %q not found", id)
+	}
+
+	if t.Status == StatusCompleted || t.Status == StatusFailed || t.Status == StatusCanceled {
+		return fmt.Errorf("tasks: task %q is in terminal state %q", id, t.Status)
+	}
+
+	t.Status = StatusCanceled
+	s.notify()
+	s.notifyChange()
+
+	return nil
+}
+
+// WatchCanceled returns a channel that is closed when the task transitions
+// to "canceled" status, or when the provided context is done. Callers should
+// use this to propagate cancellation to child work associated with a task.
+func (s *Store) WatchCanceled(ctx context.Context, id string) <-chan struct{} {
+	s.init()
+	ch := make(chan struct{})
+
+	go func() {
+		defer close(ch)
+		for {
+			s.mu.RLock()
+			t, ok := s.tasks[id]
+			if !ok || t.Status == StatusCanceled {
+				s.mu.RUnlock()
+				return
+			}
+			sig := s.signal
+			s.mu.RUnlock()
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-sig:
+			}
+		}
+	}()
+
+	return ch
 }
 
 // unclaimedTimeout is how long WatchCompleted waits for an unclaimed task
@@ -313,7 +368,7 @@ func (s *Store) WatchCompleted(ctx context.Context, id string) (Task, error) {
 			return Task{}, fmt.Errorf("tasks: task %q not found", id)
 		}
 
-		if t.Status == StatusCompleted || t.Status == StatusFailed {
+		if t.Status == StatusCompleted || t.Status == StatusFailed || t.Status == StatusCanceled {
 			cp := s.copyTask(t)
 			s.mu.RUnlock()
 			return cp, nil
@@ -417,7 +472,7 @@ func (s *Store) Tools(namespace string) *toolbox.ToolBox {
 		toolbox.Tool{
 			Name:        fmt.Sprintf("%s_tasks_list", namespace),
 			Description: "List tasks on the shared task board with optional filters.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"status":{"type":"string","enum":["pending","in_progress","completed","failed"]},"assignee":{"type":"string"},"blocked":{"type":"boolean"}}}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"status":{"type":"string","enum":["pending","in_progress","completed","failed","canceled"]},"assignee":{"type":"string"},"blocked":{"type":"boolean"}}}`),
 			Handler:     s.handleList,
 		},
 		toolbox.Tool{
@@ -435,14 +490,20 @@ func (s *Store) Tools(namespace string) *toolbox.ToolBox {
 		toolbox.Tool{
 			Name:        fmt.Sprintf("%s_tasks_update", namespace),
 			Description: "Update a task's mutable fields (status, description, blocked_by, metadata).",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"},"status":{"type":"string","enum":["pending","in_progress","completed","failed"]},"description":{"type":"string"},"blocked_by":{"type":"array","items":{"type":"string"}},"metadata":{"type":"object"}},"required":["id"]}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"},"status":{"type":"string","enum":["pending","in_progress","completed","failed","canceled"]},"description":{"type":"string"},"blocked_by":{"type":"array","items":{"type":"string"}},"metadata":{"type":"object"}},"required":["id"]}`),
 			Handler:     s.handleUpdate,
 		},
 		toolbox.Tool{
 			Name:        fmt.Sprintf("%s_tasks_watch", namespace),
-			Description: "Block until a task reaches completed or failed status.",
+			Description: "Block until a task reaches a terminal status (completed, failed, or canceled).",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`),
 			Handler:     s.handleWatch,
+		},
+		toolbox.Tool{
+			Name:        fmt.Sprintf("%s_tasks_cancel", namespace),
+			Description: "Cancel a task. Sets status to canceled if the task is pending or in_progress.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`),
+			Handler:     s.handleCancel,
 		},
 	)
 
@@ -574,6 +635,19 @@ func (s *Store) handleUpdate(_ context.Context, input json.RawMessage) (string, 
 	}
 
 	if err := s.Update(in.ID, upd); err != nil {
+		return "", err
+	}
+
+	return "ok", nil
+}
+
+func (s *Store) handleCancel(_ context.Context, input json.RawMessage) (string, error) {
+	var in idInput
+	if err := json.Unmarshal(input, &in); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+
+	if err := s.Cancel(in.ID); err != nil {
 		return "", err
 	}
 
