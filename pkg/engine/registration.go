@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 
@@ -66,8 +65,6 @@ type agentCardFields struct {
 	skillsTags     []string
 	estimatedCost  string
 	maxConcurrency int
-	inputSchema    json.RawMessage
-	outputSchema   json.RawMessage
 }
 
 // registerAgent creates a factory for the given agent config and registers it.
@@ -140,10 +137,7 @@ func (e *Engine) buildRegistrationContext(ac AgentConfig) (registrationContext, 
 
 	providerLabel := e.resolveProviderInfo(ac.Name).Label()
 
-	card, err := buildAgentCard(ac)
-	if err != nil {
-		return registrationContext{}, err
-	}
+	card := buildAgentCard(ac)
 
 	return registrationContext{
 		identity: agentIdentity{
@@ -317,8 +311,6 @@ func (e *Engine) registerFactory(rc registrationContext) error {
 		Name:           rc.identity.name,
 		Description:    rc.identity.desc,
 		Skills:         rc.agentCard.skillsTags,
-		InputSchema:    rc.agentCard.inputSchema,
-		OutputSchema:   rc.agentCard.outputSchema,
 		EstimatedCost:  rc.agentCard.estimatedCost,
 		MaxConcurrency: rc.agentCard.maxConcurrency,
 	}
@@ -355,30 +347,13 @@ func (e *Engine) registerFactory(rc registrationContext) error {
 	return nil
 }
 
-// buildAgentCard marshals AgentConfig schema fields into json.RawMessage for
-// the agent registry Entry.
-func buildAgentCard(ac AgentConfig) (agentCardFields, error) {
-	var card agentCardFields
-	card.skillsTags = ac.SkillsTags
-	card.estimatedCost = ac.EstimatedCost
-	card.maxConcurrency = ac.MaxConcurrency
-
-	if ac.InputSchema != nil {
-		raw, err := json.Marshal(ac.InputSchema)
-		if err != nil {
-			return agentCardFields{}, fmt.Errorf("engine: agent %q: invalid input_schema: %w", ac.Name, err)
-		}
-		card.inputSchema = raw
+// buildAgentCard extracts agent card fields from the AgentConfig.
+func buildAgentCard(ac AgentConfig) agentCardFields {
+	return agentCardFields{
+		skillsTags:     ac.SkillsTags,
+		estimatedCost:  ac.EstimatedCost,
+		maxConcurrency: ac.MaxConcurrency,
 	}
-	if ac.OutputSchema != nil {
-		raw, err := json.Marshal(ac.OutputSchema)
-		if err != nil {
-			return agentCardFields{}, fmt.Errorf("engine: agent %q: invalid output_schema: %w", ac.Name, err)
-		}
-		card.outputSchema = raw
-	}
-
-	return card, nil
 }
 
 // effectStorageDir returns a per-agent directory for effects that need

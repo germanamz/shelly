@@ -148,8 +148,6 @@ type AgentConfig struct {
 	SkillsTags     []string       `yaml:"skills_tags,omitempty"`
 	EstimatedCost  string         `yaml:"estimated_cost,omitempty"`
 	MaxConcurrency int            `yaml:"max_concurrency,omitempty"`
-	InputSchema    map[string]any `yaml:"input_schema,omitempty"`
-	OutputSchema   map[string]any `yaml:"output_schema,omitempty"`
 }
 
 // AgentOptions holds optional agent behaviour settings.
@@ -393,22 +391,6 @@ func validateAgents(agents []AgentConfig, providerNames, mcpNames map[string]str
 
 		if a.MaxConcurrency < 0 {
 			return nil, fmt.Errorf("engine: config: agent %q: max_concurrency must be >= 0", a.Name)
-		}
-
-		if a.InputSchema != nil {
-			if t, ok := a.InputSchema["type"]; !ok {
-				return nil, fmt.Errorf("engine: config: agent %q: input_schema must contain a \"type\" key", a.Name)
-			} else if _, isStr := t.(string); !isStr {
-				return nil, fmt.Errorf("engine: config: agent %q: input_schema \"type\" must be a string", a.Name)
-			}
-		}
-
-		if a.OutputSchema != nil {
-			if t, ok := a.OutputSchema["type"]; !ok {
-				return nil, fmt.Errorf("engine: config: agent %q: output_schema must contain a \"type\" key", a.Name)
-			} else if _, isStr := t.(string); !isStr {
-				return nil, fmt.Errorf("engine: config: agent %q: output_schema \"type\" must be a string", a.Name)
-			}
 		}
 
 		for i, ef := range a.Effects {

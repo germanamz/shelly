@@ -33,15 +33,13 @@ New fields on `AgentConfig`:
 ```go
 type AgentConfig struct {
     // ... existing fields ...
-    SkillsTags     []string       `yaml:"skills_tags,omitempty"`
-    EstimatedCost  string         `yaml:"estimated_cost,omitempty"`
-    MaxConcurrency int            `yaml:"max_concurrency,omitempty"`
-    InputSchema    map[string]any `yaml:"input_schema,omitempty"`
-    OutputSchema   map[string]any `yaml:"output_schema,omitempty"`
+    SkillsTags     []string `yaml:"skills_tags,omitempty"`
+    EstimatedCost  string   `yaml:"estimated_cost,omitempty"`
+    MaxConcurrency int      `yaml:"max_concurrency,omitempty"`
 }
 ```
 
-`InputSchema` and `OutputSchema` are typed as `map[string]any` because YAML natively unmarshals JSON Schema objects into nested maps. This avoids needing a dedicated schema struct — arbitrary JSON Schema is supported.
+> **Note:** `InputSchema` and `OutputSchema` are intentionally omitted from `AgentConfig`. Delegation uses freeform text (`task` + `context` strings) and a uniform `CompletionResult` output — there is no per-agent structured input/output at the config level. The `Entry` struct in the registry retains these fields for future use if the delegation protocol evolves.
 
 Example YAML:
 
@@ -52,22 +50,11 @@ agents:
     skills_tags: [coding, testing, refactoring]
     estimated_cost: medium
     max_concurrency: 3
-    input_schema:
-      type: object
-      properties:
-        task: { type: string }
-        files: { type: array, items: { type: string } }
-    output_schema:
-      type: object
-      properties:
-        files_modified: { type: array, items: { type: string } }
-        summary: { type: string }
 ```
 
 Add validation in `Config.Validate()`:
 
 - `estimated_cost` must be one of `""`, `"cheap"`, `"medium"`, `"expensive"`.
-- `input_schema` and `output_schema`, when present, must contain a `"type"` key (basic sanity check — not full JSON Schema validation).
 - `max_concurrency` must be >= 0.
 
 ### 1.4 Wire schemas through `pkg/engine/registration.go`

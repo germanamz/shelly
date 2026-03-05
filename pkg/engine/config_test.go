@@ -359,30 +359,6 @@ func TestConfig_Validate_MaxConcurrencyNegative(t *testing.T) {
 	assert.ErrorContains(t, cfg.Validate(), "max_concurrency")
 }
 
-func TestConfig_Validate_InputSchemaValid(t *testing.T) {
-	cfg := Config{
-		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
-		Agents:    []AgentConfig{{Name: "a1", InputSchema: map[string]any{"type": "object"}}},
-	}
-	assert.NoError(t, cfg.Validate())
-}
-
-func TestConfig_Validate_InputSchemaMissingType(t *testing.T) {
-	cfg := Config{
-		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
-		Agents:    []AgentConfig{{Name: "a1", InputSchema: map[string]any{"properties": map[string]any{}}}},
-	}
-	assert.ErrorContains(t, cfg.Validate(), "input_schema must contain a \"type\" key")
-}
-
-func TestConfig_Validate_OutputSchemaMissingType(t *testing.T) {
-	cfg := Config{
-		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
-		Agents:    []AgentConfig{{Name: "a1", OutputSchema: map[string]any{"properties": map[string]any{}}}},
-	}
-	assert.ErrorContains(t, cfg.Validate(), "output_schema must contain a \"type\" key")
-}
-
 func TestConfig_LoadAgentCardFieldsFromYAML(t *testing.T) {
 	yamlData := `
 providers:
@@ -394,16 +370,6 @@ agents:
     skills_tags: [coding, testing, refactoring]
     estimated_cost: medium
     max_concurrency: 3
-    input_schema:
-      type: object
-      properties:
-        task: { type: string }
-        files: { type: array, items: { type: string } }
-    output_schema:
-      type: object
-      properties:
-        files_modified: { type: array, items: { type: string } }
-        summary: { type: string }
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -416,26 +382,6 @@ agents:
 	assert.Equal(t, []string{"coding", "testing", "refactoring"}, a.SkillsTags)
 	assert.Equal(t, "medium", a.EstimatedCost)
 	assert.Equal(t, 3, a.MaxConcurrency)
-	assert.Equal(t, "object", a.InputSchema["type"])
-	assert.Equal(t, "object", a.OutputSchema["type"])
-	assert.NotNil(t, a.InputSchema["properties"])
-	assert.NotNil(t, a.OutputSchema["properties"])
-}
-
-func TestConfig_Validate_InputSchemaTypeNotString(t *testing.T) {
-	cfg := Config{
-		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
-		Agents:    []AgentConfig{{Name: "a1", InputSchema: map[string]any{"type": 42}}},
-	}
-	assert.ErrorContains(t, cfg.Validate(), "input_schema \"type\" must be a string")
-}
-
-func TestConfig_Validate_OutputSchemaTypeNotString(t *testing.T) {
-	cfg := Config{
-		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
-		Agents:    []AgentConfig{{Name: "a1", OutputSchema: map[string]any{"type": true}}},
-	}
-	assert.ErrorContains(t, cfg.Validate(), "output_schema \"type\" must be a string")
 }
 
 func TestConfig_ExpandConfigStrings_NewFields(t *testing.T) {
