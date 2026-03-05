@@ -142,7 +142,7 @@ func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
 - Render text file attachments with filename header (already text, so can show content)
 - Use distinct styling (dimmed) to differentiate from typed text
 
-### Phase 3: Provider support for images
+### Phase 3: Provider support for images ✅ COMPLETE
 
 **Goal**: Send `content.Image` to LLM APIs.
 

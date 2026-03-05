@@ -3,6 +3,7 @@ package anthropic
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 
@@ -106,6 +107,13 @@ type apiContent struct {
 	ToolUseID string          `json:"tool_use_id,omitempty"`
 	Content   string          `json:"content,omitempty"`
 	IsError   bool            `json:"is_error,omitempty"`
+	Source    *apiSource      `json:"source,omitempty"`
+}
+
+type apiSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
 }
 
 type apiToolDef struct {
@@ -208,6 +216,15 @@ func partToBlock(p content.Part) *apiContent {
 			input = json.RawMessage(`{}`)
 		}
 		return &apiContent{Type: "tool_use", ID: v.ID, Name: v.Name, Input: input}
+	case content.Image:
+		return &apiContent{
+			Type: "image",
+			Source: &apiSource{
+				Type:      "base64",
+				MediaType: v.MediaType,
+				Data:      base64.StdEncoding.EncodeToString(v.Data),
+			},
+		}
 	case content.ToolResult:
 		return &apiContent{Type: "tool_result", ToolUseID: v.ToolCallID, Content: v.Content, IsError: v.IsError}
 	default:

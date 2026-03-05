@@ -364,6 +364,45 @@ func TestComplete_CacheControl(t *testing.T) {
 	assert.Equal(t, 200, last.CacheReadInputTokens)
 }
 
+func TestComplete_ImagePart(t *testing.T) {
+	_, adapter := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		req := readBody(t, r)
+
+		msgs, ok := req["messages"].([]any)
+		assert.True(t, ok)
+		assert.Len(t, msgs, 1)
+
+		msg, _ := msgs[0].(map[string]any)
+		parts, _ := msg["content"].([]any)
+		assert.Len(t, parts, 2) // text + image
+
+		imgBlock, _ := parts[1].(map[string]any)
+		assert.Equal(t, "image", imgBlock["type"])
+
+		source, _ := imgBlock["source"].(map[string]any)
+		assert.Equal(t, "base64", source["type"])
+		assert.Equal(t, "image/png", source["media_type"])
+		assert.NotEmpty(t, source["data"])
+
+		writeJSON(t, w, map[string]any{
+			"content":     []map[string]any{{"type": "text", "text": "I see an image."}},
+			"stop_reason": "end_turn",
+			"usage":       map[string]any{"input_tokens": 50, "output_tokens": 5},
+		})
+	})
+
+	c := chat.New(
+		message.New("user", role.User,
+			content.Text{Text: "What is this?"},
+			content.Image{Data: []byte("fake-png-data"), MediaType: "image/png"},
+		),
+	)
+
+	msg, err := adapter.Complete(context.Background(), c, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "I see an image.", msg.TextContent())
+}
+
 func TestComplete_HTTPError(t *testing.T) {
 	_, adapter := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

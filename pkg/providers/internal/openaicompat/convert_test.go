@@ -10,6 +10,7 @@ import (
 	"github.com/germanamz/shelly/pkg/chats/role"
 	"github.com/germanamz/shelly/pkg/providers/internal/openaicompat"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func strPtr(s string) *string { return &s }
@@ -69,6 +70,94 @@ func TestConvertMessages_MultipleToolResults(t *testing.T) {
 	assert.Equal(t, "result 1", *msgs[0].Content)
 	assert.Equal(t, "tc-2", msgs[1].ToolCallID)
 	assert.Equal(t, "result 2", *msgs[1].Content)
+}
+
+func TestConvertMessages_ImagePart(t *testing.T) {
+	c := chat.New(
+		message.New("", role.User,
+			content.Text{Text: "What is this?"},
+			content.Image{Data: []byte("fake-png"), MediaType: "image/png"},
+		),
+	)
+
+	msgs := openaicompat.ConvertMessages(c.Messages())
+
+	assert.Len(t, msgs, 1)
+	assert.Equal(t, "user", msgs[0].Role)
+	assert.Nil(t, msgs[0].Content, "Content should be nil for multi-modal messages")
+	assert.Len(t, msgs[0].ContentParts, 2)
+
+	assert.Equal(t, "text", msgs[0].ContentParts[0].Type)
+	assert.Equal(t, "What is this?", msgs[0].ContentParts[0].Text)
+
+	assert.Equal(t, "image_url", msgs[0].ContentParts[1].Type)
+	assert.NotNil(t, msgs[0].ContentParts[1].ImageURL)
+	assert.Contains(t, msgs[0].ContentParts[1].ImageURL.URL, "data:image/png;base64,")
+}
+
+func TestMessage_MarshalJSON_MultiModal(t *testing.T) {
+	msg := openaicompat.Message{
+		Role: "user",
+		ContentParts: []openaicompat.ContentPart{
+			{Type: "text", Text: "hello"},
+			{Type: "image_url", ImageURL: &openaicompat.ImageURL{URL: "data:image/png;base64,abc"}},
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	require.NoError(t, err)
+
+	var raw map[string]any
+	err = json.Unmarshal(data, &raw)
+	require.NoError(t, err)
+
+	// content should be an array, not a string
+	parts, ok := raw["content"].([]any)
+	assert.True(t, ok, "content should be an array for multi-modal")
+	assert.Len(t, parts, 2)
+}
+
+func TestMessage_MarshalJSON_StringContent(t *testing.T) {
+	text := "hello"
+	msg := openaicompat.Message{
+		Role:    "user",
+		Content: &text,
+	}
+
+	data, err := json.Marshal(msg)
+	require.NoError(t, err)
+
+	var raw map[string]any
+	err = json.Unmarshal(data, &raw)
+	require.NoError(t, err)
+
+	// content should be a string
+	c, ok := raw["content"].(string)
+	assert.True(t, ok, "content should be a string")
+	assert.Equal(t, "hello", c)
+}
+
+func TestMessage_UnmarshalJSON_String(t *testing.T) {
+	data := `{"role":"user","content":"hello"}`
+	var msg openaicompat.Message
+	err := json.Unmarshal([]byte(data), &msg)
+	require.NoError(t, err)
+	assert.Equal(t, "user", msg.Role)
+	assert.NotNil(t, msg.Content)
+	assert.Equal(t, "hello", *msg.Content)
+	assert.Empty(t, msg.ContentParts)
+}
+
+func TestMessage_UnmarshalJSON_Array(t *testing.T) {
+	data := `{"role":"user","content":[{"type":"text","text":"hi"},{"type":"image_url","image_url":{"url":"data:image/png;base64,abc"}}]}`
+	var msg openaicompat.Message
+	err := json.Unmarshal([]byte(data), &msg)
+	require.NoError(t, err)
+	assert.Equal(t, "user", msg.Role)
+	assert.Nil(t, msg.Content)
+	assert.Len(t, msg.ContentParts, 2)
+	assert.Equal(t, "text", msg.ContentParts[0].Type)
+	assert.Equal(t, "image_url", msg.ContentParts[1].Type)
 }
 
 func TestParseMessage_TextOnly(t *testing.T) {

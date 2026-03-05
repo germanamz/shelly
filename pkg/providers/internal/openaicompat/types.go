@@ -2,7 +2,10 @@
 // providers that use OpenAI-compatible chat completion APIs (OpenAI, Grok, etc.).
 package openaicompat
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // CompletionsPath is the standard OpenAI-compatible completions endpoint.
 const CompletionsPath = "/v1/chat/completions"
@@ -19,11 +22,100 @@ type Request struct {
 }
 
 // Message is a message in the OpenAI-compatible wire format.
+// For multi-modal messages, ContentParts is used instead of Content.
 type Message struct {
-	Role       string     `json:"role"`
-	Content    *string    `json:"content,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Role         string        `json:"role"`
+	Content      *string       `json:"-"`
+	ContentParts []ContentPart `json:"-"`
+	ToolCalls    []ToolCall    `json:"tool_calls,omitempty"`
+	ToolCallID   string        `json:"tool_call_id,omitempty"`
+}
+
+// ContentPart is a part within a multi-modal content array.
+type ContentPart struct {
+	Type     string    `json:"type"`
+	Text     string    `json:"text,omitempty"`
+	ImageURL *ImageURL `json:"image_url,omitempty"`
+}
+
+// ImageURL holds an image reference for multi-modal messages.
+type ImageURL struct {
+	URL string `json:"url"`
+}
+
+// MarshalJSON implements custom JSON marshaling for Message.
+// When ContentParts is set, the "content" field is serialized as an array;
+// otherwise it is serialized as a string (or omitted if nil).
+func (m Message) MarshalJSON() ([]byte, error) {
+	type alias struct {
+		Role       string          `json:"role"`
+		Content    json.RawMessage `json:"content,omitempty"`
+		ToolCalls  []ToolCall      `json:"tool_calls,omitempty"`
+		ToolCallID string          `json:"tool_call_id,omitempty"`
+	}
+
+	a := alias{
+		Role:       m.Role,
+		ToolCalls:  m.ToolCalls,
+		ToolCallID: m.ToolCallID,
+	}
+
+	switch {
+	case len(m.ContentParts) > 0:
+		b, err := json.Marshal(m.ContentParts)
+		if err != nil {
+			return nil, err
+		}
+		a.Content = b
+	case m.Content != nil:
+		b, err := json.Marshal(*m.Content)
+		if err != nil {
+			return nil, err
+		}
+		a.Content = b
+	}
+
+	return json.Marshal(a)
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for Message.
+// The "content" field can be either a string or an array of ContentPart.
+func (m *Message) UnmarshalJSON(data []byte) error {
+	type alias struct {
+		Role       string          `json:"role"`
+		Content    json.RawMessage `json:"content,omitempty"`
+		ToolCalls  []ToolCall      `json:"tool_calls,omitempty"`
+		ToolCallID string          `json:"tool_call_id,omitempty"`
+	}
+
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+
+	m.Role = a.Role
+	m.ToolCalls = a.ToolCalls
+	m.ToolCallID = a.ToolCallID
+
+	if len(a.Content) == 0 || string(a.Content) == "null" {
+		return nil
+	}
+
+	// Try string first.
+	var s string
+	if err := json.Unmarshal(a.Content, &s); err == nil {
+		m.Content = &s
+		return nil
+	}
+
+	// Try array of content parts.
+	var parts []ContentPart
+	if err := json.Unmarshal(a.Content, &parts); err == nil {
+		m.ContentParts = parts
+		return nil
+	}
+
+	return fmt.Errorf("openaicompat: unsupported content type in message")
 }
 
 // ToolCall represents a tool invocation in an assistant message.

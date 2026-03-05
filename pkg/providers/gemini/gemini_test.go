@@ -527,6 +527,53 @@ func TestComplete_ThoughtSignatureRoundTrip(t *testing.T) {
 	assert.Equal(t, "It's sunny in Paris.", msg.TextContent())
 }
 
+func TestComplete_ImagePart(t *testing.T) {
+	_, adapter := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		req := readBody(t, r)
+
+		contents, ok := req["contents"].([]any)
+		assert.True(t, ok)
+		assert.Len(t, contents, 1)
+
+		entry, _ := contents[0].(map[string]any)
+		parts, _ := entry["parts"].([]any)
+		assert.Len(t, parts, 2) // text + inlineData
+
+		imgPart, _ := parts[1].(map[string]any)
+		inlineData, _ := imgPart["inlineData"].(map[string]any)
+		assert.Equal(t, "image/png", inlineData["mimeType"])
+		assert.NotEmpty(t, inlineData["data"])
+
+		writeJSON(t, w, map[string]any{
+			"candidates": []map[string]any{
+				{
+					"content": map[string]any{
+						"role":  "model",
+						"parts": []map[string]any{{"text": "I see an image."}},
+					},
+					"finishReason": "STOP",
+				},
+			},
+			"usageMetadata": map[string]any{
+				"promptTokenCount":     50,
+				"candidatesTokenCount": 5,
+				"totalTokenCount":      55,
+			},
+		})
+	})
+
+	c := chat.New(
+		message.New("user", role.User,
+			content.Text{Text: "What is this?"},
+			content.Image{Data: []byte("fake-png-data"), MediaType: "image/png"},
+		),
+	)
+
+	msg, err := adapter.Complete(context.Background(), c, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "I see an image.", msg.TextContent())
+}
+
 func TestComplete_HTTPError(t *testing.T) {
 	_, adapter := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

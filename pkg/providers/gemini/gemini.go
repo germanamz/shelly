@@ -4,6 +4,7 @@ package gemini
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -87,9 +88,15 @@ type apiContent struct {
 
 type apiPart struct {
 	Text             string           `json:"text,omitempty"`
+	InlineData       *apiBlob         `json:"inlineData,omitempty"`
 	FunctionCall     *apiFunctionCall `json:"functionCall,omitempty"`
 	FunctionResponse *apiFunctionResp `json:"functionResponse,omitempty"`
 	ThoughtSignature string           `json:"thoughtSignature,omitempty"`
+}
+
+type apiBlob struct {
+	MimeType string `json:"mimeType"`
+	Data     string `json:"data"`
 }
 
 type apiFunctionCall struct {
@@ -252,6 +259,13 @@ func (a *Adapter) partToAPIPart(p content.Part, callNameMap map[string]string) (
 			part.ThoughtSignature = sig
 		}
 		return part, nil
+	case content.Image:
+		return &apiPart{
+			InlineData: &apiBlob{
+				MimeType: v.MediaType,
+				Data:     base64.StdEncoding.EncodeToString(v.Data),
+			},
+		}, nil
 	case content.ToolResult:
 		name := callNameMap[v.ToolCallID]
 		if name == "" {

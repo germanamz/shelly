@@ -1,7 +1,9 @@
 package openaicompat
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 
 	"github.com/germanamz/shelly/pkg/chats/chat"
 	"github.com/germanamz/shelly/pkg/chats/content"
@@ -36,11 +38,15 @@ func ConvertMessages(msgs []message.Message) []Message {
 	for _, m := range msgs {
 		switch m.Role {
 		case role.System, role.User:
-			text := m.TextContent()
-			out = append(out, Message{
-				Role:    m.Role.String(),
-				Content: &text,
-			})
+			if hasImages(m) {
+				out = append(out, convertMultiModalMessage(m))
+			} else {
+				text := m.TextContent()
+				out = append(out, Message{
+					Role:    m.Role.String(),
+					Content: &text,
+				})
+			}
 
 		case role.Assistant:
 			am := Message{Role: role.Assistant.String()}
@@ -128,6 +134,39 @@ func ParseMessage(m Message) message.Message {
 	}
 
 	return message.New("", role.Assistant, parts...)
+}
+
+// hasImages returns true if the message contains any Image parts.
+func hasImages(m message.Message) bool {
+	for _, p := range m.Parts {
+		if _, ok := p.(content.Image); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// convertMultiModalMessage converts a message with Image parts into a Message
+// using the ContentParts array format required by OpenAI for multi-modal input.
+func convertMultiModalMessage(m message.Message) Message {
+	msg := Message{Role: m.Role.String()}
+	for _, p := range m.Parts {
+		switch v := p.(type) {
+		case content.Text:
+			msg.ContentParts = append(msg.ContentParts, ContentPart{
+				Type: "text",
+				Text: v.Text,
+			})
+		case content.Image:
+			dataURI := fmt.Sprintf("data:%s;base64,%s",
+				v.MediaType, base64.StdEncoding.EncodeToString(v.Data))
+			msg.ContentParts = append(msg.ContentParts, ContentPart{
+				Type:     "image_url",
+				ImageURL: &ImageURL{URL: dataURI},
+			})
+		}
+	}
+	return msg
 }
 
 // ParseUsage converts API usage to a TokenCount.
