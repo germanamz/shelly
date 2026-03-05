@@ -29,7 +29,7 @@ Each session gets its own directory. Metadata is separated from messages. Binary
 
 ---
 
-## Phase 1: Directory-per-session with metadata split
+## Phase 1: Directory-per-session with metadata split ✅ COMPLETED
 
 **Goal**: Migrate from single-file to directory-per-session layout. Split metadata from messages. No attachment support yet — images still embedded as base64 in `messages.json`.
 

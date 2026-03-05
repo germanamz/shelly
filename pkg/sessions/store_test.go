@@ -1,6 +1,9 @@
 package sessions
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -38,6 +41,11 @@ func TestStore_SaveLoad_RoundTrip(t *testing.T) {
 	msgs := testMessages()
 
 	require.NoError(t, store.Save(info, msgs))
+
+	// Verify v2 directory structure exists.
+	assert.DirExists(t, store.sessionDir("sess-1"))
+	assert.FileExists(t, store.metaPath("sess-1"))
+	assert.FileExists(t, store.messagesPath("sess-1"))
 
 	gotInfo, gotMsgs, err := store.Load("sess-1")
 	require.NoError(t, err)
@@ -102,6 +110,25 @@ func TestStore_List_Empty(t *testing.T) {
 	assert.Empty(t, list)
 }
 
+func TestStore_List_OnlyReadsMetadata(t *testing.T) {
+	store := New(t.TempDir())
+	info := testInfo("sess-1")
+
+	// Create v2 directory with valid meta.json but corrupted messages.json.
+	sessDir := store.sessionDir("sess-1")
+	require.NoError(t, os.MkdirAll(sessDir, 0o750))
+
+	metaData, err := json.MarshalIndent(info, "", "  ")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(store.metaPath("sess-1"), metaData, 0o600))
+	require.NoError(t, os.WriteFile(store.messagesPath("sess-1"), []byte("corrupted"), 0o600))
+
+	list, err := store.List()
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, "sess-1", list[0].ID)
+}
+
 func TestStore_Delete(t *testing.T) {
 	store := New(t.TempDir())
 	require.NoError(t, store.Save(testInfo("sess-1"), testMessages()))
@@ -109,7 +136,8 @@ func TestStore_Delete(t *testing.T) {
 	require.NoError(t, store.Delete("sess-1"))
 
 	_, _, err := store.Load("sess-1")
-	assert.Error(t, err)
+	require.Error(t, err)
+	assert.NoDirExists(t, store.sessionDir("sess-1"))
 }
 
 func TestStore_Delete_NotFound(t *testing.T) {
@@ -154,4 +182,80 @@ func TestStore_SaveLoad_WithAllPartTypes(t *testing.T) {
 
 	tr := gotMsgs[3].Parts[0].(content.ToolResult)
 	assert.Equal(t, "found", tr.Content)
+}
+
+// writeV1File writes a legacy v1 single-file session directly to disk.
+func writeV1File(t *testing.T, dir string, info SessionInfo, msgs []message.Message) {
+	t.Helper()
+	msgData, err := MarshalMessages(msgs)
+	require.NoError(t, err)
+
+	pf := persistedFile{
+		SessionInfo: info,
+		Messages:    json.RawMessage(msgData),
+	}
+	data, err := json.MarshalIndent(pf, "", "  ")
+	require.NoError(t, err)
+
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, info.ID+".json"), data, 0o600))
+}
+
+func TestStore_Migration_V1ToV2(t *testing.T) {
+	dir := t.TempDir()
+	store := New(dir)
+	info := testInfo("legacy")
+	msgs := testMessages()
+
+	// Write a v1-format file directly.
+	writeV1File(t, dir, info, msgs)
+
+	// Load should work via v1 fallback.
+	gotInfo, gotMsgs, err := store.Load("legacy")
+	require.NoError(t, err)
+	assert.Equal(t, info.ID, gotInfo.ID)
+	require.Len(t, gotMsgs, 2)
+
+	// Save migrates to v2 and removes v1 file.
+	require.NoError(t, store.Save(gotInfo, gotMsgs))
+	assert.DirExists(t, store.sessionDir("legacy"))
+	assert.NoFileExists(t, filepath.Join(dir, "legacy.json"))
+
+	// Load should now use v2.
+	gotInfo2, gotMsgs2, err := store.Load("legacy")
+	require.NoError(t, err)
+	assert.Equal(t, info.ID, gotInfo2.ID)
+	require.Len(t, gotMsgs2, 2)
+}
+
+func TestStore_List_MixedV1V2(t *testing.T) {
+	dir := t.TempDir()
+	store := New(dir)
+	now := time.Now().Truncate(time.Millisecond)
+
+	// Write a v2 session.
+	v2Info := testInfo("v2-sess")
+	v2Info.UpdatedAt = now.Add(time.Hour)
+	require.NoError(t, store.Save(v2Info, testMessages()))
+
+	// Write a v1 session.
+	v1Info := testInfo("v1-sess")
+	v1Info.UpdatedAt = now
+	writeV1File(t, dir, v1Info, testMessages())
+
+	list, err := store.List()
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+	assert.Equal(t, "v2-sess", list[0].ID)
+	assert.Equal(t, "v1-sess", list[1].ID)
+}
+
+func TestStore_Delete_V1(t *testing.T) {
+	dir := t.TempDir()
+	store := New(dir)
+
+	writeV1File(t, dir, testInfo("v1-sess"), testMessages())
+
+	require.NoError(t, store.Delete("v1-sess"))
+	assert.NoFileExists(t, filepath.Join(dir, "v1-sess.json"))
 }
