@@ -4,9 +4,11 @@ Based on [CONTINUE.md](CONTINUE.md). Detailed implementation phases with specifi
 
 ---
 
-## Phase 1: Foundation — `pkg/sessions/` package
+## Phase 1: Foundation — `pkg/sessions/` package ✅ COMPLETED
 
 **Goal**: Build the standalone sessions package with serialization and file store. No integration with anything else yet. Fully testable in isolation.
+
+**Status**: Completed. All files created, 13 tests passing, lint clean.
 
 ### Step 1.1: `pkg/sessions/serialize.go` — Message JSON serialization
 
