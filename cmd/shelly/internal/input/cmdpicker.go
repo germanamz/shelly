@@ -10,22 +10,28 @@ import (
 
 const CmdPickerMaxShow = 4
 
+// CommandDef defines a slash command with its name and description.
+type CommandDef struct {
+	Name string
+	Desc string
+}
+
 // AvailableCommands is the static list of supported slash commands.
-var AvailableCommands = []string{
-	"/help",
-	"/clear",
-	"/compact",
-	"/settings",
-	"/exit",
+var AvailableCommands = []CommandDef{
+	{Name: "/help", Desc: "Show available commands and keybindings"},
+	{Name: "/clear", Desc: "Clear the conversation history"},
+	{Name: "/compact", Desc: "Compact context to reduce token usage"},
+	{Name: "/settings", Desc: "Open the configuration wizard"},
+	{Name: "/exit", Desc: "Exit the application"},
 }
 
 // CmdPickerModel displays an autocomplete popup for /-commands.
 type CmdPickerModel struct {
 	Active   bool
-	query    string   // text typed after '/'
-	SlashPos int      // rune position of '/' in input value
-	filtered []string // filtered commands
-	cursor   int      // highlighted entry index
+	query    string       // text typed after '/'
+	SlashPos int          // rune position of '/' in input value
+	filtered []CommandDef // filtered commands
+	cursor   int          // highlighted entry index
 	maxShow  int
 	Width    int
 }
@@ -77,12 +83,12 @@ func (cp *CmdPickerModel) setQuery(q string) {
 	cp.applyFilter()
 }
 
-// selected returns the currently highlighted entry, or "" if none.
+// selected returns the currently highlighted command name, or "" if none.
 func (cp *CmdPickerModel) selected() string {
 	if len(cp.filtered) == 0 {
 		return ""
 	}
-	return cp.filtered[cp.cursor]
+	return cp.filtered[cp.cursor].Name
 }
 
 // handleKey processes navigation keys while the picker is active.
@@ -136,9 +142,9 @@ func (cp CmdPickerModel) View() string {
 		for i := start; i < end; i++ {
 			entry := cp.filtered[i]
 			if i == cp.cursor {
-				sb.WriteString(styles.PickerCurStyle.Render(entry))
+				sb.WriteString(styles.PickerCurStyle.Render(entry.Name) + "  " + styles.PickerDimStyle.Render(entry.Desc))
 			} else {
-				sb.WriteString(styles.PickerDimStyle.Render(entry))
+				sb.WriteString(styles.PickerDimStyle.Render(entry.Name + "  " + entry.Desc))
 			}
 			if i < end-1 {
 				sb.WriteString("\n")
@@ -153,15 +159,15 @@ func (cp CmdPickerModel) View() string {
 func (cp *CmdPickerModel) applyFilter() {
 	q := strings.ToLower(cp.query)
 	if q == "" {
-		cp.filtered = make([]string, len(AvailableCommands))
+		cp.filtered = make([]CommandDef, len(AvailableCommands))
 		copy(cp.filtered, AvailableCommands)
 		return
 	}
 
-	var filtered []string
+	var filtered []CommandDef
 	for _, cmd := range AvailableCommands {
 		// Match against the command without the leading '/'.
-		name := strings.TrimPrefix(cmd, "/")
+		name := strings.TrimPrefix(cmd.Name, "/")
 		if strings.Contains(strings.ToLower(name), q) {
 			filtered = append(filtered, cmd)
 		}

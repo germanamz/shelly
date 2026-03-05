@@ -31,7 +31,7 @@ func TestCmdPickerQuery(t *testing.T) {
 	cp, _ = cp.Update(msgs.CmdPickerQueryMsg{Query: "hel"})
 
 	assert.Len(t, cp.filtered, 1)
-	assert.Equal(t, "/help", cp.filtered[0])
+	assert.Equal(t, "/help", cp.filtered[0].Name)
 }
 
 func TestCmdPickerKeyNavigation(t *testing.T) {
