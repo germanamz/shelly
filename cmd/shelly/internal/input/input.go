@@ -1,6 +1,9 @@
 package input
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -9,6 +12,7 @@ import (
 	"github.com/germanamz/shelly/cmd/shelly/internal/basetextarea"
 	"github.com/germanamz/shelly/cmd/shelly/internal/msgs"
 	"github.com/germanamz/shelly/cmd/shelly/internal/styles"
+	"github.com/germanamz/shelly/pkg/chats/content"
 )
 
 const (
@@ -18,12 +22,13 @@ const (
 
 // InputModel wraps a textarea in a rounded border box.
 type InputModel struct {
-	textarea   basetextarea.Model
-	FilePicker FilePickerModel
-	CmdPicker  CmdPickerModel
-	history    *History
-	Enabled    bool
-	width      int
+	textarea    basetextarea.Model
+	FilePicker  FilePickerModel
+	CmdPicker   CmdPickerModel
+	history     *History
+	attachments []Attachment // pending file attachments
+	Enabled     bool
+	width       int
 }
 
 // New creates a new InputModel with persistent history at the given path.
@@ -52,6 +57,7 @@ func (m InputModel) Update(msg tea.Msg) (InputModel, tea.Cmd) {
 		m.Enabled = true
 		m.FilePicker.Active = false
 		m.CmdPicker.Active = false
+		m.attachments = nil
 		return m, nil
 	case msgs.InputSetWidthMsg:
 		m.width = msg.Width
@@ -67,7 +73,7 @@ func (m InputModel) Update(msg tea.Msg) (InputModel, tea.Cmd) {
 	// Handle picker selection messages from sub-models.
 	switch msg := msg.(type) {
 	case msgs.FilePickerSelectionMsg:
-		m.insertFileSelection(msg.Path)
+		m.attachFileSelection(msg.Path)
 		return m, nil
 	case msgs.CmdPickerSelectionMsg:
 		m.textarea.Reset()
@@ -75,6 +81,11 @@ func (m InputModel) Update(msg tea.Msg) (InputModel, tea.Cmd) {
 		return m, func() tea.Msg { return msgs.InputSubmitMsg{Text: msg.Command} }
 	case tea.KeyPressMsg:
 		return m.handleKeyPress(msg)
+	}
+
+	// Intercept paste events for file paths.
+	if pasteMsg, ok := msg.(tea.PasteMsg); ok {
+		return m.handlePaste(pasteMsg.Content)
 	}
 
 	// Forward non-key messages to textarea and pickers.
@@ -120,6 +131,12 @@ func (m InputModel) handleKeyPress(keyMsg tea.KeyPressMsg) (InputModel, tea.Cmd)
 		}
 	}
 
+	// Ctrl+U clears all pending attachments.
+	if keyMsg.Key().Code == 'u' && keyMsg.Key().Mod&tea.ModCtrl != 0 && len(m.attachments) > 0 {
+		m.attachments = nil
+		return m, nil
+	}
+
 	// History navigation: Up on first line, Down on last line.
 	if keyMsg.Key().Code == tea.KeyUp && !m.FilePicker.Active && !m.CmdPicker.Active && m.cursorOnFirstLine() {
 		if text, ok := m.history.Up(m.textarea.Value()); ok {
@@ -142,12 +159,17 @@ func (m InputModel) handleKeyPress(keyMsg tea.KeyPressMsg) (InputModel, tea.Cmd)
 	// textarea's InsertNewline binding before reaching here).
 	if keyMsg.Key().Code == tea.KeyEnter && keyMsg.Key().Mod&tea.ModAlt == 0 && !m.FilePicker.Active && !m.CmdPicker.Active {
 		text := strings.TrimSpace(m.textarea.Value())
-		if text != "" {
-			m.history.Add(text)
+		parts := m.attachmentParts()
+		if text != "" || len(parts) > 0 {
+			if text != "" {
+				m.history.Add(text)
+			}
 			m.textarea.Reset()
 			m.FilePicker.Active = false
 			m.CmdPicker.Active = false
-			return m, func() tea.Msg { return msgs.InputSubmitMsg{Text: text} }
+			submitMsg := msgs.InputSubmitMsg{Text: text, Parts: parts}
+			m.attachments = nil
+			return m, func() tea.Msg { return submitMsg }
 		}
 		return m, nil
 	}
@@ -221,24 +243,93 @@ func (m *InputModel) updatePickerState(prevVal, newVal string, existingCmd tea.C
 	return existingCmd
 }
 
-// insertFileSelection replaces @query with the selected file path.
-func (m *InputModel) insertFileSelection(sel string) {
+// attachFileSelection reads the selected file and adds it as an attachment,
+// removing the @query text from the input.
+func (m *InputModel) attachFileSelection(sel string) {
+	// Remove @query from textarea.
 	runes := []rune(m.textarea.Value())
 	atPos := m.FilePicker.AtPos
-
-	// Find end of @query.
 	queryEnd := atPos + 1
 	for queryEnd < len(runes) && runes[queryEnd] != ' ' && runes[queryEnd] != '\n' {
 		queryEnd++
 	}
-
-	// Replace @query with selected path.
-	newRunes := make([]rune, 0, len(runes)+len(sel))
+	newRunes := make([]rune, 0, len(runes))
 	newRunes = append(newRunes, runes[:atPos]...)
-	newRunes = append(newRunes, []rune(sel)...)
 	newRunes = append(newRunes, runes[queryEnd:]...)
-
 	m.textarea.SetValue(string(newRunes))
+
+	// Resolve path to absolute.
+	path := sel
+	if !filepath.IsAbs(path) {
+		if wd, err := os.Getwd(); err == nil {
+			path = filepath.Join(wd, path)
+		}
+	}
+
+	att, err := ReadAttachment(path)
+	if err != nil {
+		// On error, insert the path as text instead (fallback).
+		m.textarea.SetValue(string(runes[:atPos]) + sel + string(runes[queryEnd:]))
+		return
+	}
+	// Use the relative path for display.
+	att.Path = sel
+	m.attachments = append(m.attachments, att)
+}
+
+// handlePaste intercepts paste events, detects file paths, and attaches them.
+func (m InputModel) handlePaste(text string) (InputModel, tea.Cmd) {
+	paths := DetectFilePaths(text)
+	if len(paths) == 0 {
+		// No file paths — forward as normal paste to textarea.
+		var cmd tea.Cmd
+		m.textarea.TA, cmd = m.textarea.TA.Update(tea.PasteMsg{Content: text})
+		return m, cmd
+	}
+
+	// Attach each detected file.
+	for _, p := range paths {
+		att, err := ReadAttachment(p)
+		if err != nil {
+			continue
+		}
+		m.attachments = append(m.attachments, att)
+	}
+
+	// Insert remaining text (non-path portions) into textarea.
+	remaining := removePathsFromText(text, paths)
+	remaining = strings.TrimSpace(remaining)
+	if remaining != "" {
+		var cmd tea.Cmd
+		m.textarea.TA, cmd = m.textarea.TA.Update(tea.PasteMsg{Content: remaining})
+		return m, cmd
+	}
+
+	return m, nil
+}
+
+// removePathsFromText strips detected file paths from pasted text.
+func removePathsFromText(text string, paths []string) string {
+	result := text
+	for _, p := range paths {
+		// Try quoted variants first.
+		result = strings.ReplaceAll(result, fmt.Sprintf("'%s'", p), "")
+		result = strings.ReplaceAll(result, fmt.Sprintf("\"%s\"", p), "")
+		result = strings.ReplaceAll(result, p, "")
+	}
+	return result
+}
+
+// attachmentParts converts pending attachments to content.Part slices.
+func (m *InputModel) attachmentParts() []content.Part {
+	if len(m.attachments) == 0 {
+		return nil
+	}
+	parts := make([]content.Part, len(m.attachments))
+	for i, att := range m.attachments {
+		parts[i] = att.ToPart()
+	}
+	return parts
 }
 
 // PickerActive returns true if any picker is open.
@@ -274,7 +365,22 @@ func (m InputModel) viewInput() string {
 	m.textarea.SetWidth(innerWidth)
 	border = border.Width(m.width)
 
-	return border.Render(m.textarea.View())
+	content := m.textarea.View()
+	if len(m.attachments) > 0 {
+		tags := m.attachmentTagLine()
+		content = content + "\n" + tags
+	}
+
+	return border.Render(content)
+}
+
+// attachmentTagLine renders a line showing all pending attachment names.
+func (m InputModel) attachmentTagLine() string {
+	var tags []string
+	for _, att := range m.attachments {
+		tags = append(tags, att.Label())
+	}
+	return styles.DimStyle.Render(strings.Join(tags, " "))
 }
 
 // cursorOnFirstLine returns true when the cursor is on the first visual line

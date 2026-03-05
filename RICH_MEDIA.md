@@ -56,7 +56,7 @@ Binary files (images, PDFs) require provider-specific encoding.
 
 ## Implementation Phases
 
-### Phase 1: TUI input plumbing
+### Phase 1: TUI input plumbing ✅ COMPLETE
 
 **Goal**: Carry file attachments from input through to `SendParts`.
 

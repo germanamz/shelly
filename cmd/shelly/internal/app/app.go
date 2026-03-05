@@ -17,6 +17,7 @@ import (
 	"github.com/germanamz/shelly/cmd/shelly/internal/msgs"
 	"github.com/germanamz/shelly/cmd/shelly/internal/styles"
 	"github.com/germanamz/shelly/cmd/shelly/internal/taskpanel"
+	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/engine"
 	"github.com/germanamz/shelly/pkg/modeladapter"
 )
@@ -342,6 +343,9 @@ func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
 	m.chatView, _ = m.chatView.Update(msgs.ChatViewCommitUserMsg{Text: text})
 	m.chatView, _ = m.chatView.Update(msgs.ChatViewMarkSentMsg{})
 
+	// Build content parts: text first, then any attachments.
+	parts := buildSendParts(text, msg.Parts)
+
 	if m.state == StateProcessing {
 		if m.cancelSend != nil {
 			m.cancelSend()
@@ -353,7 +357,7 @@ func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
 		sess := m.sess
 		sendStart := time.Now()
 		return m, func() tea.Msg {
-			_, err := sess.Send(sendCtx, text)
+			_, err := sess.SendParts(sendCtx, parts...)
 			return msgs.SendCompleteMsg{Err: err, Duration: time.Since(sendStart), Generation: gen}
 		}
 	}
@@ -369,11 +373,21 @@ func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
 
 	sess := m.sess
 	sendCmd := func() tea.Msg {
-		_, err := sess.Send(sendCtx, text)
+		_, err := sess.SendParts(sendCtx, parts...)
 		return msgs.SendCompleteMsg{Err: err, Duration: time.Since(sendStart), Generation: gen}
 	}
 
 	return m, tea.Batch(sendCmd, tickCmd())
+}
+
+// buildSendParts assembles content parts from text and attachment parts.
+func buildSendParts(text string, extraParts []content.Part) []content.Part {
+	var parts []content.Part
+	if text != "" {
+		parts = append(parts, content.Text{Text: text})
+	}
+	parts = append(parts, extraParts...)
+	return parts
 }
 
 func (m *AppModel) handleSendComplete(msg msgs.SendCompleteMsg) (tea.Model, tea.Cmd) {

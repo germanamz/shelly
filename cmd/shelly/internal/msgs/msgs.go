@@ -4,6 +4,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/ask"
 	"github.com/germanamz/shelly/pkg/sessions"
@@ -43,7 +44,8 @@ type AskUserMsg struct {
 
 // InputSubmitMsg carries the text the user submitted from the input box.
 type InputSubmitMsg struct {
-	Text string
+	Text  string
+	Parts []content.Part // non-text parts (images, documents)
 }
 
 // SendCompleteMsg is returned by the tea.Cmd that calls sess.Send.
