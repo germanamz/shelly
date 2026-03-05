@@ -144,7 +144,8 @@ type Registry struct { /* unexported fields */ }
 | Method | Description |
 |--------|-------------|
 | `NewRegistry() *Registry` | Creates an empty Registry. |
-| `Register(name, description string, factory Factory)` | Registers an agent factory. Replaces existing entries with the same name. |
+| `Register(name, description string, factory Factory)` | Registers an agent factory with a minimal Entry. Replaces existing entries with the same name. |
+| `RegisterEntry(entry Entry, factory Factory)` | Registers an agent factory with a full Entry (including skills, schemas, cost). |
 | `Get(name string) (Factory, bool)` | Returns the factory for the named agent. |
 | `List() []Entry` | Returns all entries sorted by name. |
 | `Spawn(name string, depth int) (*Agent, bool)` | Creates a fresh agent instance with the given delegation depth. Sets `configName` to the registry key. |
@@ -160,14 +161,24 @@ type Factory func() *Agent
 
 ### Entry
 
-Describes a registered agent in the directory.
+Describes a registered agent in the directory. Includes optional rich capability metadata (agent card fields) that enable better delegation decisions.
 
 ```go
 type Entry struct {
-    Name        string
-    Description string
+    Name           string          `json:"name"`
+    Description    string          `json:"description"`
+    Skills         []string        `json:"skills,omitempty"`
+    InputSchema    json.RawMessage `json:"input_schema,omitempty"`
+    OutputSchema   json.RawMessage `json:"output_schema,omitempty"`
+    EstimatedCost  string          `json:"estimated_cost,omitempty"`
+    MaxConcurrency int             `json:"max_concurrency,omitempty"`
 }
 ```
+
+- `Skills`: capability tags for the agent (e.g., `["coding", "testing"]`).
+- `InputSchema` / `OutputSchema`: JSON Schema (`json.RawMessage`) describing the expected input/output shape. Set from YAML `map[string]any` via the engine.
+- `EstimatedCost`: one of `"cheap"`, `"medium"`, `"expensive"` (or empty).
+- `MaxConcurrency`: max concurrent instances (0 = unlimited).
 
 ### ErrMaxIterations
 

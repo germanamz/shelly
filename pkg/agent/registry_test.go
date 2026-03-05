@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -113,6 +114,52 @@ func TestRegistryNextID(t *testing.T) {
 	assert.Equal(t, 1, r.NextID("reviewer"))
 	// Original keeps incrementing.
 	assert.Equal(t, 3, r.NextID("coder"))
+}
+
+func TestRegistryRegisterEntry(t *testing.T) {
+	r := NewRegistry()
+	entry := Entry{
+		Name:           "coder",
+		Description:    "Writes code",
+		Skills:         []string{"coding", "testing"},
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{"task":{"type":"string"}}}`),
+		OutputSchema:   json.RawMessage(`{"type":"object","properties":{"summary":{"type":"string"}}}`),
+		EstimatedCost:  "medium",
+		MaxConcurrency: 3,
+	}
+	r.RegisterEntry(entry, func() *Agent {
+		return &Agent{name: "coder", configName: "coder"}
+	})
+
+	entries := r.List()
+	require.Len(t, entries, 1)
+	assert.Equal(t, "coder", entries[0].Name)
+	assert.Equal(t, "Writes code", entries[0].Description)
+	assert.Equal(t, []string{"coding", "testing"}, entries[0].Skills)
+	assert.JSONEq(t, `{"type":"object","properties":{"task":{"type":"string"}}}`, string(entries[0].InputSchema))
+	assert.JSONEq(t, `{"type":"object","properties":{"summary":{"type":"string"}}}`, string(entries[0].OutputSchema))
+	assert.Equal(t, "medium", entries[0].EstimatedCost)
+	assert.Equal(t, 3, entries[0].MaxConcurrency)
+
+	f, ok := r.Get("coder")
+	require.True(t, ok)
+	assert.Equal(t, "coder", f().name)
+}
+
+func TestRegistryRegisterEntryMinimal(t *testing.T) {
+	r := NewRegistry()
+	entry := Entry{Name: "worker", Description: "Does work"}
+	r.RegisterEntry(entry, func() *Agent {
+		return &Agent{name: "worker", configName: "worker"}
+	})
+
+	entries := r.List()
+	require.Len(t, entries, 1)
+	assert.Nil(t, entries[0].Skills)
+	assert.Nil(t, entries[0].InputSchema)
+	assert.Nil(t, entries[0].OutputSchema)
+	assert.Empty(t, entries[0].EstimatedCost)
+	assert.Zero(t, entries[0].MaxConcurrency)
 }
 
 func TestRegistrySpawnSetsConfigName(t *testing.T) {

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"sort"
 	"sync"
 )
@@ -12,8 +13,13 @@ type Factory func() *Agent
 
 // Entry describes a registered agent in the directory.
 type Entry struct {
-	Name        string
-	Description string
+	Name           string          `json:"name"`
+	Description    string          `json:"description"`
+	Skills         []string        `json:"skills,omitempty"`
+	InputSchema    json.RawMessage `json:"input_schema,omitempty"`
+	OutputSchema   json.RawMessage `json:"output_schema,omitempty"`
+	EstimatedCost  string          `json:"estimated_cost,omitempty"`
+	MaxConcurrency int             `json:"max_concurrency,omitempty"`
 }
 
 // Registry is a thread-safe directory of agent factories. It allows agents
@@ -52,6 +58,16 @@ func (r *Registry) Register(name, description string, factory Factory) {
 
 	r.factories[name] = factory
 	r.entries[name] = Entry{Name: name, Description: description}
+}
+
+// RegisterEntry adds an agent factory to the registry using a full Entry.
+// If an agent with the same name already exists, it is replaced.
+func (r *Registry) RegisterEntry(entry Entry, factory Factory) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.factories[entry.Name] = factory
+	r.entries[entry.Name] = entry
 }
 
 // Get returns the factory for the named agent and true, or nil and false if

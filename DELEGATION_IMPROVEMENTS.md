@@ -2,7 +2,7 @@
 
 Implementation plan for Section 1 (Delegation Improvements) from `BETTER_DELEGATION.md`. Covers peer handoff, streaming delegation, rich agent cards, and bidirectional child-to-parent communication.
 
-## Phase 1: Rich Agent Capability Discovery (Agent Cards)
+## Phase 1: Rich Agent Capability Discovery (Agent Cards) ✅ COMPLETE
 
 **Priority:** P1 | **Complexity:** Low | **No breaking changes**
 

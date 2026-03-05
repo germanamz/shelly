@@ -136,15 +136,20 @@ func ToolboxRefsFromNames(names []string) []ToolboxRef {
 
 // AgentConfig describes an agent to register.
 type AgentConfig struct {
-	Name         string         `yaml:"name"`
-	Description  string         `yaml:"description"`
-	Instructions string         `yaml:"instructions"`
-	Provider     string         `yaml:"provider"`
-	Toolboxes    []ToolboxRef   `yaml:"toolboxes"`
-	Skills       []string       `yaml:"skills"` // Skill names to assign to this agent. Empty means all engine-level skills.
-	Effects      []EffectConfig `yaml:"effects"`
-	Options      AgentOptions   `yaml:"options"`
-	Prefix       string         `yaml:"prefix"` // Display prefix (e.g. "🤖", "📝"). Default: "🤖".
+	Name           string         `yaml:"name"`
+	Description    string         `yaml:"description"`
+	Instructions   string         `yaml:"instructions"`
+	Provider       string         `yaml:"provider"`
+	Toolboxes      []ToolboxRef   `yaml:"toolboxes"`
+	Skills         []string       `yaml:"skills"` // Skill names to assign to this agent. Empty means all engine-level skills.
+	Effects        []EffectConfig `yaml:"effects"`
+	Options        AgentOptions   `yaml:"options"`
+	Prefix         string         `yaml:"prefix"` // Display prefix (e.g. "🤖", "📝"). Default: "🤖".
+	SkillsTags     []string       `yaml:"skills_tags,omitempty"`
+	EstimatedCost  string         `yaml:"estimated_cost,omitempty"`
+	MaxConcurrency int            `yaml:"max_concurrency,omitempty"`
+	InputSchema    map[string]any `yaml:"input_schema,omitempty"`
+	OutputSchema   map[string]any `yaml:"output_schema,omitempty"`
 }
 
 // AgentOptions holds optional agent behaviour settings.
@@ -242,6 +247,10 @@ func ExpandConfigStrings(cfg *Config) {
 		}
 		for j := range a.Effects {
 			a.Effects[j].Kind = os.ExpandEnv(a.Effects[j].Kind)
+		}
+		a.EstimatedCost = os.ExpandEnv(a.EstimatedCost)
+		for j := range a.SkillsTags {
+			a.SkillsTags[j] = os.ExpandEnv(a.SkillsTags[j])
 		}
 	}
 }
@@ -376,6 +385,30 @@ func validateAgents(agents []AgentConfig, providerNames, mcpNames map[string]str
 
 		if a.Options.ContextThreshold != 0 && (a.Options.ContextThreshold < 0 || a.Options.ContextThreshold >= 1) {
 			return nil, fmt.Errorf("engine: config: agent %q: context_threshold must be in (0, 1) or 0 to disable", a.Name)
+		}
+
+		if a.EstimatedCost != "" && a.EstimatedCost != "cheap" && a.EstimatedCost != "medium" && a.EstimatedCost != "expensive" {
+			return nil, fmt.Errorf("engine: config: agent %q: estimated_cost must be one of \"cheap\", \"medium\", \"expensive\"", a.Name)
+		}
+
+		if a.MaxConcurrency < 0 {
+			return nil, fmt.Errorf("engine: config: agent %q: max_concurrency must be >= 0", a.Name)
+		}
+
+		if a.InputSchema != nil {
+			if t, ok := a.InputSchema["type"]; !ok {
+				return nil, fmt.Errorf("engine: config: agent %q: input_schema must contain a \"type\" key", a.Name)
+			} else if _, isStr := t.(string); !isStr {
+				return nil, fmt.Errorf("engine: config: agent %q: input_schema \"type\" must be a string", a.Name)
+			}
+		}
+
+		if a.OutputSchema != nil {
+			if t, ok := a.OutputSchema["type"]; !ok {
+				return nil, fmt.Errorf("engine: config: agent %q: output_schema must contain a \"type\" key", a.Name)
+			} else if _, isStr := t.(string); !isStr {
+				return nil, fmt.Errorf("engine: config: agent %q: output_schema \"type\" must be a string", a.Name)
+			}
 		}
 
 		for i, ef := range a.Effects {

@@ -202,6 +202,19 @@ agents:
 
 entry_agent: assistant
 
+# Agent card fields (optional, for richer delegation decisions):
+#   skills_tags: [coding, testing]       # capability tags
+#   estimated_cost: medium               # "cheap" | "medium" | "expensive"
+#   max_concurrency: 3                   # max concurrent instances (0 = unlimited)
+#   input_schema:                        # JSON Schema as YAML (map[string]any -> json.RawMessage)
+#     type: object
+#     properties:
+#       task: { type: string }
+#   output_schema:
+#     type: object
+#     properties:
+#       summary: { type: string }
+
 # Override built-in context window defaults or add defaults for custom kinds.
 # Built-in defaults: anthropic=200000, openai=128000, grok=131072, gemini=1048576.
 default_context_windows:
@@ -225,7 +238,7 @@ browser:
 | `RateLimitConfig` | Per-provider rate limiting: `InputTPM`, `OutputTPM`, `RPM`, `MaxRetries`, and `BaseDelay` (duration string). When any field is non-zero, the completer is wrapped with `modeladapter.NewRateLimitedCompleter`. |
 | `MCPConfig` | Describes an MCP server: name, command + args (stdio transport) or URL (SSE transport). Command and URL are mutually exclusive. |
 | `ToolboxRef` | References a toolbox by name with an optional `Tools` whitelist. Supports both plain string ("filesystem") and object form (`{name: git, tools: [git_status]}`) in YAML. |
-| `AgentConfig` | Agent registration: name, description, instructions, provider reference, toolbox list (`[]ToolboxRef`), skills filter, effects list, options, and display prefix. |
+| `AgentConfig` | Agent registration: name, description, instructions, provider reference, toolbox list (`[]ToolboxRef`), skills filter, effects list, options, display prefix, and agent card fields (`skills_tags`, `estimated_cost`, `max_concurrency`, `input_schema`, `output_schema`). |
 | `AgentOptions` | Optional agent behaviour: `MaxIterations`, `MaxDelegationDepth`, `ContextThreshold` (fraction in (0, 1) or 0 to disable). |
 | `EffectConfig` | A single effect: `Kind` string and `Params` map. |
 | `FilesystemConfig` | Filesystem tool settings (permissions file path). |

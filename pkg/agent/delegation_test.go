@@ -53,6 +53,58 @@ func TestListAgentsToolExcludesSelfCaseInsensitive(t *testing.T) {
 	assert.Equal(t, "other", entries[0].Name)
 }
 
+func TestListAgentsToolReturnsEnrichedEntries(t *testing.T) {
+	reg := NewRegistry()
+	reg.RegisterEntry(Entry{
+		Name:          "self",
+		Description:   "Self",
+		Skills:        []string{"planning"},
+		EstimatedCost: "cheap",
+	}, func() *Agent { return &Agent{} })
+	reg.RegisterEntry(Entry{
+		Name:           "coder",
+		Description:    "Writes code",
+		Skills:         []string{"coding", "testing"},
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{"task":{"type":"string"}}}`),
+		OutputSchema:   json.RawMessage(`{"type":"object","properties":{"summary":{"type":"string"}}}`),
+		EstimatedCost:  "medium",
+		MaxConcurrency: 3,
+	}, func() *Agent { return &Agent{} })
+
+	a := &Agent{name: "self", configName: "self", registry: reg}
+	tool := listAgentsTool(a)
+	result, err := tool.Handler(context.Background(), json.RawMessage(`{}`))
+	require.NoError(t, err)
+
+	var entries []Entry
+	require.NoError(t, json.Unmarshal([]byte(result), &entries))
+	require.Len(t, entries, 1)
+	assert.Equal(t, "coder", entries[0].Name)
+	assert.Equal(t, []string{"coding", "testing"}, entries[0].Skills)
+	assert.Equal(t, "medium", entries[0].EstimatedCost)
+	assert.Equal(t, 3, entries[0].MaxConcurrency)
+	assert.NotNil(t, entries[0].InputSchema)
+	assert.NotNil(t, entries[0].OutputSchema)
+}
+
+func TestListAgentsToolOmitsEmptyFields(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register("self", "Self", func() *Agent { return &Agent{} })
+	reg.Register("simple", "Simple agent", func() *Agent { return &Agent{} })
+
+	a := &Agent{name: "self", configName: "self", registry: reg}
+	tool := listAgentsTool(a)
+	result, err := tool.Handler(context.Background(), json.RawMessage(`{}`))
+	require.NoError(t, err)
+
+	// Verify omitempty: no skills, input_schema, output_schema, estimated_cost, max_concurrency keys.
+	assert.NotContains(t, result, "skills")
+	assert.NotContains(t, result, "input_schema")
+	assert.NotContains(t, result, "output_schema")
+	assert.NotContains(t, result, "estimated_cost")
+	assert.NotContains(t, result, "max_concurrency")
+}
+
 func TestDelegateToolInvalidInput(t *testing.T) {
 	a := &Agent{name: "orch", configName: "orch", registry: NewRegistry()}
 	tool := delegateTool(a)

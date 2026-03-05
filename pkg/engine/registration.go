@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 
@@ -57,6 +58,16 @@ type registrationContext struct {
 	reflectionDir string
 	maxIter       int
 	maxDepth      int
+	agentCard     agentCardFields
+}
+
+// agentCardFields holds rich capability metadata for an agent entry.
+type agentCardFields struct {
+	skillsTags     []string
+	estimatedCost  string
+	maxConcurrency int
+	inputSchema    json.RawMessage
+	outputSchema   json.RawMessage
 }
 
 // registerAgent creates a factory for the given agent config and registers it.
@@ -129,6 +140,11 @@ func (e *Engine) buildRegistrationContext(ac AgentConfig) (registrationContext, 
 
 	providerLabel := e.resolveProviderInfo(ac.Name).Label()
 
+	card, err := buildAgentCard(ac)
+	if err != nil {
+		return registrationContext{}, err
+	}
+
 	return registrationContext{
 		identity: agentIdentity{
 			name:          ac.Name,
@@ -158,6 +174,7 @@ func (e *Engine) buildRegistrationContext(ac AgentConfig) (registrationContext, 
 		reflectionDir: reflectionDir,
 		maxIter:       ac.Options.MaxIterations,
 		maxDepth:      ac.Options.MaxDelegationDepth,
+		agentCard:     card,
 	}, nil
 }
 
@@ -296,7 +313,16 @@ func (e *Engine) buildAgentEventFunc() agent.EventFunc {
 // registerFactory captures registration context into a factory closure and
 // registers it with the agent registry.
 func (e *Engine) registerFactory(rc registrationContext) error {
-	e.registry.Register(rc.identity.name, rc.identity.desc, func() *agent.Agent {
+	entry := agent.Entry{
+		Name:           rc.identity.name,
+		Description:    rc.identity.desc,
+		Skills:         rc.agentCard.skillsTags,
+		InputSchema:    rc.agentCard.inputSchema,
+		OutputSchema:   rc.agentCard.outputSchema,
+		EstimatedCost:  rc.agentCard.estimatedCost,
+		MaxConcurrency: rc.agentCard.maxConcurrency,
+	}
+	e.registry.RegisterEntry(entry, func() *agent.Agent {
 		// Build fresh effects for each agent instance so stateful effects
 		// (e.g. SlidingWindowEffect, ReflectionEffect, LoopDetectEffect)
 		// are not shared across agents created by the same factory.
@@ -327,6 +353,32 @@ func (e *Engine) registerFactory(rc registrationContext) error {
 	})
 
 	return nil
+}
+
+// buildAgentCard marshals AgentConfig schema fields into json.RawMessage for
+// the agent registry Entry.
+func buildAgentCard(ac AgentConfig) (agentCardFields, error) {
+	var card agentCardFields
+	card.skillsTags = ac.SkillsTags
+	card.estimatedCost = ac.EstimatedCost
+	card.maxConcurrency = ac.MaxConcurrency
+
+	if ac.InputSchema != nil {
+		raw, err := json.Marshal(ac.InputSchema)
+		if err != nil {
+			return agentCardFields{}, fmt.Errorf("engine: agent %q: invalid input_schema: %w", ac.Name, err)
+		}
+		card.inputSchema = raw
+	}
+	if ac.OutputSchema != nil {
+		raw, err := json.Marshal(ac.OutputSchema)
+		if err != nil {
+			return agentCardFields{}, fmt.Errorf("engine: agent %q: invalid output_schema: %w", ac.Name, err)
+		}
+		card.outputSchema = raw
+	}
+
+	return card, nil
 }
 
 // effectStorageDir returns a per-agent directory for effects that need
