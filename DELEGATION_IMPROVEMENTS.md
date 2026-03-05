@@ -39,7 +39,7 @@ type AgentConfig struct {
 }
 ```
 
-> **Note:** `InputSchema` and `OutputSchema` are intentionally omitted from `AgentConfig`. Delegation uses freeform text (`task` + `context` strings) and a uniform `CompletionResult` output — there is no per-agent structured input/output at the config level. The `Entry` struct in the registry retains these fields for future use if the delegation protocol evolves.
+> **Note:** `InputSchema` and `OutputSchema` have been removed from `Entry`. Delegation uses freeform text (`task` + `context` strings) and a uniform `CompletionResult` output — there is no structured input/output contract between agents. These fields can be added back if the delegation protocol evolves to support structured schemas.
 
 Example YAML:
 

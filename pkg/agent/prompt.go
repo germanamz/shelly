@@ -1,9 +1,7 @@
 package agent
 
 import (
-	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/germanamz/shelly/pkg/skill"
@@ -150,73 +148,10 @@ func (pb *promptBuilder) build() string {
 					fmt.Fprintf(&b, " [cost: %s]", e.EstimatedCost)
 				}
 				b.WriteString("\n")
-				if e.InputSchema != nil {
-					fmt.Fprintf(&b, "  Input: %s\n", compactSchemaString(e.InputSchema))
-				}
-				if e.OutputSchema != nil {
-					fmt.Fprintf(&b, "  Output: %s\n", compactSchemaString(e.OutputSchema))
-				}
 			}
 			b.WriteString("</available_agents>\n")
 		}
 	}
 
 	return b.String()
-}
-
-// compactSchemaString renders a JSON Schema as a compact type signature.
-// For object schemas with properties, it shows "{prop: type, ...}".
-// For schemas with >5 properties, only the first 5 are shown with "...".
-// Falls back to the raw JSON for non-object or unparseable schemas.
-func compactSchemaString(raw json.RawMessage) string {
-	var schema map[string]any
-	if err := json.Unmarshal(raw, &schema); err != nil {
-		return string(raw)
-	}
-
-	typ, _ := schema["type"].(string)
-	if typ != "object" {
-		s := string(raw)
-		const maxFallback = 200
-		if len(s) > maxFallback {
-			s = s[:maxFallback] + "..."
-		}
-		return s
-	}
-
-	props, ok := schema["properties"].(map[string]any)
-	if !ok || len(props) == 0 {
-		return "{}"
-	}
-
-	keys := make([]string, 0, len(props))
-	for k := range props {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	const maxProps = 5
-	var parts []string
-	for i, k := range keys {
-		if i >= maxProps {
-			parts = append(parts, "...")
-			break
-		}
-		propType := "any"
-		if propMap, ok := props[k].(map[string]any); ok {
-			if t, ok := propMap["type"].(string); ok {
-				if t == "array" {
-					if items, ok := propMap["items"].(map[string]any); ok {
-						if it, ok := items["type"].(string); ok {
-							t = it + "[]"
-						}
-					}
-				}
-				propType = t
-			}
-		}
-		parts = append(parts, fmt.Sprintf("%s: %s", k, propType))
-	}
-
-	return "{" + strings.Join(parts, ", ") + "}"
 }

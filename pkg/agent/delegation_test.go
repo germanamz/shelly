@@ -65,8 +65,6 @@ func TestListAgentsToolReturnsEnrichedEntries(t *testing.T) {
 		Name:           "coder",
 		Description:    "Writes code",
 		Skills:         []string{"coding", "testing"},
-		InputSchema:    json.RawMessage(`{"type":"object","properties":{"task":{"type":"string"}}}`),
-		OutputSchema:   json.RawMessage(`{"type":"object","properties":{"summary":{"type":"string"}}}`),
 		EstimatedCost:  "medium",
 		MaxConcurrency: 3,
 	}, func() *Agent { return &Agent{} })
@@ -83,8 +81,6 @@ func TestListAgentsToolReturnsEnrichedEntries(t *testing.T) {
 	assert.Equal(t, []string{"coding", "testing"}, entries[0].Skills)
 	assert.Equal(t, "medium", entries[0].EstimatedCost)
 	assert.Equal(t, 3, entries[0].MaxConcurrency)
-	assert.NotNil(t, entries[0].InputSchema)
-	assert.NotNil(t, entries[0].OutputSchema)
 }
 
 func TestListAgentsToolOmitsEmptyFields(t *testing.T) {
@@ -97,10 +93,8 @@ func TestListAgentsToolOmitsEmptyFields(t *testing.T) {
 	result, err := tool.Handler(context.Background(), json.RawMessage(`{}`))
 	require.NoError(t, err)
 
-	// Verify omitempty: no skills, input_schema, output_schema, estimated_cost, max_concurrency keys.
+	// Verify omitempty: no skills, estimated_cost, max_concurrency keys.
 	assert.NotContains(t, result, "skills")
-	assert.NotContains(t, result, "input_schema")
-	assert.NotContains(t, result, "output_schema")
 	assert.NotContains(t, result, "estimated_cost")
 	assert.NotContains(t, result, "max_concurrency")
 }

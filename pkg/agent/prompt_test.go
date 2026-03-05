@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/germanamz/shelly/pkg/skill"
@@ -146,65 +145,6 @@ func TestPromptBuilderAgentDirectoryWithSkillsAndCost(t *testing.T) {
 
 	assert.Contains(t, prompt, "[skills: coding, testing]")
 	assert.Contains(t, prompt, "[cost: medium]")
-}
-
-func TestPromptBuilderAgentDirectoryWithSchemas(t *testing.T) {
-	pb := promptBuilder{
-		Name:        "orch",
-		ConfigName:  "orch",
-		CanDelegate: true,
-		RegistryEntries: []Entry{
-			{
-				Name:         "coder",
-				Description:  "Writes code",
-				InputSchema:  json.RawMessage(`{"type":"object","properties":{"task":{"type":"string"},"files":{"type":"array","items":{"type":"string"}}}}`),
-				OutputSchema: json.RawMessage(`{"type":"object","properties":{"summary":{"type":"string"}}}`),
-			},
-		},
-	}
-	prompt := pb.build()
-
-	assert.Contains(t, prompt, "Input: {files: string[], task: string}")
-	assert.Contains(t, prompt, "Output: {summary: string}")
-}
-
-func TestPromptBuilderAgentDirectoryWithManyProperties(t *testing.T) {
-	// >5 properties should truncate with "..."
-	pb := promptBuilder{
-		Name:        "orch",
-		ConfigName:  "orch",
-		CanDelegate: true,
-		RegistryEntries: []Entry{
-			{
-				Name:        "complex",
-				Description: "Complex agent",
-				InputSchema: json.RawMessage(`{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"string"},"c":{"type":"string"},"d":{"type":"string"},"e":{"type":"string"},"f":{"type":"string"}}}`),
-			},
-		},
-	}
-	prompt := pb.build()
-
-	assert.Contains(t, prompt, "...")
-	assert.Contains(t, prompt, "Input: {a: string, b: string, c: string, d: string, e: string, ...}")
-}
-
-func TestPromptBuilderAgentDirectoryNonObjectSchema(t *testing.T) {
-	pb := promptBuilder{
-		Name:        "orch",
-		ConfigName:  "orch",
-		CanDelegate: true,
-		RegistryEntries: []Entry{
-			{
-				Name:        "worker",
-				Description: "Does work",
-				InputSchema: json.RawMessage(`{"type":"string"}`),
-			},
-		},
-	}
-	prompt := pb.build()
-
-	// Non-object schemas fall back to raw JSON.
-	assert.Contains(t, prompt, `Input: {"type":"string"}`)
 }
 
 func TestPromptBuilderAgentDirectoryNoSchemas(t *testing.T) {
