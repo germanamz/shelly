@@ -1648,3 +1648,218 @@ func TestDelegateToolEmitsResultOnError(t *testing.T) {
 	assert.Equal(t, DelegationResult, resultEvents[0].Kind)
 	assert.Contains(t, resultEvents[0].Result.Error, "boom")
 }
+
+// --- handoff tests ---
+
+func TestDelegateToolHandoffSuccess(t *testing.T) {
+	// Child calls handoff to transfer control to a peer. The peer completes.
+	reg := NewRegistry()
+	reg.Register("planner", "Plans", func() *Agent {
+		return New("planner", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{
+						ID:        "h1",
+						Name:      "handoff",
+						Arguments: `{"target_agent":"coder","reason":"needs coding","context":"plan: refactor module X"}`,
+					},
+				),
+			},
+		}, Options{MaxHandoffs: 3})
+	})
+	reg.Register("coder", "Codes", func() *Agent {
+		return New("coder", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{
+						ID:        "c1",
+						Name:      "task_complete",
+						Arguments: `{"status":"completed","summary":"refactored module X"}`,
+					},
+				),
+			},
+		}, Options{})
+	})
+
+	a := &Agent{name: "orch", configName: "orch", registry: reg, chat: chat.New(), delegation: delegationConfig{maxDepth: 1, maxHandoffs: 3}}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"planner","task":"refactor module X","context":"project context"}]}`,
+	))
+
+	require.NoError(t, err)
+
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Completion)
+	assert.Equal(t, "completed", results[0].Completion.Status)
+	assert.Equal(t, "refactored module X", results[0].Completion.Summary)
+}
+
+func TestDelegateToolHandoffChainLimit(t *testing.T) {
+	// Each agent hands off to the next, eventually hitting the chain limit.
+	reg := NewRegistry()
+	reg.Register("a", "Agent A", func() *Agent {
+		return New("a", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{
+						ID:        "h1",
+						Name:      "handoff",
+						Arguments: `{"target_agent":"b","reason":"needs b","context":"ctx from a"}`,
+					},
+				),
+			},
+		}, Options{MaxHandoffs: 2})
+	})
+	reg.Register("b", "Agent B", func() *Agent {
+		return New("b", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{
+						ID:        "h2",
+						Name:      "handoff",
+						Arguments: `{"target_agent":"a","reason":"needs a","context":"ctx from b"}`,
+					},
+				),
+			},
+		}, Options{MaxHandoffs: 2})
+	})
+
+	a := &Agent{name: "orch", configName: "orch", registry: reg, chat: chat.New(), delegation: delegationConfig{maxDepth: 1, maxHandoffs: 2}}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"a","task":"ping pong","context":"ctx"}]}`,
+	))
+
+	require.NoError(t, err)
+
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	assert.Contains(t, results[0].Error, "handoff chain limit")
+}
+
+func TestDelegateToolHandoffSelfRejected(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register("coder", "Codes", func() *Agent {
+		return New("coder", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{
+						ID:        "h1",
+						Name:      "handoff",
+						Arguments: `{"target_agent":"coder","reason":"I can do it better next time","context":"ctx"}`,
+					},
+				),
+			},
+		}, Options{MaxHandoffs: 3})
+	})
+
+	a := &Agent{name: "orch", configName: "orch", registry: reg, chat: chat.New(), delegation: delegationConfig{maxDepth: 1, maxHandoffs: 3}}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"coder","task":"do something","context":"ctx"}]}`,
+	))
+
+	require.NoError(t, err)
+
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	assert.Contains(t, results[0].Error, "self-handoff is not allowed")
+}
+
+func TestDelegateToolHandoffToNonexistentAgent(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register("planner", "Plans", func() *Agent {
+		return New("planner", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{
+						ID:        "h1",
+						Name:      "handoff",
+						Arguments: `{"target_agent":"ghost","reason":"needs ghost","context":"ctx"}`,
+					},
+				),
+			},
+		}, Options{MaxHandoffs: 3})
+	})
+
+	a := &Agent{name: "orch", configName: "orch", registry: reg, chat: chat.New(), delegation: delegationConfig{maxDepth: 1, maxHandoffs: 3}}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"planner","task":"find ghost","context":"ctx"}]}`,
+	))
+
+	require.NoError(t, err)
+
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	assert.Contains(t, results[0].Error, "handoff target \"ghost\" not found")
+}
+
+func TestDelegateToolHandoffWithTaskBoard(t *testing.T) {
+	board := &mockTaskBoard{}
+
+	reg := NewRegistry()
+	reg.Register("planner", "Plans", func() *Agent {
+		return New("planner", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{
+						ID:        "h1",
+						Name:      "handoff",
+						Arguments: `{"target_agent":"coder","reason":"needs coding","context":"plan ready"}`,
+					},
+				),
+			},
+		}, Options{MaxHandoffs: 3})
+	})
+	reg.Register("coder", "Codes", func() *Agent {
+		return New("coder", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				message.New("", role.Assistant,
+					content.ToolCall{
+						ID:        "c1",
+						Name:      "task_complete",
+						Arguments: `{"status":"completed","summary":"coded it"}`,
+					},
+				),
+			},
+		}, Options{})
+	})
+
+	a := &Agent{name: "orch", configName: "orch", registry: reg, chat: chat.New(), delegation: delegationConfig{maxDepth: 1, maxHandoffs: 3, taskBoard: board}}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"planner","task":"code it","context":"ctx","task_id":"task-ho"}]}`,
+	))
+
+	require.NoError(t, err)
+
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Completion)
+	assert.Equal(t, "completed", results[0].Completion.Status)
+
+	// Initial claim for planner child, then re-claim for coder peer.
+	require.Len(t, board.claims, 2)
+	assert.Equal(t, "task-ho", board.claims[0].ID)
+	assert.True(t, strings.HasPrefix(board.claims[0].Agent, "planner-"))
+	assert.Equal(t, "task-ho", board.claims[1].ID)
+	assert.True(t, strings.HasPrefix(board.claims[1].Agent, "coder-"))
+
+	// Final status update.
+	require.Len(t, board.updates, 1)
+	assert.Equal(t, "task-ho", board.updates[0].ID)
+	assert.Equal(t, "completed", board.updates[0].Status)
+}

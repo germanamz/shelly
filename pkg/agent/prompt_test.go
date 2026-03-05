@@ -177,3 +177,26 @@ func TestPromptBuilderNoAgentDirectoryWhenCannotDelegate(t *testing.T) {
 
 	assert.NotContains(t, prompt, "<available_agents>")
 }
+
+func TestPromptBuilderHandoffProtocol(t *testing.T) {
+	pb := promptBuilder{Name: "worker", Depth: 1, CanHandoff: true}
+	prompt := pb.build()
+
+	assert.Contains(t, prompt, "<handoff_protocol>")
+	assert.Contains(t, prompt, "handoff tool")
+	assert.Contains(t, prompt, "</handoff_protocol>")
+}
+
+func TestPromptBuilderNoHandoffProtocolAtTopLevel(t *testing.T) {
+	pb := promptBuilder{Name: "bot", Depth: 0, CanHandoff: false}
+	prompt := pb.build()
+
+	assert.NotContains(t, prompt, "<handoff_protocol>")
+}
+
+func TestPromptBuilderNoHandoffProtocolWhenDisabled(t *testing.T) {
+	pb := promptBuilder{Name: "worker", Depth: 1, CanHandoff: false}
+	prompt := pb.build()
+
+	assert.NotContains(t, prompt, "<handoff_protocol>")
+}

@@ -16,6 +16,7 @@ type promptBuilder struct {
 	DisableBehavioralHints                               bool
 	HasNotesTools                                        bool
 	CanDelegate                                          bool
+	CanHandoff                                           bool
 	RegistryEntries                                      []Entry
 }
 
@@ -51,6 +52,18 @@ func (pb *promptBuilder) build() string {
 		b.WriteString("call task_complete with status \"failed\", summarize what was done, ")
 		b.WriteString("and describe remaining work in caveats. Write a progress note first.\n")
 		b.WriteString("</completion_protocol>\n")
+
+		if pb.CanHandoff {
+			b.WriteString("\n<handoff_protocol>\n")
+			b.WriteString("You have a handoff tool available. Use it to transfer control to a peer agent when:\n")
+			b.WriteString("- The task requires expertise outside your capabilities.\n")
+			b.WriteString("- Another agent is clearly better suited for the remaining work.\n")
+			b.WriteString("Do NOT use handoff when:\n")
+			b.WriteString("- You can complete the task yourself (use task_complete instead).\n")
+			b.WriteString("- You want to delegate a sub-task (that's what the delegate tool is for).\n")
+			b.WriteString("When handing off, provide a thorough context summary so the peer can continue without re-exploring.\n")
+			b.WriteString("</handoff_protocol>\n")
+		}
 	}
 
 	// Notes protocol (only when notes tools are available).

@@ -184,6 +184,7 @@ agents:
     options:
       max_iterations: 100
       max_delegation_depth: 5
+      max_handoffs: 3         # max peer-to-peer handoff chain length (0 = disabled)
       context_threshold: 0.8  # legacy shorthand for compact threshold
   - name: planner
     description: A planning expert
@@ -232,7 +233,7 @@ browser:
 | `MCPConfig` | Describes an MCP server: name, command + args (stdio transport) or URL (SSE transport). Command and URL are mutually exclusive. |
 | `ToolboxRef` | References a toolbox by name with an optional `Tools` whitelist. Supports both plain string ("filesystem") and object form (`{name: git, tools: [git_status]}`) in YAML. |
 | `AgentConfig` | Agent registration: name, description, instructions, provider reference, toolbox list (`[]ToolboxRef`), skills filter, effects list, options, display prefix, and agent card fields (`skills_tags`, `estimated_cost`, `max_concurrency`). |
-| `AgentOptions` | Optional agent behaviour: `MaxIterations`, `MaxDelegationDepth`, `ContextThreshold` (fraction in (0, 1) or 0 to disable). |
+| `AgentOptions` | Optional agent behaviour: `MaxIterations`, `MaxDelegationDepth`, `MaxHandoffs` (peer handoff chain limit, 0 = disabled), `ContextThreshold` (fraction in (0, 1) or 0 to disable). |
 | `EffectConfig` | A single effect: `Kind` string and `Params` map. |
 | `FilesystemConfig` | Filesystem tool settings (permissions file path). |
 | `GitConfig` | Git tool settings (working directory). |

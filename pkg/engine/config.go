@@ -154,6 +154,7 @@ type AgentConfig struct {
 type AgentOptions struct {
 	MaxIterations      int     `yaml:"max_iterations"`
 	MaxDelegationDepth int     `yaml:"max_delegation_depth"`
+	MaxHandoffs        int     `yaml:"max_handoffs"`      // Max peer-to-peer handoff chain length (0 = disabled).
 	ContextThreshold   float64 `yaml:"context_threshold"` // Fraction triggering compaction (0 = disabled).
 }
 
@@ -391,6 +392,10 @@ func validateAgents(agents []AgentConfig, providerNames, mcpNames map[string]str
 
 		if a.MaxConcurrency < 0 {
 			return nil, fmt.Errorf("engine: config: agent %q: max_concurrency must be >= 0", a.Name)
+		}
+
+		if a.Options.MaxHandoffs < 0 {
+			return nil, fmt.Errorf("engine: config: agent %q: max_handoffs must be >= 0", a.Name)
 		}
 
 		for i, ef := range a.Effects {

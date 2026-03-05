@@ -57,6 +57,7 @@ type registrationContext struct {
 	reflectionDir string
 	maxIter       int
 	maxDepth      int
+	maxHandoffs   int
 	agentCard     agentCardFields
 }
 
@@ -168,6 +169,7 @@ func (e *Engine) buildRegistrationContext(ac AgentConfig) (registrationContext, 
 		reflectionDir: reflectionDir,
 		maxIter:       ac.Options.MaxIterations,
 		maxDepth:      ac.Options.MaxDelegationDepth,
+		maxHandoffs:   ac.Options.MaxHandoffs,
 		agentCard:     card,
 	}, nil
 }
@@ -328,6 +330,7 @@ func (e *Engine) registerFactory(rc registrationContext) error {
 		opts := agent.Options{
 			MaxIterations:      rc.maxIter,
 			MaxDelegationDepth: rc.maxDepth,
+			MaxHandoffs:        rc.maxHandoffs,
 			Skills:             rc.tooling.skills,
 			Effects:            agentEffects,
 			Context:            rc.contextStr,

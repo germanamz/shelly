@@ -43,6 +43,7 @@ type Agent struct { /* unexported fields */ }
 | `Chat() *chat.Chat` | Returns the agent's chat. |
 | `Completer() modeladapter.Completer` | Returns the agent's completer. |
 | `CompletionResult() *CompletionResult` | Returns structured completion data set by `task_complete`, or nil. |
+| `HandoffResult() *HandoffResult` | Returns handoff data set by `handoff`, or nil. |
 
 ### Options
 
@@ -52,6 +53,7 @@ Configures an Agent at construction time.
 type Options struct {
     MaxIterations          int           // ReAct loop limit (0 = unlimited).
     MaxDelegationDepth     int           // Max tree depth for delegation (0 = cannot delegate).
+    MaxHandoffs            int           // Max peer-to-peer handoff chain length (0 = disabled).
     Skills                 []skill.Skill // Procedures the agent knows.
     Middleware             []Middleware   // Applied around Run().
     Effects                []Effect      // Per-iteration hooks run inside the ReAct loop.
@@ -76,6 +78,18 @@ type CompletionResult struct {
     FilesModified []string `json:"files_modified,omitempty"` // Files changed.
     TestsRun      []string `json:"tests_run,omitempty"`      // Tests executed.
     Caveats       string   `json:"caveats,omitempty"`        // Known limitations.
+}
+```
+
+### HandoffResult
+
+Carries peer handoff data from a sub-agent. Set by the `handoff` tool, read by the delegation machinery to spawn a peer agent that continues the task.
+
+```go
+type HandoffResult struct {
+    TargetAgent string `json:"target_agent"`
+    Reason      string `json:"reason"`
+    Context     string `json:"context"` // Context to pass to the peer.
 }
 ```
 
@@ -340,11 +354,12 @@ When a `Registry` is set and `MaxDelegationDepth > 0`, two tools are automatical
 | `list_agents` | Lists all available agents (excluding self). Case-insensitive self-exclusion. |
 | `delegate` | Delegates one or more tasks to other agents. All tasks run concurrently. Each task requires `agent`, `task`, and `context` fields. Optional `task_id` per task for automatic task lifecycle. |
 
-When depth > 0 (sub-agent), an additional tool is injected:
+When depth > 0 (sub-agent), additional tools are injected:
 
 | Tool | Description |
 |------|-------------|
 | `task_complete` | Signals task completion with structured metadata (status, summary, files modified, tests run, caveats). Only callable once per agent run (duplicates are silently ignored). |
+| `handoff` | Transfers control to a peer agent (only when `MaxHandoffs > 0` and a registry is set). Stops the current agent's loop and the delegation machinery spawns the target peer with the provided context. |
 
 ### Delegation Mechanics
 
@@ -426,6 +441,21 @@ type DelegationEvent struct {
 
 Events are published under the `"delegation_progress"` kind through the existing `EventNotifier`, which the engine maps to `EventDelegationProgress` on the `EventBus`. Frontends can subscribe to these events to display real-time delegation progress (e.g., streaming child agent output in the TUI).
 
+### Peer Handoff
+
+When a sub-agent calls the `handoff` tool, the delegation machinery transfers control to a sibling agent without returning to the parent:
+
+1. The current agent's ReAct loop stops (like `task_complete`).
+2. The delegation handler detects the `HandoffResult` and spawns the target peer from the registry.
+3. The peer receives a `<handoff_context>` message with the handoff reason and context summary, followed by the original task.
+4. The peer runs and its result becomes the delegation result returned to the parent.
+
+**Safety guards:**
+- **Chain limit**: Handoffs are capped at `MaxHandoffs` (configurable, default 3 when enabled). Exceeding the limit produces a failed result.
+- **Self-handoff rejection**: An agent cannot hand off to its own config name (case-insensitive).
+- **Nonexistent target**: Handoff to an unregistered agent produces a failed result.
+- **Task board re-claim**: When `task_id` is set, the task is re-claimed for the peer agent.
+
 ### Toolbox Isolation
 
 Children use only their own configured toolboxes. Parent toolboxes are **not** inherited during delegation. This enforces least-privilege: a child configured with `[filesystem, search]` only has access to those tools, regardless of what the parent has.
@@ -440,6 +470,7 @@ The system prompt is built by `buildSystemPrompt()` using XML tags for clear sec
 
 1. `<identity>` -- Agent name and description (static, cacheable prefix)
 2. `<completion_protocol>` -- Sub-agent completion instructions (static, depth > 0 only)
+2b. `<handoff_protocol>` -- Peer handoff instructions (static, depth > 0 and `MaxHandoffs > 0` only)
 3. `<notes_protocol>` -- Cross-agent notes awareness (static, only when notes tools are present)
 4. `<instructions>` -- Agent-specific instructions (static)
 5. `<behavioral_constraints>` -- Heuristic behavioural hints (static, can be disabled via `DisableBehavioralHints`)
@@ -475,6 +506,7 @@ agent.go        -- Agent struct, New(), Run(), run(), Init(), accessors
 completion.go   -- CompletionResult, completionHandler, task_complete tool
 delegation.go          -- Orchestration tools (list_agents, delegate), AgentEventData, context helpers
 delegation_stream.go   -- DelegationEvent types, progress/result event emission
+handoff.go             -- HandoffResult, handoffHandler, handoff tool
 effect.go       -- Effect interface, EffectFunc, Resetter, IterationPhase, IterationContext
 effects/        -- Reusable Effect implementations (see pkg/agent/effects/README.md)
 middleware.go   -- Runner interface, Middleware type, built-in middleware

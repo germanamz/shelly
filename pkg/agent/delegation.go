@@ -132,7 +132,8 @@ func delegateTool(a *Agent) toolbox.Tool {
 
 // runDelegateTask builds a child agent for the given task, runs it, and returns
 // a delegateResult. It handles task board claiming, agent lifecycle events,
-// error cases (including iteration exhaustion), and result aggregation.
+// error cases (including iteration exhaustion), result aggregation, and
+// peer handoffs (where a child transfers control to a sibling agent).
 func runDelegateTask(ctx context.Context, a *Agent, t delegateTask) delegateResult {
 	child, err := buildDelegateChild(a, t)
 	if err != nil {
@@ -150,6 +151,21 @@ func runDelegateTask(ctx context.Context, a *Agent, t delegateTask) delegateResu
 			}
 		}
 	}
+
+	return runChildWithHandoff(ctx, a, child, t, 0)
+}
+
+// maxHandoffDefault is the fallback handoff chain limit when MaxHandoffs is set
+// but no explicit cap is configured.
+const maxHandoffDefault = 3
+
+// runChildWithHandoff runs a child agent and handles handoff chains. If the
+// child calls handoff, a peer agent is spawned and run with the transferred
+// context. The handoffCount tracks how many handoffs have occurred to enforce
+// the chain limit.
+func runChildWithHandoff(ctx context.Context, a *Agent, child *Agent, t delegateTask, handoffCount int) delegateResult {
+	taskBoard := a.delegation.taskBoard
+	notifier := a.events.notifier
 
 	// Wrap with a cancellable context so the TUI can cancel individual sub-agents.
 	childCtx, childCancel := context.WithCancel(ctx)
@@ -178,7 +194,6 @@ func runDelegateTask(ctx context.Context, a *Agent, t delegateTask) delegateResu
 		}()
 	}
 
-	notifier := a.events.notifier
 	if notifier != nil {
 		notifier(childCtx, "agent_start", child.name, AgentEventData{Prefix: child.Prefix(), Parent: a.name, ProviderLabel: child.ProviderLabel(), Task: t.Task})
 	}
@@ -227,6 +242,11 @@ func runDelegateTask(ctx context.Context, a *Agent, t delegateTask) delegateResu
 		return dr
 	}
 
+	// Check for handoff — child wants to transfer control to a peer.
+	if hr := child.HandoffResult(); hr != nil {
+		return handleHandoff(ctx, a, child, t, hr, handoffCount)
+	}
+
 	// Auto-update task status based on completion result.
 	cr := child.CompletionResult()
 	if cr != nil {
@@ -245,6 +265,84 @@ func runDelegateTask(ctx context.Context, a *Agent, t delegateTask) delegateResu
 	dr.Warning = tryUpdateTask(taskBoard, t.TaskID, "completed")
 	notifyResult(dr)
 	return dr
+}
+
+// handleHandoff processes a peer handoff from a child agent. It validates the
+// handoff, spawns the peer agent, transfers context, and runs the peer.
+func handleHandoff(ctx context.Context, a *Agent, child *Agent, t delegateTask, hr *HandoffResult, handoffCount int) delegateResult {
+	notifier := a.events.notifier
+	taskBoard := a.delegation.taskBoard
+
+	// Enforce handoff chain limit.
+	maxHandoffs := a.delegation.maxHandoffs
+	if maxHandoffs <= 0 {
+		maxHandoffs = maxHandoffDefault
+	}
+	if handoffCount >= maxHandoffs {
+		dr := delegateResult{
+			Agent: t.Agent,
+			Error: fmt.Sprintf("handoff chain limit (%d) reached — cannot hand off to %q", maxHandoffs, hr.TargetAgent),
+		}
+		dr.Warning = tryUpdateTask(taskBoard, t.TaskID, "failed")
+		emitDelegationResult(notifier, ctx, child.name, a.name, dr)
+		return dr
+	}
+
+	// Reject self-handoff (handing off to the same agent type).
+	if strings.EqualFold(hr.TargetAgent, child.configName) {
+		dr := delegateResult{
+			Agent: t.Agent,
+			Error: fmt.Sprintf("self-handoff is not allowed: %q cannot hand off to itself", child.configName),
+		}
+		dr.Warning = tryUpdateTask(taskBoard, t.TaskID, "failed")
+		emitDelegationResult(notifier, ctx, child.name, a.name, dr)
+		return dr
+	}
+
+	// Spawn the peer agent.
+	peer, ok := a.registry.Spawn(hr.TargetAgent, a.depth+1)
+	if !ok {
+		dr := delegateResult{
+			Agent: t.Agent,
+			Error: fmt.Sprintf("handoff target %q not found", hr.TargetAgent),
+		}
+		dr.Warning = tryUpdateTask(taskBoard, t.TaskID, "failed")
+		emitDelegationResult(notifier, ctx, child.name, a.name, dr)
+		return dr
+	}
+
+	// Configure peer like a normal delegate child.
+	peer.name = fmt.Sprintf("%s-%s-%d", hr.TargetAgent, taskSlug(t.Task), a.registry.NextID(hr.TargetAgent))
+	peer.registry = a.registry
+	peer.events.notifier = a.events.notifier
+	peer.events.eventFunc = delegationProgressFunc(a.events.eventFunc, a.events.notifier, peer.name, a.name)
+	peer.events.cancelRegistrar = a.events.cancelRegistrar
+	peer.events.cancelUnregistrar = a.events.cancelUnregistrar
+	peer.delegation.reflectionDir = a.delegation.reflectionDir
+	peer.delegation.taskBoard = a.delegation.taskBoard
+
+	// Transfer context: handoff context + reason wrapped in <handoff_context> tags.
+	handoffCtx := fmt.Sprintf(
+		"<handoff_context>\nThis task was handed off to you by agent %q.\nReason: %s\n\n%s\n</handoff_context>",
+		child.configName, hr.Reason, hr.Context,
+	)
+	peer.chat.Append(message.NewText("user", role.User, handoffCtx))
+	peer.chat.Append(message.NewText("user", role.User, t.Task))
+
+	// Re-claim task for the peer if task board is available.
+	if t.TaskID != "" && taskBoard != nil {
+		if claimErr := taskBoard.ClaimTask(t.TaskID, peer.name); claimErr != nil {
+			dr := delegateResult{
+				Agent: t.Agent,
+				Error: fmt.Sprintf("failed to claim task %q for handoff peer: %v", t.TaskID, claimErr),
+			}
+			emitDelegationResult(notifier, ctx, child.name, a.name, dr)
+			return dr
+		}
+	}
+
+	// Run the peer, continuing the handoff chain.
+	return runChildWithHandoff(ctx, a, peer, t, handoffCount+1)
 }
 
 // buildDelegateChild spawns a child agent from the registry and configures it

@@ -71,6 +71,7 @@ type TaskCancelWatcher interface {
 type Options struct {
 	MaxIterations          int               // ReAct loop limit (0 = unlimited).
 	MaxDelegationDepth     int               // Max tree depth for delegation (0 = cannot delegate).
+	MaxHandoffs            int               // Max peer-to-peer handoff chain length (0 = disabled).
 	Skills                 []skill.Skill     // Procedures the agent knows.
 	Middleware             []Middleware      // Applied around Run().
 	Effects                []Effect          // Per-iteration hooks run inside the ReAct loop.
@@ -89,6 +90,7 @@ type Options struct {
 // delegationConfig groups fields used by the delegation handler.
 type delegationConfig struct {
 	maxDepth      int
+	maxHandoffs   int
 	reflectionDir string
 	taskBoard     TaskBoard
 }
@@ -129,6 +131,7 @@ type Agent struct {
 	events        eventConfig
 	depth         int
 	completion    completionHandler
+	handoff       handoffHandler
 }
 
 // New creates an Agent with the given configuration.
@@ -147,6 +150,7 @@ func New(name, description, instructions string, completer modeladapter.Complete
 		effects:       opts.Effects,
 		delegation: delegationConfig{
 			maxDepth:      opts.MaxDelegationDepth,
+			maxHandoffs:   opts.MaxHandoffs,
 			reflectionDir: opts.ReflectionDir,
 			taskBoard:     opts.TaskBoard,
 		},
@@ -216,6 +220,10 @@ func (a *Agent) Completer() modeladapter.Completer { return a.completer }
 // CompletionResult returns the structured completion data set by the
 // task_complete tool, or nil if the agent stopped without calling it.
 func (a *Agent) CompletionResult() *CompletionResult { return a.completion.Result() }
+
+// HandoffResult returns the handoff data set by the handoff tool,
+// or nil if the agent stopped without calling it.
+func (a *Agent) HandoffResult() *HandoffResult { return a.handoff.Result() }
 
 // SetRegistry enables dynamic delegation by setting the agent's registry.
 func (a *Agent) SetRegistry(r *Registry) {
@@ -359,7 +367,7 @@ func (a *Agent) run(ctx context.Context) (message.Message, error) {
 			a.emitEvent(ctx, "message_added", MessageAddedEventData{Role: string(role.Tool), Message: msg})
 		}
 
-		if a.completion.IsComplete() {
+		if a.completion.IsComplete() || a.handoff.IsHandoff() {
 			return reply, nil
 		}
 	}
@@ -409,6 +417,9 @@ func (a *Agent) allToolBoxes() []*toolbox.ToolBox {
 	if a.depth > 0 {
 		completionTB := toolbox.New()
 		completionTB.Register(a.completion.tool())
+		if a.registry != nil && a.delegation.maxHandoffs > 0 {
+			completionTB.Register(a.handoff.tool())
+		}
 		tbs = append(tbs, completionTB)
 	}
 
@@ -437,6 +448,7 @@ func (a *Agent) buildSystemPrompt() string {
 		DisableBehavioralHints: a.prompt.disableBehavioralHints,
 		HasNotesTools:          a.hasNotesTools(),
 		CanDelegate:            a.canDelegate(),
+		CanHandoff:             a.depth > 0 && a.registry != nil && a.delegation.maxHandoffs > 0,
 	}
 
 	if pb.CanDelegate {
