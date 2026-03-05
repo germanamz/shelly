@@ -113,6 +113,18 @@ func FmtTokens(n int) string {
 	}
 }
 
+// FmtBytes formats a byte count for human-readable display.
+func FmtBytes(n int) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1f KB", float64(n)/(1<<10))
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
+}
+
 // FmtDuration formats a duration for display.
 func FmtDuration(d time.Duration) string {
 	if d < time.Minute {

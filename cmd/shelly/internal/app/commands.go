@@ -11,6 +11,7 @@ import (
 	"github.com/germanamz/shelly/cmd/shelly/internal/format"
 	"github.com/germanamz/shelly/cmd/shelly/internal/msgs"
 	"github.com/germanamz/shelly/cmd/shelly/internal/styles"
+	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/chats/role"
 	"github.com/germanamz/shelly/pkg/engine"
 )
@@ -152,7 +153,14 @@ func (m *AppModel) executeResumeSession(id string) tea.Cmd {
 		case role.User:
 			text := msg.TextContent()
 			if text != "" {
-				m.chatView, _ = m.chatView.Update(msgs.ChatViewCommitUserMsg{Text: text})
+				var attachments []content.Part
+				for _, p := range msg.Parts {
+					switch p.(type) {
+					case content.Image, content.Document:
+						attachments = append(attachments, p)
+					}
+				}
+				m.chatView, _ = m.chatView.Update(msgs.ChatViewCommitUserMsg{Text: text, Parts: attachments})
 			}
 		case role.Assistant:
 			if len(msg.ToolCalls()) > 0 {

@@ -116,7 +116,7 @@ func (m ChatViewModel) Update(msg tea.Msg) (ChatViewModel, tea.Cmd) {
 		m.HasMessages = true
 		return m, nil
 	case msgs.ChatViewCommitUserMsg:
-		m.commitUserMessage(msg.Text)
+		m.commitUserMessage(msg.Text, msg.Parts)
 		m.rebuildContent()
 		return m, nil
 	case msgs.ChatViewAppendMsg:
@@ -161,11 +161,25 @@ func (m *ChatViewModel) appendContent(text string) {
 }
 
 // commitUserMessage renders a user message and appends it to the committed buffer.
-func (m *ChatViewModel) commitUserMessage(text string) {
+func (m *ChatViewModel) commitUserMessage(text string, parts []content.Part) {
 	highlighted := highlightFilePaths(text)
-	userLine := "\n" + format.RenderUserMessage(highlighted, m.Width) + "\n"
+
+	var sb strings.Builder
+	sb.WriteString("\n")
+	sb.WriteString(format.RenderUserMessage(highlighted, m.Width))
+
+	// Render attachment indicators for non-text parts.
+	for _, p := range parts {
+		label := renderAttachmentLabel(p)
+		if label != "" {
+			sb.WriteString("\n   ")
+			sb.WriteString(styles.DimStyle.Render(label))
+		}
+	}
+
+	sb.WriteString("\n")
 	m.HasMessages = true
-	m.committed = append(m.committed, userLine)
+	m.committed = append(m.committed, sb.String())
 }
 
 // rebuildContent rebuilds the viewport content from committed + live content,
@@ -221,6 +235,28 @@ func (m *ChatViewModel) liveContent() string {
 	}
 
 	return live.String()
+}
+
+// renderAttachmentLabel returns a display label for an attachment part, or "" if not applicable.
+func renderAttachmentLabel(p content.Part) string {
+	switch v := p.(type) {
+	case content.Image:
+		size := format.FmtBytes(len(v.Data))
+		mediaType := v.MediaType
+		if mediaType == "" {
+			mediaType = "image"
+		}
+		return fmt.Sprintf("[Image: %s (%s)]", mediaType, size)
+	case content.Document:
+		size := format.FmtBytes(len(v.Data))
+		name := v.Path
+		if name == "" {
+			name = v.MediaType
+		}
+		return fmt.Sprintf("[Document: %s (%s)]", name, size)
+	default:
+		return ""
+	}
 }
 
 // highlightFilePaths applies accent color to @path tokens in user input text.

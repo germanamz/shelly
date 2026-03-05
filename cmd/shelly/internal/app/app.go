@@ -340,7 +340,7 @@ func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Commit user message to viewport.
-	m.chatView, _ = m.chatView.Update(msgs.ChatViewCommitUserMsg{Text: text})
+	m.chatView, _ = m.chatView.Update(msgs.ChatViewCommitUserMsg{Text: text, Parts: msg.Parts})
 	m.chatView, _ = m.chatView.Update(msgs.ChatViewMarkSentMsg{})
 
 	// Build content parts: text first, then any attachments.

@@ -182,7 +182,8 @@ type ChatViewMarkSentMsg struct{}
 
 // ChatViewCommitUserMsg renders a user message into the viewport.
 type ChatViewCommitUserMsg struct {
-	Text string
+	Text  string
+	Parts []content.Part // non-text attachments (images, documents)
 }
 
 // ChatViewAppendMsg appends arbitrary text (logo, help, errors) to the viewport.

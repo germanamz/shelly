@@ -64,6 +64,23 @@ func TestRenderUserMessageMultiLine(t *testing.T) {
 	assert.Contains(t, msg, "line2")
 }
 
+func TestFmtBytes(t *testing.T) {
+	tests := []struct {
+		input    int
+		expected string
+	}{
+		{0, "0 B"},
+		{500, "500 B"},
+		{1024, "1.0 KB"},
+		{1536, "1.5 KB"},
+		{1048576, "1.0 MB"},
+		{2621440, "2.5 MB"},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.expected, FmtBytes(tt.input), "FmtBytes(%d)", tt.input)
+	}
+}
+
 func TestRandomThinkingMessage(t *testing.T) {
 	msg := RandomThinkingMessage()
 	assert.NotEmpty(t, msg)

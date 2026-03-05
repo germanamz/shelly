@@ -133,14 +133,14 @@ func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
 }
 ```
 
-### Phase 2: Chat view rendering
+### Phase 2: Chat view rendering ✅ COMPLETE
 
 **Goal**: Display attached files in the conversation view.
 
-- Render image attachments as `[Image: filename.png (2.3 MB)]` with MIME type
+- Render image attachments as `[Image: image/png (2.3 MB)]` with MIME type
 - Render document attachments as `[Document: report.pdf (150 KB)]`
 - Render text file attachments with filename header (already text, so can show content)
-- Use distinct styling (dimmed, bordered) to differentiate from typed text
+- Use distinct styling (dimmed) to differentiate from typed text
 
 ### Phase 3: Provider support for images
 

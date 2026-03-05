@@ -35,6 +35,51 @@ func TestChatViewUserMessage(t *testing.T) {
 	assert.Contains(t, cv.committed[0], "hello world")
 }
 
+func TestChatViewUserMessageWithImageAttachment(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.ChatViewCommitUserMsg{
+		Text: "check this image",
+		Parts: []content.Part{
+			content.Image{Data: make([]byte, 2048), MediaType: "image/png"},
+		},
+	})
+
+	assert.True(t, cv.HasMessages)
+	assert.Len(t, cv.committed, 1)
+	assert.Contains(t, cv.committed[0], "check this image")
+	assert.Contains(t, cv.committed[0], "[Image: image/png (2.0 KB)]")
+}
+
+func TestChatViewUserMessageWithDocumentAttachment(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.ChatViewCommitUserMsg{
+		Text: "review this",
+		Parts: []content.Part{
+			content.Document{Path: "/tmp/report.pdf", Data: make([]byte, 150*1024), MediaType: "application/pdf"},
+		},
+	})
+
+	assert.True(t, cv.HasMessages)
+	assert.Len(t, cv.committed, 1)
+	assert.Contains(t, cv.committed[0], "review this")
+	assert.Contains(t, cv.committed[0], "[Document: /tmp/report.pdf (150.0 KB)]")
+}
+
+func TestChatViewUserMessageWithMultipleAttachments(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.ChatViewCommitUserMsg{
+		Text: "files",
+		Parts: []content.Part{
+			content.Image{Data: make([]byte, 1024), MediaType: "image/jpeg"},
+			content.Document{Path: "doc.pdf", Data: make([]byte, 500), MediaType: "application/pdf"},
+		},
+	})
+
+	assert.Len(t, cv.committed, 1)
+	assert.Contains(t, cv.committed[0], "[Image: image/jpeg (1.0 KB)]")
+	assert.Contains(t, cv.committed[0], "[Document: doc.pdf (500 B)]")
+}
+
 func TestChatViewAssistantFinalAnswer(t *testing.T) {
 	cv := newTestChatView()
 
