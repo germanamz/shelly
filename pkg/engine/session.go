@@ -2,8 +2,10 @@ package engine
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/germanamz/shelly/pkg/agent"
 	"github.com/germanamz/shelly/pkg/agent/effects"
@@ -35,6 +37,8 @@ func (p ProviderInfo) Label() string {
 // instance. Only one Send call may be active at a time.
 type Session struct {
 	id           string
+	persistID    string
+	createdAt    time.Time
 	agent        *agent.Agent
 	providerInfo ProviderInfo
 	lifecycle    sessionLifecycle
@@ -42,8 +46,17 @@ type Session struct {
 	responder    *ask.Responder
 	sessionTrust *filesystem.SessionTrust
 
+	onSendComplete func()
+
 	mu     sync.Mutex
 	active bool
+}
+
+// generatePersistID returns a random 16-character hex string for session persistence.
+func generatePersistID() string {
+	var buf [8]byte
+	_, _ = rand.Read(buf[:])
+	return fmt.Sprintf("%x", buf)
 }
 
 // newSession creates a session with the given ID, agent, lifecycle coordinator,
@@ -51,6 +64,8 @@ type Session struct {
 func newSession(id string, a *agent.Agent, lc sessionLifecycle, events *EventBus, responder *ask.Responder) *Session {
 	return &Session{
 		id:           id,
+		persistID:    generatePersistID(),
+		createdAt:    time.Now(),
 		agent:        a,
 		lifecycle:    lc,
 		events:       events,
@@ -61,6 +76,12 @@ func newSession(id string, a *agent.Agent, lc sessionLifecycle, events *EventBus
 
 // ID returns the session identifier.
 func (s *Session) ID() string { return s.id }
+
+// PersistID returns the persistence identifier used for session file storage.
+func (s *Session) PersistID() string { return s.persistID }
+
+// CreatedAt returns the time the session was created.
+func (s *Session) CreatedAt() time.Time { return s.createdAt }
 
 // Chat returns the underlying chat for direct observation (e.g., Wait/Since).
 func (s *Session) Chat() *chat.Chat { return s.agent.Chat() }
@@ -108,6 +129,10 @@ func (s *Session) SendParts(ctx context.Context, parts ...content.Part) (message
 
 	s.events.publish(EventAgentEnd, s.id, s.agent.Name(), agent.AgentEventData{Prefix: s.agent.Prefix(), ProviderLabel: s.agent.ProviderLabel(), Summary: reply.TextContent()})
 
+	if s.onSendComplete != nil {
+		s.onSendComplete()
+	}
+
 	return reply, nil
 }
 
@@ -145,7 +170,11 @@ func (s *Session) Compact(ctx context.Context) (effects.SummarizeResult, error) 
 	}
 	defer s.release()
 
-	return effects.Summarize(ctx, s.agent.Chat(), s.agent.Completer(), s.agent.Name())
+	result, err := effects.Summarize(ctx, s.agent.Chat(), s.agent.Completer(), s.agent.Name())
+	if err == nil && s.onSendComplete != nil {
+		s.onSendComplete()
+	}
+	return result, err
 }
 
 // Respond delivers a user response to a pending ask_user question.

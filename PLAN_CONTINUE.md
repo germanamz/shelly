@@ -102,9 +102,11 @@ Package documentation per project conventions.
 
 ---
 
-## Phase 2: Infrastructure — `shellydir` + `engine` plumbing
+## Phase 2: Infrastructure — `shellydir` + `engine` plumbing ✅ COMPLETED
 
 **Goal**: Wire sessions into the engine layer. Sessions auto-save after each send. No TUI changes yet.
+
+**Status**: Completed. `SessionsDir()` added to shellydir, sessions dir created in `EnsureStructure()`, `persistID`/`createdAt`/`onSendComplete` added to Session, auto-save wired in Engine, `ResumeSession()` implemented. 3 new tests passing, all 1111 tests passing, lint clean.
 
 ### Step 2.1: `pkg/shellydir/shellydir.go` — Add `SessionsDir()`
 

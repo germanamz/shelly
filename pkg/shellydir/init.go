@@ -82,6 +82,10 @@ func EnsureStructure(d Dir) error {
 		return fmt.Errorf("shellydir: create local dir: %w", err)
 	}
 
+	if err := os.MkdirAll(d.SessionsDir(), 0o750); err != nil {
+		return fmt.Errorf("shellydir: create sessions dir: %w", err)
+	}
+
 	if err := ensureGitignore(d); err != nil {
 		return fmt.Errorf("shellydir: gitignore: %w", err)
 	}

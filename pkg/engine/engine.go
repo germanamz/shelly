@@ -3,12 +3,16 @@ package engine
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/germanamz/shelly/pkg/agent"
+	"github.com/germanamz/shelly/pkg/chats/role"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/ask"
 	"github.com/germanamz/shelly/pkg/modeladapter"
 	"github.com/germanamz/shelly/pkg/projectctx"
+	"github.com/germanamz/shelly/pkg/sessions"
 	"github.com/germanamz/shelly/pkg/shellydir"
 	"github.com/germanamz/shelly/pkg/skill"
 	"github.com/germanamz/shelly/pkg/state"
@@ -23,6 +27,7 @@ type Engine struct {
 	cfg            Config
 	cancel         context.CancelFunc
 	events         *EventBus
+	sessionStore   *sessions.Store
 	store          *state.Store
 	taskStore      *tasks.Store
 	responder      *ask.Responder
@@ -81,6 +86,8 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		dir:          dir,
 		agentCancels: make(map[string]context.CancelFunc),
 	}
+
+	e.sessionStore = sessions.New(dir.SessionsDir())
 
 	// Bootstrap .shelly/ directory structure.
 	if dir.Exists() {
@@ -172,6 +179,52 @@ func (e *Engine) NewSession(agentName string) (*Session, error) {
 
 	s := newSession(id, a, e, e.events, e.responder)
 	s.providerInfo = e.resolveProviderInfo(agentName)
+	e.wireAutoSave(s)
+
+	e.sessions[id] = s
+	e.mu.Unlock()
+
+	return s, nil
+}
+
+// ResumeSession loads a previously persisted session from disk and creates a
+// new live session with the restored messages. The persistID is reused so
+// subsequent saves overwrite the same file.
+func (e *Engine) ResumeSession(persistID string) (*Session, error) {
+	info, msgs, err := e.sessionStore.Load(persistID)
+	if err != nil {
+		return nil, fmt.Errorf("engine: load session: %w", err)
+	}
+
+	factory, ok := e.registry.Get(info.Agent)
+	if !ok {
+		return nil, fmt.Errorf("engine: agent %q not found (session references unavailable agent)", info.Agent)
+	}
+
+	a := factory()
+	a.SetRegistry(e.registry)
+	a.Init()
+
+	// Skip the persisted system prompt (index 0) — the freshly initialized
+	// agent already has its own system prompt. Append only the non-system
+	// messages.
+	if len(msgs) > 1 {
+		a.Chat().Append(msgs[1:]...)
+	}
+
+	e.mu.Lock()
+	if e.closed {
+		e.mu.Unlock()
+		return nil, fmt.Errorf("engine: closed")
+	}
+	e.nextID++
+	id := fmt.Sprintf("session-%d", e.nextID)
+
+	s := newSession(id, a, e, e.events, e.responder)
+	s.persistID = info.ID
+	s.createdAt = info.CreatedAt
+	s.providerInfo = e.resolveProviderInfo(info.Agent)
+	e.wireAutoSave(s)
 
 	e.sessions[id] = s
 	e.mu.Unlock()
@@ -222,6 +275,51 @@ func (e *Engine) resolveProviderInfo(agentName string) ProviderInfo {
 		}
 	}
 	return ProviderInfo{}
+}
+
+// SessionStore returns the session persistence store.
+func (e *Engine) SessionStore() *sessions.Store { return e.sessionStore }
+
+// wireAutoSave sets the onSendComplete callback on a session to persist it
+// after each successful Send or Compact.
+func (e *Engine) wireAutoSave(s *Session) {
+	s.onSendComplete = func() {
+		if err := e.saveSession(s); err != nil {
+			slog.Warn("engine: auto-save session failed", "session", s.persistID, "error", err)
+		}
+	}
+}
+
+// saveSession persists the session's metadata and messages to disk.
+func (e *Engine) saveSession(s *Session) error {
+	ch := s.Chat()
+	msgs := ch.Messages()
+
+	var preview string
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == role.User {
+			preview = msgs[i].TextContent()
+			break
+		}
+	}
+	if len(preview) > 100 {
+		preview = preview[:100]
+	}
+
+	info := sessions.SessionInfo{
+		ID:    s.persistID,
+		Agent: s.AgentName(),
+		Provider: sessions.ProviderMeta{
+			Kind:  s.providerInfo.Kind,
+			Model: s.providerInfo.Model,
+		},
+		CreatedAt: s.createdAt,
+		UpdatedAt: time.Now(),
+		Preview:   preview,
+		MsgCount:  ch.Len(),
+	}
+
+	return e.sessionStore.Save(info, msgs)
 }
 
 // sessionLifecycle is the subset of Engine that Session needs for coordinating

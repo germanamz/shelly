@@ -371,3 +371,105 @@ func TestEffectPriority_ObservationMask(t *testing.T) {
 	})
 	assert.Equal(t, 0, effectPriority(eff), "ObservationMaskEffect should have compaction-class priority (0)")
 }
+
+func TestSession_AutoSave(t *testing.T) {
+	RegisterProvider("mock", func(_ ProviderConfig) (modeladapter.Completer, error) {
+		return &mockCompleter{reply: "saved"}, nil
+	})
+
+	sessDir := filepath.Join(t.TempDir(), ".shelly")
+	require.NoError(t, os.MkdirAll(sessDir, 0o750))
+
+	cfg := Config{
+		ShellyDir: sessDir,
+		Providers: []ProviderConfig{{Name: "p1", Kind: "mock", Model: "test-model"}},
+		Agents:    []AgentConfig{{Name: "bot", Description: "test bot", Provider: "p1"}},
+	}
+
+	eng, err := New(context.Background(), cfg)
+	require.NoError(t, err)
+	defer func() { _ = eng.Close() }()
+
+	sess, err := eng.NewSession("")
+	require.NoError(t, err)
+
+	_, err = sess.Send(context.Background(), "hello")
+	require.NoError(t, err)
+
+	// Session should have been auto-saved.
+	listed, err := eng.SessionStore().List()
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.Equal(t, sess.PersistID(), listed[0].ID)
+	assert.Equal(t, "bot", listed[0].Agent)
+	assert.Equal(t, "hello", listed[0].Preview)
+	assert.Equal(t, "mock", listed[0].Provider.Kind)
+	assert.Equal(t, "test-model", listed[0].Provider.Model)
+}
+
+func TestEngine_ResumeSession(t *testing.T) {
+	RegisterProvider("mock", func(_ ProviderConfig) (modeladapter.Completer, error) {
+		return &mockCompleter{reply: "resumed"}, nil
+	})
+
+	sessDir := filepath.Join(t.TempDir(), ".shelly")
+	require.NoError(t, os.MkdirAll(sessDir, 0o750))
+
+	cfg := Config{
+		ShellyDir: sessDir,
+		Providers: []ProviderConfig{{Name: "p1", Kind: "mock", Model: "m1"}},
+		Agents:    []AgentConfig{{Name: "bot", Description: "test bot", Provider: "p1"}},
+	}
+
+	eng, err := New(context.Background(), cfg)
+	require.NoError(t, err)
+	defer func() { _ = eng.Close() }()
+
+	// Create and send to get a persisted session.
+	sess, err := eng.NewSession("")
+	require.NoError(t, err)
+	_, err = sess.Send(context.Background(), "first message")
+	require.NoError(t, err)
+	persistID := sess.PersistID()
+	origCreatedAt := sess.CreatedAt()
+
+	// Resume the session.
+	resumed, err := eng.ResumeSession(persistID)
+	require.NoError(t, err)
+	assert.Equal(t, persistID, resumed.PersistID())
+	assert.Equal(t, origCreatedAt.Unix(), resumed.CreatedAt().Unix())
+	assert.NotEqual(t, sess.ID(), resumed.ID()) // Engine ID is different.
+
+	// The resumed session should have messages from the original.
+	// System prompt + user "first message" + assistant reply = at least 3.
+	assert.GreaterOrEqual(t, resumed.Chat().Len(), 3)
+
+	// Sending on resumed session should work and auto-save.
+	_, err = resumed.Send(context.Background(), "second message")
+	require.NoError(t, err)
+
+	// Verify save overwrites the same file (only 1 session in store).
+	listed, err := eng.SessionStore().List()
+	require.NoError(t, err)
+	assert.Len(t, listed, 1)
+	assert.Equal(t, persistID, listed[0].ID)
+	assert.Equal(t, "second message", listed[0].Preview)
+}
+
+func TestEngine_ResumeSession_NotFound(t *testing.T) {
+	RegisterProvider("mock", func(_ ProviderConfig) (modeladapter.Completer, error) {
+		return &mockCompleter{reply: "ok"}, nil
+	})
+
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "mock"}},
+		Agents:    []AgentConfig{{Name: "bot", Provider: "p1"}},
+	}
+
+	eng, err := New(context.Background(), cfg)
+	require.NoError(t, err)
+	defer func() { _ = eng.Close() }()
+
+	_, err = eng.ResumeSession("nonexistent")
+	assert.Error(t, err)
+}
