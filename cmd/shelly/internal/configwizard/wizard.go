@@ -16,6 +16,11 @@ type screen interface {
 	View() string
 }
 
+// WizardDoneMsg is sent when the wizard completes in embedded mode.
+type WizardDoneMsg struct {
+	Saved bool
+}
+
 // WizardModel is the root bubbletea model for the config wizard.
 type WizardModel struct {
 	cfg           *engine.Config
@@ -30,6 +35,9 @@ type WizardModel struct {
 	height        int
 	saved         bool
 	err           string
+
+	// Embedded indicates the wizard is running inside the TUI as an overlay.
+	Embedded bool
 }
 
 // NewWizardModel creates a wizard, optionally pre-filled from an existing config.
@@ -57,6 +65,9 @@ func (m WizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		// Global quit.
 		if msg.String() == "ctrl+c" {
+			if m.Embedded {
+				return m, func() tea.Msg { return WizardDoneMsg{Saved: false} }
+			}
 			return m, tea.Quit
 		}
 
@@ -79,6 +90,9 @@ func (m WizardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case configSavedMsg:
 		m.saved = true
 		m.err = ""
+		if m.Embedded {
+			return m, func() tea.Msg { return WizardDoneMsg{Saved: true} }
+		}
 		return m, tea.Quit
 	}
 
@@ -120,6 +134,9 @@ func (m WizardModel) handleMainMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m.selectMenuItem()
 	case "q":
+		if m.Embedded {
+			return m, func() tea.Msg { return WizardDoneMsg{Saved: false} }
+		}
 		return m, tea.Quit
 	}
 	return m, nil
@@ -144,6 +161,9 @@ func (m WizardModel) selectMenuItem() (tea.Model, tea.Cmd) {
 		s := newReviewScreen(m.cfg, m.configPath, m.shellyDir)
 		m.stack = append(m.stack, s)
 	case "Quit":
+		if m.Embedded {
+			return m, func() tea.Msg { return WizardDoneMsg{Saved: false} }
+		}
 		return m, tea.Quit
 	}
 	return m, nil

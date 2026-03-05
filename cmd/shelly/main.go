@@ -102,7 +102,7 @@ func run(configPath, shellyDirPath, agentName string) error {
 	}
 
 	dir := shellydir.New(shellyDirPath)
-	model := app.NewAppModel(ctx, sess, eng, dir.HistoryPath())
+	model := app.NewAppModel(ctx, sess, eng, dir.HistoryPath(), resolvedConfig, shellyDirPath)
 
 	// Force the OSC 11 background-color query and consume its response
 	// synchronously before bubbletea starts. This prevents the response from

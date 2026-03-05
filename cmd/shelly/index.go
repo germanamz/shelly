@@ -91,7 +91,7 @@ func runIndex(args []string) error {
 		return err
 	}
 
-	model := app.NewAppModel(ctx, sess, eng, dir.HistoryPath())
+	model := app.NewAppModel(ctx, sess, eng, dir.HistoryPath(), "", *shellyDirPath)
 	model.InitialMessage = "Index this project. Build or update the knowledge graph in .shelly/."
 
 	format.IsDarkBG = lipgloss.HasDarkBackground(os.Stdin, os.Stdout)

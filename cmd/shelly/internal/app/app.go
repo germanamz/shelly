@@ -11,6 +11,7 @@ import (
 	"github.com/germanamz/shelly/cmd/shelly/internal/askprompt"
 	"github.com/germanamz/shelly/cmd/shelly/internal/bridge"
 	"github.com/germanamz/shelly/cmd/shelly/internal/chatview"
+	"github.com/germanamz/shelly/cmd/shelly/internal/configwizard"
 	"github.com/germanamz/shelly/cmd/shelly/internal/format"
 	"github.com/germanamz/shelly/cmd/shelly/internal/input"
 	"github.com/germanamz/shelly/cmd/shelly/internal/msgs"
@@ -54,6 +55,9 @@ type AppModel struct {
 	sendGeneration uint64
 	tokenCount     string // formatted total session tokens for status bar
 	cacheInfo      string // formatted cache hit ratio for status bar
+	configPath     string
+	shellyDir      string
+	configWizard   *configwizard.WizardModel
 	width          int
 	height         int
 
@@ -62,18 +66,20 @@ type AppModel struct {
 }
 
 // NewAppModel creates a new AppModel.
-func NewAppModel(ctx context.Context, sess *engine.Session, eng *engine.Engine, historyPath string) AppModel {
+func NewAppModel(ctx context.Context, sess *engine.Session, eng *engine.Engine, historyPath, configPath, shellyDir string) AppModel {
 	cv := chatview.New()
 	// Append logo to viewport as initial content.
 	cv, _ = cv.Update(msgs.ChatViewAppendMsg{Content: styles.DimStyle.Render(chatview.LogoArt)})
 	return AppModel{
-		ctx:       ctx,
-		sess:      sess,
-		eng:       eng,
-		chatView:  cv,
-		inputBox:  input.New(historyPath),
-		taskPanel: taskpanel.New(),
-		state:     StateIdle,
+		ctx:        ctx,
+		sess:       sess,
+		eng:        eng,
+		chatView:   cv,
+		inputBox:   input.New(historyPath),
+		taskPanel:  taskpanel.New(),
+		state:      StateIdle,
+		configPath: configPath,
+		shellyDir:  shellyDir,
 	}
 }
 
@@ -91,6 +97,11 @@ func (m AppModel) Init() tea.Cmd {
 
 func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+
+	// --- Config wizard overlay ---
+	if m.configWizard != nil {
+		return m.handleConfigWizard(msg)
+	}
 
 	switch msg := msg.(type) {
 	// --- Global keys ---
@@ -188,6 +199,10 @@ func (m AppModel) View() tea.View {
 		return tea.NewView("Loading...")
 	}
 
+	if m.configWizard != nil {
+		return m.configWizard.View()
+	}
+
 	parts := []string{
 		m.chatView.View(),
 	}
@@ -206,6 +221,33 @@ func (m AppModel) View() tea.View {
 }
 
 // --- Private helpers ---
+
+func (m *AppModel) handleConfigWizard(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case configwizard.WizardDoneMsg:
+		m.configWizard = nil
+		if msg.Saved {
+			note := styles.DimStyle.Render("Config saved. Changes will apply on next restart.")
+			m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: "\n" + note + "\n"})
+		} else {
+			note := styles.DimStyle.Render("Settings dismissed.")
+			m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: "\n" + note + "\n"})
+		}
+		return m, nil
+	case tea.WindowSizeMsg:
+		m.width = max(msg.Width, 80)
+		m.height = msg.Height
+		updated, cmd := m.configWizard.Update(msg)
+		wiz := updated.(configwizard.WizardModel)
+		m.configWizard = &wiz
+		return m, cmd
+	default:
+		updated, cmd := m.configWizard.Update(msg)
+		wiz := updated.(configwizard.WizardModel)
+		m.configWizard = &wiz
+		return m, cmd
+	}
+}
 
 func (m *AppModel) handleResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.width = max(msg.Width, 80)

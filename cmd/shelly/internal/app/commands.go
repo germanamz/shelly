@@ -7,8 +7,10 @@ import (
 	lipgloss "charm.land/lipgloss/v2"
 	"github.com/germanamz/shelly/cmd/shelly/internal/bridge"
 	"github.com/germanamz/shelly/cmd/shelly/internal/chatview"
+	"github.com/germanamz/shelly/cmd/shelly/internal/configwizard"
 	"github.com/germanamz/shelly/cmd/shelly/internal/msgs"
 	"github.com/germanamz/shelly/cmd/shelly/internal/styles"
+	"github.com/germanamz/shelly/pkg/engine"
 )
 
 // commandResult holds the result of dispatching a slash command.
@@ -27,6 +29,9 @@ func (m *AppModel) dispatchCommand(text string) commandResult {
 		return commandResult{handled: true}
 	case "/clear":
 		return commandResult{cmd: m.executeClear(), handled: true}
+	case "/settings":
+		m.executeSettings()
+		return commandResult{handled: true}
 	}
 	return commandResult{}
 }
@@ -72,11 +77,25 @@ func (m *AppModel) executeClear() tea.Cmd {
 	return nil
 }
 
+func (m *AppModel) executeSettings() {
+	cfg, err := engine.LoadConfigRaw(m.configPath)
+	if err != nil {
+		errLine := styles.ErrorBlockStyle.Width(m.width).Render("Error loading config: " + err.Error())
+		m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: "\n" + errLine + "\n"})
+		return
+	}
+
+	wiz := configwizard.NewWizardModel(cfg, m.configPath, m.shellyDir)
+	wiz.Embedded = true
+	m.configWizard = &wiz
+}
+
 func helpText() string {
 	return lipgloss.NewStyle().Foreground(styles.ColorMuted).Render(
 		fmt.Sprintf("Commands:\n" +
 			"  /help          Show this help message\n" +
 			"  /clear         Clear the chat and start a new session\n" +
+			"  /settings      Open the configuration wizard\n" +
 			"  /quit          Exit the chat\n\n" +
 			"Shortcuts:\n" +
 			"  Enter          Submit message\n" +
