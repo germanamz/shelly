@@ -100,29 +100,51 @@ func (e *CompactEffect) shouldCompact(completer modeladapter.Completer, estimate
 	return last.InputTokens >= limit
 }
 
-// summarize performs full conversation summarization, keeping the system prompt
-// and a compacted summary. Tool-result trimming is handled separately by the
-// standalone TrimToolResultsEffect which runs at PhaseAfterComplete before
-// this effect's PhaseBeforeComplete on the next iteration.
-func (e *CompactEffect) summarize(ctx context.Context, ic agent.IterationContext) error {
-	transcript := renderMessages(ic.Chat.Messages())
+// Summarize performs full conversation summarization, keeping the system prompt
+// and a compacted summary. It can be called standalone (e.g. from a /compact
+// command) or from within the CompactEffect.
+// SummarizeResult holds the output of a Summarize call.
+type SummarizeResult struct {
+	Summary      string // The generated summary text.
+	MessageCount int    // Number of messages that were compacted.
+}
+
+// Summarize performs full conversation summarization, keeping the system prompt
+// and a compacted summary. It can be called standalone (e.g. from a /compact
+// command) or from within the CompactEffect. Returns the summary text and the
+// number of messages that were compacted.
+func Summarize(ctx context.Context, c *chat.Chat, completer modeladapter.Completer, agentName string) (SummarizeResult, error) {
+	msgs := c.Messages()
+	messageCount := len(msgs)
+	transcript := renderMessages(msgs)
 
 	tempChat := chat.New(
 		message.NewText("", role.System, summarizationPrompt),
 		message.NewText("", role.User, transcript),
 	)
 
-	summary, err := ic.Completer.Complete(ctx, tempChat, nil)
+	summary, err := completer.Complete(ctx, tempChat, nil)
 	if err != nil {
-		return e.handleCompactError(ctx, ic, err)
+		return SummarizeResult{}, err
 	}
 
-	sysPrompt := ic.Chat.SystemPrompt()
-	compactedMsg := fmt.Sprintf("[Conversation compacted — previous context summarized below.]\n\n%s\n\n[Continue executing the next steps listed above. Do not re-read files or repeat work already marked as completed.]", summary.TextContent())
-	ic.Chat.Replace(
-		message.NewText(ic.AgentName, role.System, sysPrompt),
+	summaryText := summary.TextContent()
+	sysPrompt := c.SystemPrompt()
+	compactedMsg := fmt.Sprintf("[Conversation compacted — previous context summarized below.]\n\n%s\n\n[Continue executing the next steps listed above. Do not re-read files or repeat work already marked as completed.]", summaryText)
+	c.Replace(
+		message.NewText(agentName, role.System, sysPrompt),
 		message.NewText("", role.User, compactedMsg),
 	)
+
+	return SummarizeResult{Summary: summaryText, MessageCount: messageCount}, nil
+}
+
+// summarize delegates to the exported Summarize function, with error handling
+// and notification specific to the effect.
+func (e *CompactEffect) summarize(ctx context.Context, ic agent.IterationContext) error {
+	if _, err := Summarize(ctx, ic.Chat, ic.Completer, ic.AgentName); err != nil {
+		return e.handleCompactError(ctx, ic, err)
+	}
 
 	if e.cfg.NotifyFunc != nil {
 		e.cfg.NotifyFunc(ctx, "Context window compacted")

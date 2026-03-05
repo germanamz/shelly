@@ -14,6 +14,7 @@ const CmdPickerMaxShow = 4
 var AvailableCommands = []string{
 	"/help",
 	"/clear",
+	"/compact",
 	"/settings",
 	"/exit",
 }

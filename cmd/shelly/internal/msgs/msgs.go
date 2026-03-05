@@ -52,6 +52,13 @@ type SendCompleteMsg struct {
 	Generation uint64
 }
 
+// CompactCompleteMsg is returned by the tea.Cmd that calls sess.Compact.
+type CompactCompleteMsg struct {
+	Err          error
+	Summary      string // The generated summary text.
+	MessageCount int    // Number of messages that were compacted.
+}
+
 // ProgramReadyMsg passes the *tea.Program to the model so it can start bridge goroutines.
 type ProgramReadyMsg struct {
 	Program *tea.Program

@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/germanamz/shelly/pkg/agent"
+	"github.com/germanamz/shelly/pkg/agent/effects"
 	"github.com/germanamz/shelly/pkg/agentctx"
 	"github.com/germanamz/shelly/pkg/chats/chat"
 	"github.com/germanamz/shelly/pkg/chats/content"
@@ -130,6 +131,22 @@ func (s *Session) release() {
 
 // AgentName returns the name of the session's agent.
 func (s *Session) AgentName() string { return s.agent.Name() }
+
+// Compact manually triggers conversation compaction by summarizing the chat
+// history. Only one Send/Compact may be active per session.
+func (s *Session) Compact(ctx context.Context) (effects.SummarizeResult, error) {
+	if err := s.lifecycle.acquireSend(); err != nil {
+		return effects.SummarizeResult{}, err
+	}
+	defer s.lifecycle.releaseSend()
+
+	if err := s.acquire(); err != nil {
+		return effects.SummarizeResult{}, err
+	}
+	defer s.release()
+
+	return effects.Summarize(ctx, s.agent.Chat(), s.agent.Completer(), s.agent.Name())
+}
 
 // Respond delivers a user response to a pending ask_user question.
 func (s *Session) Respond(questionID, response string) error {

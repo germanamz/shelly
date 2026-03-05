@@ -29,6 +29,8 @@ func (m *AppModel) dispatchCommand(text string) commandResult {
 		return commandResult{handled: true}
 	case "/clear":
 		return commandResult{cmd: m.executeClear(), handled: true}
+	case "/compact":
+		return commandResult{cmd: m.executeCompact(), handled: true}
 	case "/settings":
 		m.executeSettings()
 		return commandResult{handled: true}
@@ -77,6 +79,29 @@ func (m *AppModel) executeClear() tea.Cmd {
 	return nil
 }
 
+func (m *AppModel) executeCompact() tea.Cmd {
+	if m.state == StateProcessing {
+		errLine := styles.ErrorBlockStyle.Width(m.width).Render("Cannot compact while the agent is running.")
+		m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: "\n" + errLine + "\n"})
+		return nil
+	}
+
+	m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: "\n" + styles.DimStyle.Render("⌘ /compact") + "\n"})
+	m.state = StateProcessing
+	m.chatView, _ = m.chatView.Update(msgs.ChatViewSetProcessingMsg{Processing: true})
+
+	sess := m.sess
+	ctx := m.ctx
+	return tea.Batch(func() tea.Msg {
+		result, err := sess.Compact(ctx)
+		return msgs.CompactCompleteMsg{
+			Err:          err,
+			Summary:      result.Summary,
+			MessageCount: result.MessageCount,
+		}
+	}, tickCmd())
+}
+
 func (m *AppModel) executeSettings() {
 	cfg, err := engine.LoadConfigRaw(m.configPath)
 	if err != nil {
@@ -95,6 +120,7 @@ func helpText() string {
 		fmt.Sprintf("Commands:\n" +
 			"  /help          Show this help message\n" +
 			"  /clear         Clear the chat and start a new session\n" +
+			"  /compact       Compact conversation to reclaim context\n" +
 			"  /settings      Open the configuration wizard\n" +
 			"  /quit          Exit the chat\n\n" +
 			"Shortcuts:\n" +

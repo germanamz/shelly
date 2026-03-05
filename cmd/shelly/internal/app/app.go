@@ -142,6 +142,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case msgs.SendCompleteMsg:
 		return m.handleSendComplete(msg)
 
+	case msgs.CompactCompleteMsg:
+		return m.handleCompactComplete(msg)
+
 	// --- Ask-user coordination ---
 	case msgs.AskUserMsg:
 		return m.handleAskUser(msg)
@@ -363,6 +366,33 @@ func (m *AppModel) handleSendComplete(msg msgs.SendCompleteMsg) (tea.Model, tea.
 			lipgloss.NewStyle().Foreground(styles.ColorError).Render("error: " + msg.Err.Error()),
 		)
 		m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: "\n" + errLine + "\n"})
+	}
+
+	return m, nil
+}
+
+func (m *AppModel) handleCompactComplete(msg msgs.CompactCompleteMsg) (tea.Model, tea.Cmd) {
+	m.state = StateIdle
+	m.chatView, _ = m.chatView.Update(msgs.ChatViewSetProcessingMsg{Processing: false})
+	m.updateTokenCounter()
+
+	if msg.Err != nil && m.ctx.Err() == nil {
+		errLine := styles.ErrorBlockStyle.Width(m.width).Render(
+			lipgloss.NewStyle().Foreground(styles.ColorError).Render("compact error: " + msg.Err.Error()),
+		)
+		m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: "\n" + errLine + "\n"})
+		return m, nil
+	}
+
+	// Clear the viewport and show the compaction summary.
+	m.chatView, _ = m.chatView.Update(msgs.ChatViewClearMsg{})
+	m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: styles.DimStyle.Render(chatview.LogoArt)})
+	m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: "\n" + styles.DimStyle.Render(
+		fmt.Sprintf("⌘ /compact — %d messages compacted", msg.MessageCount),
+	) + "\n"})
+	if msg.Summary != "" {
+		rendered := format.RenderMarkdown(msg.Summary)
+		m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: "\n" + rendered + "\n"})
 	}
 
 	return m, nil
