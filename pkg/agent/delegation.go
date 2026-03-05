@@ -195,6 +195,10 @@ func runDelegateTask(ctx context.Context, a *Agent, t delegateTask) delegateResu
 		notifier(ctx, "agent_end", child.name, endData)
 	}
 
+	notifyResult := func(dr delegateResult) {
+		emitDelegationResult(notifier, ctx, child.name, a.name, dr)
+	}
+
 	if runErr != nil {
 		if errors.Is(runErr, ErrMaxIterations) {
 			cr := &CompletionResult{
@@ -205,6 +209,7 @@ func runDelegateTask(ctx context.Context, a *Agent, t delegateTask) delegateResu
 			writeReflection(a.delegation.reflectionDir, t.Agent, t.Task, cr)
 			dr := delegateResult{Agent: t.Agent, Completion: cr}
 			dr.Warning = tryUpdateTask(taskBoard, t.TaskID, cr.Status)
+			notifyResult(dr)
 			return dr
 		}
 		// If the child context was canceled due to task cancellation,
@@ -212,11 +217,13 @@ func runDelegateTask(ctx context.Context, a *Agent, t delegateTask) delegateResu
 		if errors.Is(runErr, context.Canceled) && childCtx.Err() != nil && ctx.Err() == nil {
 			dr := delegateResult{Agent: t.Agent, Error: "task canceled"}
 			dr.Warning = tryUpdateTask(taskBoard, t.TaskID, "canceled")
+			notifyResult(dr)
 			return dr
 		}
 		// Rollback task to "failed" so it doesn't stay stuck in_progress.
 		dr := delegateResult{Agent: t.Agent, Error: runErr.Error()}
 		dr.Warning = tryUpdateTask(taskBoard, t.TaskID, "failed")
+		notifyResult(dr)
 		return dr
 	}
 
@@ -228,6 +235,7 @@ func runDelegateTask(ctx context.Context, a *Agent, t delegateTask) delegateResu
 		}
 		dr := buildDelegateResult(t.Agent, reply, cr)
 		dr.Warning = tryUpdateTask(taskBoard, t.TaskID, cr.Status)
+		notifyResult(dr)
 		return dr
 	}
 
@@ -235,6 +243,7 @@ func runDelegateTask(ctx context.Context, a *Agent, t delegateTask) delegateResu
 	// since it ran to natural conclusion without error.
 	dr := buildDelegateResult(t.Agent, reply, nil)
 	dr.Warning = tryUpdateTask(taskBoard, t.TaskID, "completed")
+	notifyResult(dr)
 	return dr
 }
 
@@ -253,7 +262,7 @@ func buildDelegateChild(a *Agent, t delegateTask) (*Agent, error) {
 
 	child.registry = a.registry
 	child.events.notifier = a.events.notifier
-	child.events.eventFunc = a.events.eventFunc
+	child.events.eventFunc = delegationProgressFunc(a.events.eventFunc, a.events.notifier, child.name, a.name)
 	child.events.cancelRegistrar = a.events.cancelRegistrar
 	child.events.cancelUnregistrar = a.events.cancelUnregistrar
 	child.delegation.reflectionDir = a.delegation.reflectionDir

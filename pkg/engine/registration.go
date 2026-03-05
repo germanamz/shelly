@@ -278,6 +278,8 @@ func (e *Engine) buildAgentEventNotifier() agent.EventNotifier {
 			ek = EventAgentStart
 		case "agent_end":
 			ek = EventAgentEnd
+		case "delegation_progress":
+			ek = EventDelegationProgress
 		default:
 			return
 		}

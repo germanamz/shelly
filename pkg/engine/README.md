@@ -97,6 +97,7 @@ for e := range sub.C {
 | `file_change` | A file is modified (Data: string message) |
 | `compaction` | Context window compaction occurred (Data: string message) |
 | `error` | An error occurs (Data: `error`) |
+| `delegation_progress` | A child agent emits progress or completes (Data: `agent.DelegationEvent`) |
 
 Non-blocking publish: slow subscribers drop events instead of stalling the agent loop.
 

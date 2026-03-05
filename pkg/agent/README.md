@@ -404,6 +404,28 @@ When `Options.EventNotifier` is set, the `delegate` tool publishes lifecycle eve
 
 The notifier is automatically propagated to children so nested delegation chains publish events at every level.
 
+### Streaming Delegation Progress
+
+During delegation, the child agent's `EventFunc` is wrapped with a progress-emitting layer that publishes `delegation_progress` events through the `EventNotifier`. This provides real-time visibility into child agent activity without changing the blocking delegation model.
+
+**Progress events** (`DelegationProgress`): Emitted when the child produces an assistant message with text content. Long messages are truncated to 500 runes.
+
+**Result events** (`DelegationResult`): Emitted when the delegation completes (success, failure, cancellation, or iteration exhaustion), carrying the final `delegateResult`.
+
+Both event types use `DelegationEvent` as payload:
+
+```go
+type DelegationEvent struct {
+    Kind    DelegationEventKind `json:"kind"`    // "status", "progress", or "result"
+    Agent   string              `json:"agent"`   // Child agent instance name.
+    Parent  string              `json:"parent"`  // Parent agent instance name.
+    Message string              `json:"message"` // Progress text (progress events only).
+    Result  *delegateResult     `json:"result"`  // Final result (result events only).
+}
+```
+
+Events are published under the `"delegation_progress"` kind through the existing `EventNotifier`, which the engine maps to `EventDelegationProgress` on the `EventBus`. Frontends can subscribe to these events to display real-time delegation progress (e.g., streaming child agent output in the TUI).
+
 ### Toolbox Isolation
 
 Children use only their own configured toolboxes. Parent toolboxes are **not** inherited during delegation. This enforces least-privilege: a child configured with `[filesystem, search]` only has access to those tools, regardless of what the parent has.
@@ -451,7 +473,8 @@ The internal `run()` method:
 ```
 agent.go        -- Agent struct, New(), Run(), run(), Init(), accessors
 completion.go   -- CompletionResult, completionHandler, task_complete tool
-delegation.go   -- Orchestration tools (list_agents, delegate), AgentEventData, context helpers
+delegation.go          -- Orchestration tools (list_agents, delegate), AgentEventData, context helpers
+delegation_stream.go   -- DelegationEvent types, progress/result event emission
 effect.go       -- Effect interface, EffectFunc, Resetter, IterationPhase, IterationContext
 effects/        -- Reusable Effect implementations (see pkg/agent/effects/README.md)
 middleware.go   -- Runner interface, Middleware type, built-in middleware

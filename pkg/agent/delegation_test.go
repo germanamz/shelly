@@ -1533,3 +1533,118 @@ func TestDelegateTaskCancellationPropagation(t *testing.T) {
 	assert.Equal(t, "task-42", lastUpdate.ID)
 	assert.Equal(t, "canceled", lastUpdate.Status)
 }
+
+func TestDelegateToolEmitsDelegationProgressEvents(t *testing.T) {
+	var mu sync.Mutex
+	var progressEvents []DelegationEvent
+
+	notifier := EventNotifier(func(_ context.Context, kind string, _ string, data any) {
+		if kind == "delegation_progress" {
+			mu.Lock()
+			defer mu.Unlock()
+			progressEvents = append(progressEvents, data.(DelegationEvent))
+		}
+	})
+
+	reg := NewRegistry()
+	reg.Register("worker", "Does work", func() *Agent {
+		return New("worker", "", "", &sequenceCompleter{
+			replies: []message.Message{
+				// First reply: assistant text with tool call (keeps loop going,
+				// triggers progress event from the text portion).
+				message.New("", role.Assistant,
+					content.Text{Text: "I am working on it"},
+					content.ToolCall{
+						ID:        "c1",
+						Name:      "task_complete",
+						Arguments: `{"status":"completed","summary":"all done"}`,
+					},
+				),
+			},
+		}, Options{})
+	})
+
+	a := &Agent{
+		name:       "orch",
+		configName: "orch",
+		registry:   reg,
+		chat:       chat.New(),
+		delegation: delegationConfig{maxDepth: 1},
+		events:     eventConfig{notifier: notifier},
+	}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"worker","task":"do it","context":"ctx"}]}`,
+	))
+	require.NoError(t, err)
+
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Completion)
+	assert.Equal(t, "completed", results[0].Completion.Status)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Expect at least one progress event and one result event.
+	var hasProgress, hasResult bool
+	for _, ev := range progressEvents {
+		switch ev.Kind {
+		case DelegationProgress:
+			hasProgress = true
+			assert.Equal(t, "I am working on it", ev.Message)
+			assert.Equal(t, "orch", ev.Parent)
+			assert.True(t, strings.HasPrefix(ev.Agent, "worker-"))
+		case DelegationResult:
+			hasResult = true
+			require.NotNil(t, ev.Result)
+			assert.Equal(t, "all done", ev.Result.Result)
+			assert.Equal(t, "orch", ev.Parent)
+		}
+	}
+	assert.True(t, hasProgress, "expected at least one DelegationProgress event")
+	assert.True(t, hasResult, "expected a DelegationResult event")
+}
+
+func TestDelegateToolEmitsResultOnError(t *testing.T) {
+	var mu sync.Mutex
+	var resultEvents []DelegationEvent
+
+	notifier := EventNotifier(func(_ context.Context, kind string, _ string, data any) {
+		if kind == "delegation_progress" {
+			mu.Lock()
+			defer mu.Unlock()
+			if ev, ok := data.(DelegationEvent); ok && ev.Kind == DelegationResult {
+				resultEvents = append(resultEvents, ev)
+			}
+		}
+	})
+
+	reg := NewRegistry()
+	reg.Register("worker", "Does work", func() *Agent {
+		return New("worker", "", "", &errorCompleter{err: errors.New("boom")}, Options{})
+	})
+
+	a := &Agent{
+		name:       "orch",
+		configName: "orch",
+		registry:   reg,
+		chat:       chat.New(),
+		delegation: delegationConfig{maxDepth: 1},
+		events:     eventConfig{notifier: notifier},
+	}
+	tool := delegateTool(a)
+
+	_, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"worker","task":"fail","context":"ctx"}]}`,
+	))
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, resultEvents, 1)
+	assert.Equal(t, DelegationResult, resultEvents[0].Kind)
+	assert.Contains(t, resultEvents[0].Result.Error, "boom")
+}

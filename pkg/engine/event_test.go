@@ -92,3 +92,24 @@ func TestEventBus_PublishNoSubscribers(t *testing.T) {
 	// Should not panic.
 	bus.Publish(Event{Kind: EventError})
 }
+
+func TestEventBus_DelegationProgressKind(t *testing.T) {
+	bus := NewEventBus()
+	sub := bus.Subscribe(8)
+	defer bus.Unsubscribe(sub)
+
+	bus.Publish(Event{
+		Kind:      EventDelegationProgress,
+		SessionID: "s1",
+		Agent:     "child-1",
+		Timestamp: time.Now(),
+	})
+
+	select {
+	case got := <-sub.C:
+		assert.Equal(t, EventDelegationProgress, got.Kind)
+		assert.Equal(t, "child-1", got.Agent)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for delegation_progress event")
+	}
+}
