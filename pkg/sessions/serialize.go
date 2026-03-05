@@ -56,6 +56,20 @@ func partToJSONWithAttachments(p content.Part, w AttachmentWriter) jsonPart {
 			jp.Data = v.Data
 		}
 		return jp
+	case content.Document:
+		jp := jsonPart{Kind: "document", URL: v.Path, MediaType: v.MediaType}
+		if len(v.Data) > 0 && w != nil {
+			ref, err := w.WriteAttachment(v.Data, v.MediaType)
+			if err != nil {
+				slog.Warn("sessions: failed to write document attachment, falling back to inline", "err", err)
+				jp.Data = v.Data
+			} else {
+				jp.AttachmentRef = ref
+			}
+		} else {
+			jp.Data = v.Data
+		}
+		return jp
 	case content.ToolCall:
 		return jsonPart{Kind: "tool_call", ID: v.ID, Name: v.Name, Arguments: v.Arguments, Metadata: v.Metadata}
 	case content.ToolResult:
@@ -90,6 +104,22 @@ func jsonToPartWithAttachments(jp jsonPart, r AttachmentReader) (content.Part, b
 			img.Data = jp.Data
 		}
 		return img, true
+	case "document":
+		doc := content.Document{Path: jp.URL, MediaType: jp.MediaType}
+		if jp.AttachmentRef != "" && r != nil {
+			data, mediaType, err := r.ReadAttachment(jp.AttachmentRef)
+			if err != nil {
+				slog.Warn("sessions: failed to read document attachment", "ref", jp.AttachmentRef, "err", err)
+			} else {
+				doc.Data = data
+				if mediaType != "" {
+					doc.MediaType = mediaType
+				}
+			}
+		} else {
+			doc.Data = jp.Data
+		}
+		return doc, true
 	case "tool_call":
 		return content.ToolCall{ID: jp.ID, Name: jp.Name, Arguments: jp.Arguments, Metadata: jp.Metadata}, true
 	case "tool_result":

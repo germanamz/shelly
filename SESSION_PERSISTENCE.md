@@ -242,7 +242,7 @@ case content.Image:
 
 ---
 
-## Phase 3: New content types (Document part)
+## Phase 3: New content types (Document part) ✅ COMPLETED
 
 **Goal**: Add a `content.Document` part type for PDFs and other document files, with attachment storage support.
 

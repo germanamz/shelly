@@ -212,6 +212,103 @@ func TestUnmarshalWithAttachments_BackwardsCompatible(t *testing.T) {
 	assert.Equal(t, "http://example.com/img.png", img.URL)
 }
 
+func TestMarshalWithAttachments_Document_RoundTrip(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "attachments")
+	store := NewFileAttachmentStore(dir)
+
+	pdfData := []byte("%PDF-1.4 fake content")
+	msgs := []message.Message{
+		{
+			Sender: "user",
+			Role:   role.User,
+			Parts: []content.Part{
+				content.Text{Text: "Check this document"},
+				content.Document{Path: "/tmp/report.pdf", Data: pdfData, MediaType: "application/pdf"},
+			},
+		},
+	}
+
+	data, err := MarshalMessagesWithAttachments(msgs, store)
+	require.NoError(t, err)
+
+	// Verify JSON has attachment_ref, not inline data.
+	var jmsgs []jsonMessage
+	require.NoError(t, json.Unmarshal(data, &jmsgs))
+	docPart := jmsgs[0].Parts[1]
+	assert.Equal(t, "document", docPart.Kind)
+	assert.NotEmpty(t, docPart.AttachmentRef)
+	assert.Empty(t, docPart.Data)
+	assert.Equal(t, "/tmp/report.pdf", docPart.URL)
+
+	// Round-trip: unmarshal restores data.
+	got, err := UnmarshalMessagesWithAttachments(data, store)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Len(t, got[0].Parts, 2)
+
+	doc := got[0].Parts[1].(content.Document)
+	assert.Equal(t, pdfData, doc.Data)
+	assert.Equal(t, "application/pdf", doc.MediaType)
+	assert.Equal(t, "/tmp/report.pdf", doc.Path)
+}
+
+func TestMarshalUnmarshal_MixedTextImageDocument(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "attachments")
+	store := NewFileAttachmentStore(dir)
+
+	msgs := []message.Message{
+		{
+			Sender: "user",
+			Role:   role.User,
+			Parts: []content.Part{
+				content.Text{Text: "Here are my files"},
+				content.Image{Data: []byte("img-bytes"), MediaType: "image/png"},
+				content.Document{Path: "spec.pdf", Data: []byte("pdf-bytes"), MediaType: "application/pdf"},
+			},
+		},
+	}
+
+	data, err := MarshalMessagesWithAttachments(msgs, store)
+	require.NoError(t, err)
+
+	got, err := UnmarshalMessagesWithAttachments(data, store)
+	require.NoError(t, err)
+	require.Len(t, got[0].Parts, 3)
+
+	assert.Equal(t, content.Text{Text: "Here are my files"}, got[0].Parts[0])
+
+	img := got[0].Parts[1].(content.Image)
+	assert.Equal(t, []byte("img-bytes"), img.Data)
+
+	doc := got[0].Parts[2].(content.Document)
+	assert.Equal(t, []byte("pdf-bytes"), doc.Data)
+	assert.Equal(t, "spec.pdf", doc.Path)
+}
+
+func TestMarshalWithAttachments_DocumentNoData(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "attachments")
+	store := NewFileAttachmentStore(dir)
+
+	msgs := []message.Message{
+		{
+			Sender: "user",
+			Role:   role.User,
+			Parts: []content.Part{
+				content.Document{Path: "/tmp/report.pdf", MediaType: "application/pdf"},
+			},
+		},
+	}
+
+	data, err := MarshalMessagesWithAttachments(msgs, store)
+	require.NoError(t, err)
+
+	var jmsgs []jsonMessage
+	require.NoError(t, json.Unmarshal(data, &jmsgs))
+	docPart := jmsgs[0].Parts[0]
+	assert.Empty(t, docPart.AttachmentRef)
+	assert.Equal(t, "/tmp/report.pdf", docPart.URL)
+}
+
 func TestMarshalWithAttachments_URLOnlyImage(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "attachments")
 	store := NewFileAttachmentStore(dir)

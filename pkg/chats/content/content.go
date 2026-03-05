@@ -23,6 +23,15 @@ type Image struct {
 
 func (i Image) PartKind() string { return "image" }
 
+// Document is a document content part (PDF, DOCX, etc.) referenced by path or embedded as raw bytes.
+type Document struct {
+	Path      string // Original file path (for display)
+	Data      []byte // Raw document bytes
+	MediaType string // MIME type (application/pdf, etc.)
+}
+
+func (d Document) PartKind() string { return "document" }
+
 // ToolCall represents an assistant's request to invoke a tool.
 // Arguments holds the raw JSON string to avoid unnecessary deserialization.
 // Metadata carries provider-specific opaque data (e.g. Gemini thought signatures)
