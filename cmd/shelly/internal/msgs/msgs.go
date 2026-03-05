@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/ask"
+	"github.com/germanamz/shelly/pkg/sessions"
 	"github.com/germanamz/shelly/pkg/tasks"
 )
 
@@ -136,6 +137,21 @@ type CmdPickerQueryMsg struct {
 // CmdPickerSelectionMsg carries the selected command from the command picker.
 type CmdPickerSelectionMsg struct {
 	Command string
+}
+
+// --- Session picker messages ---
+
+// SessionPickerActivateMsg opens the session picker with the given sessions.
+type SessionPickerActivateMsg struct {
+	Sessions []sessions.SessionInfo
+}
+
+// SessionPickerDismissMsg closes the session picker.
+type SessionPickerDismissMsg struct{}
+
+// SessionPickerSelectionMsg carries the selected session ID.
+type SessionPickerSelectionMsg struct {
+	ID string
 }
 
 // --- ChatView messages ---

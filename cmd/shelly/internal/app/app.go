@@ -58,6 +58,7 @@ type AppModel struct {
 	configPath     string
 	shellyDir      string
 	configWizard   *configwizard.WizardModel
+	sessionPicker  input.SessionPickerModel
 	width          int
 	height         int
 
@@ -71,15 +72,16 @@ func NewAppModel(ctx context.Context, sess *engine.Session, eng *engine.Engine, 
 	// Append logo to viewport as initial content.
 	cv, _ = cv.Update(msgs.ChatViewAppendMsg{Content: styles.DimStyle.Render(chatview.LogoArt)})
 	return AppModel{
-		ctx:        ctx,
-		sess:       sess,
-		eng:        eng,
-		chatView:   cv,
-		inputBox:   input.New(historyPath),
-		taskPanel:  taskpanel.New(),
-		state:      StateIdle,
-		configPath: configPath,
-		shellyDir:  shellyDir,
+		ctx:           ctx,
+		sess:          sess,
+		eng:           eng,
+		chatView:      cv,
+		inputBox:      input.New(historyPath),
+		taskPanel:     taskpanel.New(),
+		sessionPicker: input.NewSessionPicker(),
+		state:         StateIdle,
+		configPath:    configPath,
+		shellyDir:     shellyDir,
 	}
 }
 
@@ -167,6 +169,20 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.taskPanel, _ = m.taskPanel.Update(msg)
 		return m, nil
 
+	// --- Session picker ---
+	case msgs.SessionPickerActivateMsg:
+		m.sessionPicker.Width = m.width
+		m.sessionPicker, _ = m.sessionPicker.Update(msg)
+		return m, nil
+
+	case msgs.SessionPickerDismissMsg:
+		m.sessionPicker, _ = m.sessionPicker.Update(msg)
+		return m, nil
+
+	case msgs.SessionPickerSelectionMsg:
+		cmd := m.executeResumeSession(msg.ID)
+		return m, cmd
+
 	// --- Animation tick ---
 	case msgs.TickMsg:
 		if m.state == StateProcessing || m.chatView.HasActiveChains() || m.taskPanel.HasActiveTasks() {
@@ -210,9 +226,12 @@ func (m AppModel) View() tea.View {
 		m.chatView.View(),
 	}
 
-	if m.askActive != nil {
+	switch {
+	case m.sessionPicker.Active:
+		parts = append(parts, m.sessionPicker.View())
+	case m.askActive != nil:
 		parts = append(parts, m.askActive.View())
-	} else {
+	default:
 		parts = append(parts, m.inputBox.View())
 	}
 
@@ -276,6 +295,13 @@ func (m *AppModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Page Up / Page Down always scroll the viewport.
 	if m.chatView.HandleScrollKey(msg) {
 		return m, nil
+	}
+
+	// Forward to session picker if active.
+	if m.sessionPicker.Active {
+		var cmd tea.Cmd
+		m.sessionPicker, cmd = m.sessionPicker.Update(msg)
+		return m, cmd
 	}
 
 	// Forward to ask prompt if active.

@@ -21,6 +21,7 @@ var AvailableCommands = []CommandDef{
 	{Name: "/help", Desc: "Show available commands and keybindings"},
 	{Name: "/clear", Desc: "Clear the conversation history"},
 	{Name: "/compact", Desc: "Compact context to reduce token usage"},
+	{Name: "/sessions", Desc: "Browse and resume previous sessions"},
 	{Name: "/settings", Desc: "Open the configuration wizard"},
 	{Name: "/exit", Desc: "Exit the application"},
 }

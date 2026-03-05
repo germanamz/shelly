@@ -8,8 +8,10 @@ import (
 	"github.com/germanamz/shelly/cmd/shelly/internal/bridge"
 	"github.com/germanamz/shelly/cmd/shelly/internal/chatview"
 	"github.com/germanamz/shelly/cmd/shelly/internal/configwizard"
+	"github.com/germanamz/shelly/cmd/shelly/internal/format"
 	"github.com/germanamz/shelly/cmd/shelly/internal/msgs"
 	"github.com/germanamz/shelly/cmd/shelly/internal/styles"
+	"github.com/germanamz/shelly/pkg/chats/role"
 	"github.com/germanamz/shelly/pkg/engine"
 )
 
@@ -31,6 +33,8 @@ func (m *AppModel) dispatchCommand(text string) commandResult {
 		return commandResult{cmd: m.executeClear(), handled: true}
 	case "/compact":
 		return commandResult{cmd: m.executeCompact(), handled: true}
+	case "/sessions":
+		return commandResult{cmd: m.executeSessions(), handled: true}
 	case "/settings":
 		m.executeSettings()
 		return commandResult{handled: true}
@@ -102,6 +106,77 @@ func (m *AppModel) executeCompact() tea.Cmd {
 	}, tickCmd())
 }
 
+func (m *AppModel) executeSessions() tea.Cmd {
+	sessionList, err := m.eng.SessionStore().List()
+	if err != nil {
+		errLine := styles.ErrorBlockStyle.Width(m.width).Render("Error: " + err.Error())
+		m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: "\n" + errLine + "\n"})
+		return nil
+	}
+	if len(sessionList) == 0 {
+		note := styles.DimStyle.Render("No previous sessions found.")
+		m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: "\n" + note + "\n"})
+		return nil
+	}
+	return func() tea.Msg {
+		return msgs.SessionPickerActivateMsg{Sessions: sessionList}
+	}
+}
+
+func (m *AppModel) executeResumeSession(id string) tea.Cmd {
+	// Cancel current activity.
+	if m.cancelSend != nil {
+		m.cancelSend()
+		m.cancelSend = nil
+	}
+	if m.cancelBridge != nil {
+		m.cancelBridge()
+		m.cancelBridge = nil
+	}
+	m.eng.RemoveSession(m.sess.ID())
+
+	newSess, err := m.eng.ResumeSession(id)
+	if err != nil {
+		errLine := styles.ErrorBlockStyle.Width(m.width).Render("Error resuming session: " + err.Error())
+		m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: "\n" + errLine + "\n"})
+		return nil
+	}
+	m.sess = newSess
+
+	// Clear and render historical messages.
+	m.chatView, _ = m.chatView.Update(msgs.ChatViewClearMsg{})
+	m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: styles.DimStyle.Render(chatview.LogoArt)})
+
+	for _, msg := range newSess.Chat().Messages() {
+		switch msg.Role {
+		case role.User:
+			text := msg.TextContent()
+			if text != "" {
+				m.chatView, _ = m.chatView.Update(msgs.ChatViewCommitUserMsg{Text: text})
+			}
+		case role.Assistant:
+			if len(msg.ToolCalls()) > 0 {
+				continue
+			}
+			text := msg.TextContent()
+			if text != "" {
+				rendered := format.RenderMarkdown(text)
+				m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: "\n" + rendered + "\n"})
+			}
+		}
+	}
+
+	m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{
+		Content: "\n" + styles.DimStyle.Render("⌘ Resumed session") + "\n",
+	})
+
+	m.inputBox, _ = m.inputBox.Update(msgs.InputResetMsg{})
+	m.tokenCount = ""
+	m.cancelBridge = bridge.Start(m.ctx, m.program, m.sess.Chat(), m.eng.Events(), m.eng.Tasks(), m.sess.AgentName())
+	m.state = StateIdle
+	return nil
+}
+
 func (m *AppModel) executeSettings() {
 	cfg, err := engine.LoadConfigRaw(m.configPath)
 	if err != nil {
@@ -121,6 +196,7 @@ func helpText() string {
 			"  /help          Show this help message\n" +
 			"  /clear         Clear the chat and start a new session\n" +
 			"  /compact       Compact conversation to reclaim context\n" +
+			"  /sessions      Browse and resume previous sessions\n" +
 			"  /settings      Open the configuration wizard\n" +
 			"  /quit          Exit the chat\n\n" +
 			"Shortcuts:\n" +

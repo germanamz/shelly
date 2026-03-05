@@ -198,9 +198,11 @@ Key decision: The `persistID` is reused so the same session file gets updated on
 
 ---
 
-## Phase 3: TUI — Session picker and `/sessions` command
+## Phase 3: TUI — Session picker and `/sessions` command ✅ COMPLETED
 
 **Goal**: Users can browse and resume sessions via the TUI.
+
+**Status**: Completed. Session picker messages added to msgs.go, SessionPickerModel component created in input/sessionpicker.go, `/sessions` command added to command picker and dispatch, session picker integrated into AppModel (Update routing, View rendering, key handling), `executeResumeSession` renders historical user/assistant messages into chatview. All 1111 tests passing, lint clean.
 
 ### Step 3.1: `cmd/shelly/internal/msgs/msgs.go` — New message types
 
