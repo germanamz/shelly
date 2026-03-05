@@ -250,6 +250,46 @@ func TestStore_List_MixedV1V2(t *testing.T) {
 	assert.Equal(t, "v1-sess", list[1].ID)
 }
 
+func TestStore_SaveLoad_WithAttachments(t *testing.T) {
+	store := New(t.TempDir())
+	info := testInfo("attach-sess")
+	imgData := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
+	msgs := []message.Message{
+		{
+			Sender: "user",
+			Role:   role.User,
+			Parts: []content.Part{
+				content.Text{Text: "look at this"},
+				content.Image{Data: imgData, MediaType: "image/png"},
+			},
+		},
+	}
+
+	require.NoError(t, store.Save(info, msgs))
+
+	// Verify attachments directory was created with a file.
+	attachDir := filepath.Join(store.sessionDir("attach-sess"), "attachments")
+	assert.DirExists(t, attachDir)
+	entries, err := os.ReadDir(attachDir)
+	require.NoError(t, err)
+	assert.Len(t, entries, 1)
+	assert.Contains(t, entries[0].Name(), ".png")
+
+	// Verify messages.json does not contain inline data.
+	msgData, err := os.ReadFile(store.messagesPath("attach-sess"))
+	require.NoError(t, err)
+	assert.NotContains(t, string(msgData), `"data"`)
+	assert.Contains(t, string(msgData), `"attachment_ref"`)
+
+	// Load and verify round-trip.
+	_, gotMsgs, err := store.Load("attach-sess")
+	require.NoError(t, err)
+	require.Len(t, gotMsgs, 1)
+	img := gotMsgs[0].Parts[1].(content.Image)
+	assert.Equal(t, imgData, img.Data)
+	assert.Equal(t, "image/png", img.MediaType)
+}
+
 func TestStore_Delete_V1(t *testing.T) {
 	dir := t.TempDir()
 	store := New(dir)

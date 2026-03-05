@@ -113,7 +113,7 @@ Document the new directory layout and migration behavior.
 
 ---
 
-## Phase 2: Attachment extraction and storage
+## Phase 2: Attachment extraction and storage ✅ COMPLETED
 
 **Goal**: Extract binary data from messages into the `attachments/` directory. Messages reference attachments by hash instead of embedding raw bytes.
 

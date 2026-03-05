@@ -1,6 +1,8 @@
 package sessions
 
 import (
+	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -126,4 +128,111 @@ func TestMarshalUnmarshal_ToolResultWithError(t *testing.T) {
 	tr := got[0].Parts[0].(content.ToolResult)
 	assert.True(t, tr.IsError)
 	assert.Equal(t, "failed", tr.Content)
+}
+
+func TestMarshalWithAttachments_ExtractsImageData(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "attachments")
+	store := NewFileAttachmentStore(dir)
+
+	imgData := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A}
+	msgs := []message.Message{
+		{
+			Sender: "user",
+			Role:   role.User,
+			Parts: []content.Part{
+				content.Text{Text: "check this"},
+				content.Image{Data: imgData, MediaType: "image/png"},
+			},
+		},
+	}
+
+	data, err := MarshalMessagesWithAttachments(msgs, store)
+	require.NoError(t, err)
+
+	// Verify JSON has attachment_ref, not inline data.
+	var jmsgs []jsonMessage
+	require.NoError(t, json.Unmarshal(data, &jmsgs))
+	imgPart := jmsgs[0].Parts[1]
+	assert.NotEmpty(t, imgPart.AttachmentRef)
+	assert.Empty(t, imgPart.Data)
+}
+
+func TestUnmarshalWithAttachments_RestoresImageData(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "attachments")
+	store := NewFileAttachmentStore(dir)
+
+	imgData := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A}
+	msgs := []message.Message{
+		{
+			Sender: "user",
+			Role:   role.User,
+			Parts: []content.Part{
+				content.Image{Data: imgData, MediaType: "image/png"},
+			},
+		},
+	}
+
+	data, err := MarshalMessagesWithAttachments(msgs, store)
+	require.NoError(t, err)
+
+	got, err := UnmarshalMessagesWithAttachments(data, store)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+
+	img := got[0].Parts[0].(content.Image)
+	assert.Equal(t, imgData, img.Data)
+	assert.Equal(t, "image/png", img.MediaType)
+}
+
+func TestUnmarshalWithAttachments_BackwardsCompatible(t *testing.T) {
+	// Marshal WITHOUT attachments (old-style inline data).
+	imgData := []byte("fake-image")
+	msgs := []message.Message{
+		{
+			Sender: "user",
+			Role:   role.User,
+			Parts: []content.Part{
+				content.Image{Data: imgData, MediaType: "image/png", URL: "http://example.com/img.png"},
+			},
+		},
+	}
+
+	data, err := MarshalMessages(msgs)
+	require.NoError(t, err)
+
+	// Unmarshal WITH attachment reader — should still work with inline data.
+	dir := filepath.Join(t.TempDir(), "attachments")
+	store := NewFileAttachmentStore(dir)
+	got, err := UnmarshalMessagesWithAttachments(data, store)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+
+	img := got[0].Parts[0].(content.Image)
+	assert.Equal(t, imgData, img.Data)
+	assert.Equal(t, "http://example.com/img.png", img.URL)
+}
+
+func TestMarshalWithAttachments_URLOnlyImage(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "attachments")
+	store := NewFileAttachmentStore(dir)
+
+	msgs := []message.Message{
+		{
+			Sender: "user",
+			Role:   role.User,
+			Parts: []content.Part{
+				content.Image{URL: "http://example.com/img.png", MediaType: "image/png"},
+			},
+		},
+	}
+
+	data, err := MarshalMessagesWithAttachments(msgs, store)
+	require.NoError(t, err)
+
+	// Verify no attachment_ref for URL-only images.
+	var jmsgs []jsonMessage
+	require.NoError(t, json.Unmarshal(data, &jmsgs))
+	imgPart := jmsgs[0].Parts[0]
+	assert.Empty(t, imgPart.AttachmentRef)
+	assert.Equal(t, "http://example.com/img.png", imgPart.URL)
 }

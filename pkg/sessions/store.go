@@ -57,20 +57,26 @@ func (s *Store) messagesPath(id string) string {
 	return filepath.Join(s.sessionDir(id), "messages.json")
 }
 
+func (s *Store) attachmentsDir(id string) string {
+	return filepath.Join(s.sessionDir(id), "attachments")
+}
+
 func (s *Store) v1Path(id string) string {
 	return filepath.Join(s.dir, id+".json")
 }
 
 // Save writes a session to disk atomically using the v2 directory layout.
+// Binary data (e.g. images) is extracted to the attachments/ subdirectory.
 func (s *Store) Save(info SessionInfo, msgs []message.Message) error {
-	msgData, err := MarshalMessages(msgs)
-	if err != nil {
-		return fmt.Errorf("sessions: marshal messages: %w", err)
-	}
-
 	sessDir := s.sessionDir(info.ID)
 	if err := os.MkdirAll(sessDir, 0o750); err != nil {
 		return fmt.Errorf("sessions: create session dir: %w", err)
+	}
+
+	attachStore := NewFileAttachmentStore(s.attachmentsDir(info.ID))
+	msgData, err := MarshalMessagesWithAttachments(msgs, attachStore)
+	if err != nil {
+		return fmt.Errorf("sessions: marshal messages: %w", err)
 	}
 
 	// Write meta.json atomically.
@@ -118,7 +124,9 @@ func (s *Store) loadV2(id string) (SessionInfo, []message.Message, error) {
 	if err != nil {
 		return SessionInfo{}, nil, fmt.Errorf("sessions: read messages: %w", err)
 	}
-	msgs, err := UnmarshalMessages(msgData)
+
+	attachStore := NewFileAttachmentStore(s.attachmentsDir(id))
+	msgs, err := UnmarshalMessagesWithAttachments(msgData, attachStore)
 	if err != nil {
 		return SessionInfo{}, nil, err
 	}
