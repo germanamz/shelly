@@ -3,6 +3,7 @@ package sessions
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -29,20 +30,37 @@ type SessionInfo struct {
 	MsgCount  int          `json:"msg_count"`
 }
 
-// persistedFile is the legacy v1 on-disk JSON structure combining metadata and messages.
-type persistedFile struct {
-	SessionInfo
-	Messages json.RawMessage `json:"messages"`
+// ListOpts controls pagination for List().
+type ListOpts struct {
+	Limit  int // Maximum number of results (0 = unlimited).
+	Offset int // Number of results to skip.
+}
+
+// StoreOption configures optional Store behavior.
+type StoreOption func(*Store)
+
+// WithMaxAttachmentSize sets the maximum size in bytes for a single attachment.
+// Attachments exceeding this limit are skipped with a warning log.
+// A value of 0 (the default) means no limit.
+func WithMaxAttachmentSize(n int64) StoreOption {
+	return func(s *Store) {
+		s.maxAttachmentSize = n
+	}
 }
 
 // Store manages session files in a directory.
 type Store struct {
-	dir string
+	dir               string
+	maxAttachmentSize int64 // 0 = unlimited
 }
 
 // New creates a Store that reads/writes session files under dir.
-func New(dir string) *Store {
-	return &Store{dir: dir}
+func New(dir string, opts ...StoreOption) *Store {
+	s := &Store{dir: dir}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
 }
 
 func (s *Store) sessionDir(id string) string {
@@ -61,12 +79,9 @@ func (s *Store) attachmentsDir(id string) string {
 	return filepath.Join(s.sessionDir(id), "attachments")
 }
 
-func (s *Store) v1Path(id string) string {
-	return filepath.Join(s.dir, id+".json")
-}
-
 // Save writes a session to disk atomically using the v2 directory layout.
 // Binary data (e.g. images) is extracted to the attachments/ subdirectory.
+// After writing, orphan attachments no longer referenced by any message are removed.
 func (s *Store) Save(info SessionInfo, msgs []message.Message) error {
 	sessDir := s.sessionDir(info.ID)
 	if err := os.MkdirAll(sessDir, 0o750); err != nil {
@@ -74,7 +89,11 @@ func (s *Store) Save(info SessionInfo, msgs []message.Message) error {
 	}
 
 	attachStore := NewFileAttachmentStore(s.attachmentsDir(info.ID))
-	msgData, err := MarshalMessagesWithAttachments(msgs, attachStore)
+	var w AttachmentWriter = attachStore
+	if s.maxAttachmentSize > 0 {
+		w = &sizeLimitedWriter{inner: attachStore, maxSize: s.maxAttachmentSize}
+	}
+	msgData, err := MarshalMessagesWithAttachments(msgs, w)
 	if err != nil {
 		return fmt.Errorf("sessions: marshal messages: %w", err)
 	}
@@ -93,24 +112,16 @@ func (s *Store) Save(info SessionInfo, msgs []message.Message) error {
 		return fmt.Errorf("sessions: write messages: %w", err)
 	}
 
-	// Clean up v1 file if it exists.
-	_ = os.Remove(s.v1Path(info.ID)) //nolint:gosec // path from trusted dir + ID
+	// Remove orphan attachments after writing the new messages file.
+	if err := s.CleanAttachments(info.ID); err != nil {
+		slog.Warn("sessions: clean attachments", "id", info.ID, "err", err)
+	}
 
 	return nil
 }
 
-// Load reads a session from disk by ID. Migrates v1 sessions lazily.
+// Load reads a session from disk by ID (v2 directory layout only).
 func (s *Store) Load(id string) (SessionInfo, []message.Message, error) {
-	// Try v2 layout first.
-	if _, err := os.Stat(s.sessionDir(id)); err == nil {
-		return s.loadV2(id)
-	}
-
-	// Fall back to v1 single-file format.
-	return s.loadV1(id)
-}
-
-func (s *Store) loadV2(id string) (SessionInfo, []message.Message, error) {
 	metaData, err := os.ReadFile(s.metaPath(id)) //nolint:gosec // path from trusted dir + ID
 	if err != nil {
 		return SessionInfo{}, nil, fmt.Errorf("sessions: read meta: %w", err)
@@ -134,28 +145,14 @@ func (s *Store) loadV2(id string) (SessionInfo, []message.Message, error) {
 	return info, msgs, nil
 }
 
-func (s *Store) loadV1(id string) (SessionInfo, []message.Message, error) {
-	path := s.v1Path(id)
-	data, err := os.ReadFile(path) //nolint:gosec // path from trusted dir + ID
-	if err != nil {
-		return SessionInfo{}, nil, fmt.Errorf("sessions: read file: %w", err)
-	}
-
-	var pf persistedFile
-	if err := json.Unmarshal(data, &pf); err != nil {
-		return SessionInfo{}, nil, fmt.Errorf("sessions: unmarshal session: %w", err)
-	}
-
-	msgs, err := UnmarshalMessages(pf.Messages)
-	if err != nil {
-		return SessionInfo{}, nil, err
-	}
-
-	return pf.SessionInfo, msgs, nil
-}
-
 // List returns metadata for all sessions, sorted by UpdatedAt descending.
-func (s *Store) List() ([]SessionInfo, error) {
+// Use opts to paginate; a zero-value ListOpts returns all sessions.
+func (s *Store) List(opts ...ListOpts) ([]SessionInfo, error) {
+	var o ListOpts
+	if len(opts) > 0 {
+		o = opts[0]
+	}
+
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -167,56 +164,160 @@ func (s *Store) List() ([]SessionInfo, error) {
 	var sessions []SessionInfo
 
 	for _, entry := range entries {
-		if entry.IsDir() {
-			// v2: read meta.json from subdirectory.
-			metaPath := filepath.Join(s.dir, entry.Name(), "meta.json")
-			data, err := os.ReadFile(metaPath) //nolint:gosec // path from trusted dir
-			if err != nil {
-				continue
-			}
-			var info SessionInfo
-			if err := json.Unmarshal(data, &info); err != nil {
-				continue
-			}
-			sessions = append(sessions, info)
-		} else if strings.HasSuffix(entry.Name(), ".json") {
-			// v1: legacy single-file format.
-			path := filepath.Join(s.dir, entry.Name())
-			data, err := os.ReadFile(path) //nolint:gosec // path from trusted dir
-			if err != nil {
-				continue
-			}
-			var info SessionInfo
-			if err := json.Unmarshal(data, &info); err != nil {
-				continue
-			}
-			sessions = append(sessions, info)
+		if !entry.IsDir() {
+			continue
 		}
+		metaPath := filepath.Join(s.dir, entry.Name(), "meta.json")
+		data, err := os.ReadFile(metaPath) //nolint:gosec // path from trusted dir
+		if err != nil {
+			continue
+		}
+		var info SessionInfo
+		if err := json.Unmarshal(data, &info); err != nil {
+			continue
+		}
+		sessions = append(sessions, info)
 	}
 
 	sort.Slice(sessions, func(i, j int) bool {
 		return sessions[i].UpdatedAt.After(sessions[j].UpdatedAt)
 	})
 
+	// Apply pagination.
+	if o.Offset > 0 {
+		if o.Offset >= len(sessions) {
+			return nil, nil
+		}
+		sessions = sessions[o.Offset:]
+	}
+	if o.Limit > 0 && o.Limit < len(sessions) {
+		sessions = sessions[:o.Limit]
+	}
+
 	return sessions, nil
 }
 
-// Delete removes a session by ID (supports both v1 and v2 layouts).
+// Delete removes a session by ID.
 func (s *Store) Delete(id string) error {
 	sessDir := s.sessionDir(id)
-	if _, err := os.Stat(sessDir); err == nil {
-		if err := os.RemoveAll(sessDir); err != nil { //nolint:gosec // path from trusted dir + ID
-			return fmt.Errorf("sessions: delete: %w", err)
-		}
-		return nil
+	if _, err := os.Stat(sessDir); err != nil {
+		return fmt.Errorf("sessions: delete: %w", err)
 	}
-
-	// Fall back to v1 single file.
-	path := s.v1Path(id)
-	if err := os.Remove(path); err != nil {
+	if err := os.RemoveAll(sessDir); err != nil { //nolint:gosec // path from trusted dir + ID
 		return fmt.Errorf("sessions: delete: %w", err)
 	}
 	return nil
+}
+
+// CleanAttachments removes attachment files not referenced by any message in the session.
+func (s *Store) CleanAttachments(id string) error {
+	attachDir := s.attachmentsDir(id)
+	entries, err := os.ReadDir(attachDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("sessions: read attachments dir: %w", err)
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+
+	// Collect all attachment refs from messages.json.
+	msgData, err := os.ReadFile(s.messagesPath(id)) //nolint:gosec // trusted path
+	if err != nil {
+		return fmt.Errorf("sessions: read messages for cleanup: %w", err)
+	}
+	refs, err := collectAttachmentRefs(msgData)
+	if err != nil {
+		return fmt.Errorf("sessions: parse messages for cleanup: %w", err)
+	}
+
+	// Remove files not in the refs set.
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if !refs[entry.Name()] {
+			path := filepath.Join(attachDir, entry.Name())
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				slog.Warn("sessions: remove orphan attachment", "path", path, "err", err)
+			}
+		}
+	}
+	return nil
+}
+
+// collectAttachmentRefs scans serialized messages JSON for all attachment_ref values.
+func collectAttachmentRefs(msgData []byte) (map[string]bool, error) {
+	var jmsgs []jsonMessage
+	if err := json.Unmarshal(msgData, &jmsgs); err != nil {
+		return nil, err
+	}
+	refs := make(map[string]bool)
+	for _, jm := range jmsgs {
+		for _, jp := range jm.Parts {
+			if jp.AttachmentRef != "" {
+				refs[jp.AttachmentRef] = true
+			}
+		}
+	}
+	return refs, nil
+}
+
+// MigrateV1 migrates all legacy v1 single-file sessions ({id}.json) in the store
+// directory to the v2 directory-per-session layout. Returns the number of sessions migrated.
+func (s *Store) MigrateV1() (int, error) {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("sessions: read dir for migration: %w", err)
+	}
+
+	migrated := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(s.dir, entry.Name())
+		if err := s.migrateOneV1(path); err != nil {
+			slog.Warn("sessions: v1 migration failed", "file", entry.Name(), "err", err)
+			continue
+		}
+		migrated++
+	}
+	return migrated, nil
+}
+
+// v1PersistedFile is the legacy v1 on-disk JSON structure combining metadata and messages.
+type v1PersistedFile struct {
+	SessionInfo
+	Messages json.RawMessage `json:"messages"`
+}
+
+func (s *Store) migrateOneV1(path string) error {
+	data, err := os.ReadFile(path) //nolint:gosec // path from trusted dir
+	if err != nil {
+		return err
+	}
+
+	var pf v1PersistedFile
+	if err := json.Unmarshal(data, &pf); err != nil {
+		return err
+	}
+
+	msgs, err := UnmarshalMessages(pf.Messages)
+	if err != nil {
+		return err
+	}
+
+	if err := s.Save(pf.SessionInfo, msgs); err != nil {
+		return err
+	}
+
+	return os.Remove(path)
 }
 
 // atomicWrite writes data to target via a temp file + rename in tmpDir.

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,6 +88,21 @@ func attachmentExt(mediaType string) string {
 	default:
 		return ".bin"
 	}
+}
+
+// sizeLimitedWriter wraps an AttachmentWriter and skips attachments that exceed maxSize.
+type sizeLimitedWriter struct {
+	inner   AttachmentWriter
+	maxSize int64
+}
+
+func (w *sizeLimitedWriter) WriteAttachment(data []byte, mediaType string) (string, error) {
+	if int64(len(data)) > w.maxSize {
+		slog.Warn("sessions: attachment exceeds size limit, skipping",
+			"size", len(data), "limit", w.maxSize, "media_type", mediaType)
+		return "", fmt.Errorf("attachment size %d exceeds limit %d", len(data), w.maxSize)
+	}
+	return w.inner.WriteAttachment(data, mediaType)
 }
 
 // extToMediaType infers a media type from a file extension.

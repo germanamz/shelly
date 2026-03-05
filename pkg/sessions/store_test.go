@@ -129,6 +129,43 @@ func TestStore_List_OnlyReadsMetadata(t *testing.T) {
 	assert.Equal(t, "sess-1", list[0].ID)
 }
 
+func TestStore_List_Pagination(t *testing.T) {
+	store := New(t.TempDir())
+	now := time.Now().Truncate(time.Millisecond)
+
+	for i := range 5 {
+		info := testInfo("s" + string(rune('A'+i)))
+		info.UpdatedAt = now.Add(time.Duration(i) * time.Hour)
+		require.NoError(t, store.Save(info, testMessages()))
+	}
+
+	// Limit only.
+	list, err := store.List(ListOpts{Limit: 2})
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+	assert.Equal(t, "sE", list[0].ID) // newest first
+	assert.Equal(t, "sD", list[1].ID)
+
+	// Offset only.
+	list, err = store.List(ListOpts{Offset: 3})
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+	assert.Equal(t, "sB", list[0].ID)
+	assert.Equal(t, "sA", list[1].ID)
+
+	// Limit + Offset.
+	list, err = store.List(ListOpts{Limit: 2, Offset: 1})
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+	assert.Equal(t, "sD", list[0].ID)
+	assert.Equal(t, "sC", list[1].ID)
+
+	// Offset past end.
+	list, err = store.List(ListOpts{Offset: 100})
+	require.NoError(t, err)
+	assert.Empty(t, list)
+}
+
 func TestStore_Delete(t *testing.T) {
 	store := New(t.TempDir())
 	require.NoError(t, store.Save(testInfo("sess-1"), testMessages()))
@@ -184,72 +221,6 @@ func TestStore_SaveLoad_WithAllPartTypes(t *testing.T) {
 	assert.Equal(t, "found", tr.Content)
 }
 
-// writeV1File writes a legacy v1 single-file session directly to disk.
-func writeV1File(t *testing.T, dir string, info SessionInfo, msgs []message.Message) {
-	t.Helper()
-	msgData, err := MarshalMessages(msgs)
-	require.NoError(t, err)
-
-	pf := persistedFile{
-		SessionInfo: info,
-		Messages:    json.RawMessage(msgData),
-	}
-	data, err := json.MarshalIndent(pf, "", "  ")
-	require.NoError(t, err)
-
-	require.NoError(t, os.MkdirAll(dir, 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, info.ID+".json"), data, 0o600))
-}
-
-func TestStore_Migration_V1ToV2(t *testing.T) {
-	dir := t.TempDir()
-	store := New(dir)
-	info := testInfo("legacy")
-	msgs := testMessages()
-
-	// Write a v1-format file directly.
-	writeV1File(t, dir, info, msgs)
-
-	// Load should work via v1 fallback.
-	gotInfo, gotMsgs, err := store.Load("legacy")
-	require.NoError(t, err)
-	assert.Equal(t, info.ID, gotInfo.ID)
-	require.Len(t, gotMsgs, 2)
-
-	// Save migrates to v2 and removes v1 file.
-	require.NoError(t, store.Save(gotInfo, gotMsgs))
-	assert.DirExists(t, store.sessionDir("legacy"))
-	assert.NoFileExists(t, filepath.Join(dir, "legacy.json"))
-
-	// Load should now use v2.
-	gotInfo2, gotMsgs2, err := store.Load("legacy")
-	require.NoError(t, err)
-	assert.Equal(t, info.ID, gotInfo2.ID)
-	require.Len(t, gotMsgs2, 2)
-}
-
-func TestStore_List_MixedV1V2(t *testing.T) {
-	dir := t.TempDir()
-	store := New(dir)
-	now := time.Now().Truncate(time.Millisecond)
-
-	// Write a v2 session.
-	v2Info := testInfo("v2-sess")
-	v2Info.UpdatedAt = now.Add(time.Hour)
-	require.NoError(t, store.Save(v2Info, testMessages()))
-
-	// Write a v1 session.
-	v1Info := testInfo("v1-sess")
-	v1Info.UpdatedAt = now
-	writeV1File(t, dir, v1Info, testMessages())
-
-	list, err := store.List()
-	require.NoError(t, err)
-	require.Len(t, list, 2)
-	assert.Equal(t, "v2-sess", list[0].ID)
-	assert.Equal(t, "v1-sess", list[1].ID)
-}
-
 func TestStore_SaveLoad_WithAttachments(t *testing.T) {
 	store := New(t.TempDir())
 	info := testInfo("attach-sess")
@@ -290,12 +261,167 @@ func TestStore_SaveLoad_WithAttachments(t *testing.T) {
 	assert.Equal(t, "image/png", img.MediaType)
 }
 
-func TestStore_Delete_V1(t *testing.T) {
+// writeV1File writes a legacy v1 single-file session directly to disk.
+func writeV1File(t *testing.T, dir string, info SessionInfo, msgs []message.Message) {
+	t.Helper()
+	msgData, err := MarshalMessages(msgs)
+	require.NoError(t, err)
+
+	pf := v1PersistedFile{
+		SessionInfo: info,
+		Messages:    json.RawMessage(msgData),
+	}
+	data, err := json.MarshalIndent(pf, "", "  ")
+	require.NoError(t, err)
+
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, info.ID+".json"), data, 0o600))
+}
+
+func TestStore_MigrateV1(t *testing.T) {
 	dir := t.TempDir()
 	store := New(dir)
 
-	writeV1File(t, dir, testInfo("v1-sess"), testMessages())
+	// Write two v1-format files.
+	writeV1File(t, dir, testInfo("legacy1"), testMessages())
+	writeV1File(t, dir, testInfo("legacy2"), testMessages())
 
-	require.NoError(t, store.Delete("v1-sess"))
-	assert.NoFileExists(t, filepath.Join(dir, "v1-sess.json"))
+	migrated, err := store.MigrateV1()
+	require.NoError(t, err)
+	assert.Equal(t, 2, migrated)
+
+	// V1 files should be gone.
+	assert.NoFileExists(t, filepath.Join(dir, "legacy1.json"))
+	assert.NoFileExists(t, filepath.Join(dir, "legacy2.json"))
+
+	// V2 directories should exist and load correctly.
+	for _, id := range []string{"legacy1", "legacy2"} {
+		assert.DirExists(t, store.sessionDir(id))
+		info, msgs, err := store.Load(id)
+		require.NoError(t, err)
+		assert.Equal(t, id, info.ID)
+		require.Len(t, msgs, 2)
+	}
+
+	// List should show both.
+	list, err := store.List()
+	require.NoError(t, err)
+	assert.Len(t, list, 2)
+}
+
+func TestStore_MigrateV1_NoV1Files(t *testing.T) {
+	dir := t.TempDir()
+	store := New(dir)
+
+	// Save a v2 session.
+	require.NoError(t, store.Save(testInfo("v2-sess"), testMessages()))
+
+	migrated, err := store.MigrateV1()
+	require.NoError(t, err)
+	assert.Equal(t, 0, migrated)
+}
+
+func TestStore_CleanAttachments_RemovesOrphans(t *testing.T) {
+	store := New(t.TempDir())
+	info := testInfo("clean-sess")
+	imgData := []byte{0x89, 0x50, 0x4E, 0x47}
+	msgs := []message.Message{
+		{
+			Sender: "user",
+			Role:   role.User,
+			Parts: []content.Part{
+				content.Image{Data: imgData, MediaType: "image/png"},
+			},
+		},
+	}
+
+	require.NoError(t, store.Save(info, msgs))
+
+	// Add an orphan file to the attachments directory.
+	attachDir := store.attachmentsDir("clean-sess")
+	orphanPath := filepath.Join(attachDir, "orphan.png")
+	require.NoError(t, os.WriteFile(orphanPath, []byte("orphan"), 0o600))
+
+	// Verify orphan exists.
+	entries, err := os.ReadDir(attachDir)
+	require.NoError(t, err)
+	assert.Len(t, entries, 2) // real attachment + orphan
+
+	// Clean should remove the orphan.
+	require.NoError(t, store.CleanAttachments("clean-sess"))
+
+	entries, err = os.ReadDir(attachDir)
+	require.NoError(t, err)
+	assert.Len(t, entries, 1)
+	assert.NotEqual(t, "orphan.png", entries[0].Name())
+}
+
+func TestStore_CleanAttachments_NoAttachmentsDir(t *testing.T) {
+	store := New(t.TempDir())
+	info := testInfo("no-attach")
+	require.NoError(t, store.Save(info, testMessages()))
+
+	// Should not error when there's no attachments directory.
+	assert.NoError(t, store.CleanAttachments("no-attach"))
+}
+
+func TestStore_Save_CleansOrphansAutomatically(t *testing.T) {
+	store := New(t.TempDir())
+	info := testInfo("auto-clean")
+	imgData := []byte{0x89, 0x50, 0x4E, 0x47}
+	msgs := []message.Message{
+		{
+			Sender: "user",
+			Role:   role.User,
+			Parts: []content.Part{
+				content.Image{Data: imgData, MediaType: "image/png"},
+			},
+		},
+	}
+
+	require.NoError(t, store.Save(info, msgs))
+
+	// Add an orphan.
+	attachDir := store.attachmentsDir("auto-clean")
+	require.NoError(t, os.WriteFile(filepath.Join(attachDir, "orphan.bin"), []byte("x"), 0o600))
+
+	// Re-save with the same messages — orphan should be cleaned.
+	require.NoError(t, store.Save(info, msgs))
+
+	entries, err := os.ReadDir(attachDir)
+	require.NoError(t, err)
+	assert.Len(t, entries, 1)
+}
+
+func TestStore_WithMaxAttachmentSize(t *testing.T) {
+	store := New(t.TempDir(), WithMaxAttachmentSize(10))
+	info := testInfo("size-limit")
+
+	smallImg := []byte{1, 2, 3}
+	bigImg := make([]byte, 20)
+	msgs := []message.Message{
+		{
+			Sender: "user",
+			Role:   role.User,
+			Parts: []content.Part{
+				content.Image{Data: smallImg, MediaType: "image/png"},
+				content.Image{Data: bigImg, MediaType: "image/png"},
+			},
+		},
+	}
+
+	require.NoError(t, store.Save(info, msgs))
+
+	// The small image should be stored as attachment; the big one falls back to inline.
+	_, gotMsgs, err := store.Load("size-limit")
+	require.NoError(t, err)
+	require.Len(t, gotMsgs, 1)
+
+	// Small image: round-trips via attachment.
+	img0 := gotMsgs[0].Parts[0].(content.Image)
+	assert.Equal(t, smallImg, img0.Data)
+
+	// Big image: fell back to inline (data embedded in JSON).
+	img1 := gotMsgs[0].Parts[1].(content.Image)
+	assert.Equal(t, bigImg, img1.Data)
 }

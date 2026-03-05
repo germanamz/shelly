@@ -89,6 +89,13 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 
 	e.sessionStore = sessions.New(dir.SessionsDir())
 
+	// Migrate any legacy v1 session files to v2 directory layout.
+	if n, err := e.sessionStore.MigrateV1(); err != nil {
+		slog.Warn("engine: session v1 migration", "err", err)
+	} else if n > 0 {
+		slog.Info("engine: migrated v1 sessions", "count", n)
+	}
+
 	// Bootstrap .shelly/ directory structure.
 	if dir.Exists() {
 		if err := shellydir.EnsureStructure(dir); err != nil {
