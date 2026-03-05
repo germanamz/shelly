@@ -226,7 +226,7 @@ case content.Document:
     }, nil
 ```
 
-### Phase 5: Text file inlining (low priority)
+### Phase 5: Text file inlining (low priority) ✅ COMPLETE
 
 For text/code files, no provider changes needed. At the TUI layer, read the file and create a `content.Text` part:
 
