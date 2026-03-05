@@ -266,6 +266,13 @@ func (a *Adapter) partToAPIPart(p content.Part, callNameMap map[string]string) (
 				Data:     base64.StdEncoding.EncodeToString(v.Data),
 			},
 		}, nil
+	case content.Document:
+		return &apiPart{
+			InlineData: &apiBlob{
+				MimeType: v.MediaType,
+				Data:     base64.StdEncoding.EncodeToString(v.Data),
+			},
+		}, nil
 	case content.ToolResult:
 		name := callNameMap[v.ToolCallID]
 		if name == "" {

@@ -403,6 +403,45 @@ func TestComplete_ImagePart(t *testing.T) {
 	assert.Equal(t, "I see an image.", msg.TextContent())
 }
 
+func TestComplete_DocumentPart(t *testing.T) {
+	_, adapter := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		req := readBody(t, r)
+
+		msgs, ok := req["messages"].([]any)
+		assert.True(t, ok)
+		assert.Len(t, msgs, 1)
+
+		msg, _ := msgs[0].(map[string]any)
+		parts, _ := msg["content"].([]any)
+		assert.Len(t, parts, 2) // text + document
+
+		docBlock, _ := parts[1].(map[string]any)
+		assert.Equal(t, "document", docBlock["type"])
+
+		source, _ := docBlock["source"].(map[string]any)
+		assert.Equal(t, "base64", source["type"])
+		assert.Equal(t, "application/pdf", source["media_type"])
+		assert.NotEmpty(t, source["data"])
+
+		writeJSON(t, w, map[string]any{
+			"content":     []map[string]any{{"type": "text", "text": "I see a PDF."}},
+			"stop_reason": "end_turn",
+			"usage":       map[string]any{"input_tokens": 50, "output_tokens": 5},
+		})
+	})
+
+	c := chat.New(
+		message.New("user", role.User,
+			content.Text{Text: "Summarize this."},
+			content.Document{Data: []byte("fake-pdf-data"), MediaType: "application/pdf", Path: "report.pdf"},
+		),
+	)
+
+	msg, err := adapter.Complete(context.Background(), c, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "I see a PDF.", msg.TextContent())
+}
+
 func TestComplete_HTTPError(t *testing.T) {
 	_, adapter := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

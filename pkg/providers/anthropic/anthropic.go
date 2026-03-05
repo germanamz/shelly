@@ -225,6 +225,15 @@ func partToBlock(p content.Part) *apiContent {
 				Data:      base64.StdEncoding.EncodeToString(v.Data),
 			},
 		}
+	case content.Document:
+		return &apiContent{
+			Type: "document",
+			Source: &apiSource{
+				Type:      "base64",
+				MediaType: v.MediaType,
+				Data:      base64.StdEncoding.EncodeToString(v.Data),
+			},
+		}
 	case content.ToolResult:
 		return &apiContent{Type: "tool_result", ToolUseID: v.ToolCallID, Content: v.Content, IsError: v.IsError}
 	default:

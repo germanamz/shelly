@@ -188,7 +188,7 @@ case content.Image:
 
 Add `apiBlob` and `InlineData` field to `apiPart`.
 
-### Phase 4: Provider support for documents (PDF)
+### Phase 4: Provider support for documents (PDF) ✅ COMPLETE
 
 **Goal**: Send `content.Document` parts to LLM APIs.
 

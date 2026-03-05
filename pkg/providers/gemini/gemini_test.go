@@ -574,6 +574,53 @@ func TestComplete_ImagePart(t *testing.T) {
 	assert.Equal(t, "I see an image.", msg.TextContent())
 }
 
+func TestComplete_DocumentPart(t *testing.T) {
+	_, adapter := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		req := readBody(t, r)
+
+		contents, ok := req["contents"].([]any)
+		assert.True(t, ok)
+		assert.Len(t, contents, 1)
+
+		entry, _ := contents[0].(map[string]any)
+		parts, _ := entry["parts"].([]any)
+		assert.Len(t, parts, 2) // text + inlineData
+
+		docPart, _ := parts[1].(map[string]any)
+		inlineData, _ := docPart["inlineData"].(map[string]any)
+		assert.Equal(t, "application/pdf", inlineData["mimeType"])
+		assert.NotEmpty(t, inlineData["data"])
+
+		writeJSON(t, w, map[string]any{
+			"candidates": []map[string]any{
+				{
+					"content": map[string]any{
+						"role":  "model",
+						"parts": []map[string]any{{"text": "I see a PDF."}},
+					},
+					"finishReason": "STOP",
+				},
+			},
+			"usageMetadata": map[string]any{
+				"promptTokenCount":     50,
+				"candidatesTokenCount": 5,
+				"totalTokenCount":      55,
+			},
+		})
+	})
+
+	c := chat.New(
+		message.New("user", role.User,
+			content.Text{Text: "Summarize this."},
+			content.Document{Data: []byte("fake-pdf-data"), MediaType: "application/pdf", Path: "report.pdf"},
+		),
+	)
+
+	msg, err := adapter.Complete(context.Background(), c, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "I see a PDF.", msg.TextContent())
+}
+
 func TestComplete_HTTPError(t *testing.T) {
 	_, adapter := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

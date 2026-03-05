@@ -38,7 +38,7 @@ func ConvertMessages(msgs []message.Message) []Message {
 	for _, m := range msgs {
 		switch m.Role {
 		case role.System, role.User:
-			if hasImages(m) {
+			if hasMultiModal(m) {
 				out = append(out, convertMultiModalMessage(m))
 			} else {
 				text := m.TextContent()
@@ -136,10 +136,11 @@ func ParseMessage(m Message) message.Message {
 	return message.New("", role.Assistant, parts...)
 }
 
-// hasImages returns true if the message contains any Image parts.
-func hasImages(m message.Message) bool {
+// hasMultiModal returns true if the message contains any Image or Document parts.
+func hasMultiModal(m message.Message) bool {
 	for _, p := range m.Parts {
-		if _, ok := p.(content.Image); ok {
+		switch p.(type) {
+		case content.Image, content.Document:
 			return true
 		}
 	}
@@ -163,6 +164,17 @@ func convertMultiModalMessage(m message.Message) Message {
 			msg.ContentParts = append(msg.ContentParts, ContentPart{
 				Type:     "image_url",
 				ImageURL: &ImageURL{URL: dataURI},
+			})
+		case content.Document:
+			dataURI := fmt.Sprintf("data:%s;base64,%s",
+				v.MediaType, base64.StdEncoding.EncodeToString(v.Data))
+			filename := v.Path
+			if filename == "" {
+				filename = "document"
+			}
+			msg.ContentParts = append(msg.ContentParts, ContentPart{
+				Type: "file",
+				File: &FileData{Filename: filename, FileData: dataURI},
 			})
 		}
 	}

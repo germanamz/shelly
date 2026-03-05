@@ -95,6 +95,44 @@ func TestConvertMessages_ImagePart(t *testing.T) {
 	assert.Contains(t, msgs[0].ContentParts[1].ImageURL.URL, "data:image/png;base64,")
 }
 
+func TestConvertMessages_DocumentPart(t *testing.T) {
+	c := chat.New(
+		message.New("", role.User,
+			content.Text{Text: "Summarize this."},
+			content.Document{Data: []byte("fake-pdf"), MediaType: "application/pdf", Path: "report.pdf"},
+		),
+	)
+
+	msgs := openaicompat.ConvertMessages(c.Messages())
+
+	assert.Len(t, msgs, 1)
+	assert.Equal(t, "user", msgs[0].Role)
+	assert.Nil(t, msgs[0].Content, "Content should be nil for multi-modal messages")
+	assert.Len(t, msgs[0].ContentParts, 2)
+
+	assert.Equal(t, "text", msgs[0].ContentParts[0].Type)
+	assert.Equal(t, "Summarize this.", msgs[0].ContentParts[0].Text)
+
+	assert.Equal(t, "file", msgs[0].ContentParts[1].Type)
+	assert.NotNil(t, msgs[0].ContentParts[1].File)
+	assert.Equal(t, "report.pdf", msgs[0].ContentParts[1].File.Filename)
+	assert.Contains(t, msgs[0].ContentParts[1].File.FileData, "data:application/pdf;base64,")
+}
+
+func TestConvertMessages_DocumentPart_DefaultFilename(t *testing.T) {
+	c := chat.New(
+		message.New("", role.User,
+			content.Document{Data: []byte("fake-pdf"), MediaType: "application/pdf"},
+		),
+	)
+
+	msgs := openaicompat.ConvertMessages(c.Messages())
+
+	assert.Len(t, msgs, 1)
+	assert.Len(t, msgs[0].ContentParts, 1)
+	assert.Equal(t, "document", msgs[0].ContentParts[0].File.Filename)
+}
+
 func TestMessage_MarshalJSON_MultiModal(t *testing.T) {
 	msg := openaicompat.Message{
 		Role: "user",

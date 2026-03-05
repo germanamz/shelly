@@ -36,11 +36,18 @@ type ContentPart struct {
 	Type     string    `json:"type"`
 	Text     string    `json:"text,omitempty"`
 	ImageURL *ImageURL `json:"image_url,omitempty"`
+	File     *FileData `json:"file,omitempty"`
 }
 
 // ImageURL holds an image reference for multi-modal messages.
 type ImageURL struct {
 	URL string `json:"url"`
+}
+
+// FileData holds an inline file reference for multi-modal messages (e.g. PDF).
+type FileData struct {
+	Filename string `json:"filename"`
+	FileData string `json:"file_data"`
 }
 
 // MarshalJSON implements custom JSON marshaling for Message.
