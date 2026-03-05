@@ -17,6 +17,7 @@ type promptBuilder struct {
 	HasNotesTools                                        bool
 	CanDelegate                                          bool
 	CanHandoff                                           bool
+	HasInteraction                                       bool
 	RegistryEntries                                      []Entry
 }
 
@@ -63,6 +64,16 @@ func (pb *promptBuilder) build() string {
 			b.WriteString("- You want to delegate a sub-task (that's what the delegate tool is for).\n")
 			b.WriteString("When handing off, provide a thorough context summary so the peer can continue without re-exploring.\n")
 			b.WriteString("</handoff_protocol>\n")
+		}
+
+		if pb.HasInteraction {
+			b.WriteString("\n<interaction_protocol>\n")
+			b.WriteString("You have a request_input tool available to ask the parent for clarification.\n")
+			b.WriteString("Use it when you need information that was not provided in the delegation context ")
+			b.WriteString("and cannot be obtained through your own tools.\n")
+			b.WriteString("Be specific in your questions. The parent will answer based on its context.\n")
+			b.WriteString("Do NOT use request_input for information you can find yourself.\n")
+			b.WriteString("</interaction_protocol>\n")
 		}
 	}
 

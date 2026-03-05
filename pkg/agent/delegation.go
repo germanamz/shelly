@@ -194,6 +194,11 @@ func runChildWithHandoff(ctx context.Context, a *Agent, child *Agent, t delegate
 		}()
 	}
 
+	// Start auto-answer goroutine for the child's InteractionChannel.
+	if child.interaction != nil {
+		autoAnswer(childCtx, child.interaction, t.Context)
+	}
+
 	if notifier != nil {
 		notifier(childCtx, "agent_start", child.name, AgentEventData{Prefix: child.Prefix(), Parent: a.name, ProviderLabel: child.ProviderLabel(), Task: t.Task})
 	}
@@ -320,6 +325,7 @@ func handleHandoff(ctx context.Context, a *Agent, child *Agent, t delegateTask, 
 	peer.events.cancelUnregistrar = a.events.cancelUnregistrar
 	peer.delegation.reflectionDir = a.delegation.reflectionDir
 	peer.delegation.taskBoard = a.delegation.taskBoard
+	peer.interaction = NewInteractionChannel()
 
 	// Transfer context: handoff context + reason wrapped in <handoff_context> tags.
 	handoffCtx := fmt.Sprintf(
@@ -365,6 +371,9 @@ func buildDelegateChild(a *Agent, t delegateTask) (*Agent, error) {
 	child.events.cancelUnregistrar = a.events.cancelUnregistrar
 	child.delegation.reflectionDir = a.delegation.reflectionDir
 	child.delegation.taskBoard = a.delegation.taskBoard
+
+	// Wire an InteractionChannel so the child can ask questions via request_input.
+	child.interaction = NewInteractionChannel()
 
 	prependContext(child, t.Context)
 

@@ -132,6 +132,7 @@ type Agent struct {
 	depth         int
 	completion    completionHandler
 	handoff       handoffHandler
+	interaction   *InteractionChannel
 }
 
 // New creates an Agent with the given configuration.
@@ -420,6 +421,9 @@ func (a *Agent) allToolBoxes() []*toolbox.ToolBox {
 		if a.registry != nil && a.delegation.maxHandoffs > 0 {
 			completionTB.Register(a.handoff.tool())
 		}
+		if a.interaction != nil {
+			completionTB.Register(requestInputTool(a, a.interaction))
+		}
 		tbs = append(tbs, completionTB)
 	}
 
@@ -449,6 +453,7 @@ func (a *Agent) buildSystemPrompt() string {
 		HasNotesTools:          a.hasNotesTools(),
 		CanDelegate:            a.canDelegate(),
 		CanHandoff:             a.depth > 0 && a.registry != nil && a.delegation.maxHandoffs > 0,
+		HasInteraction:         a.depth > 0 && a.interaction != nil,
 	}
 
 	if pb.CanDelegate {

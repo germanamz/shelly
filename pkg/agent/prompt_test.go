@@ -200,3 +200,26 @@ func TestPromptBuilderNoHandoffProtocolWhenDisabled(t *testing.T) {
 
 	assert.NotContains(t, prompt, "<handoff_protocol>")
 }
+
+func TestPromptBuilderInteractionProtocol(t *testing.T) {
+	pb := promptBuilder{Name: "worker", Depth: 1, HasInteraction: true}
+	prompt := pb.build()
+
+	assert.Contains(t, prompt, "<interaction_protocol>")
+	assert.Contains(t, prompt, "request_input")
+	assert.Contains(t, prompt, "</interaction_protocol>")
+}
+
+func TestPromptBuilderNoInteractionProtocolAtTopLevel(t *testing.T) {
+	pb := promptBuilder{Name: "bot", Depth: 0, HasInteraction: false}
+	prompt := pb.build()
+
+	assert.NotContains(t, prompt, "<interaction_protocol>")
+}
+
+func TestPromptBuilderNoInteractionProtocolWhenDisabled(t *testing.T) {
+	pb := promptBuilder{Name: "worker", Depth: 1, HasInteraction: false}
+	prompt := pb.build()
+
+	assert.NotContains(t, prompt, "<interaction_protocol>")
+}

@@ -1863,3 +1863,166 @@ func TestDelegateToolHandoffWithTaskBoard(t *testing.T) {
 	assert.Equal(t, "task-ho", board.updates[0].ID)
 	assert.Equal(t, "completed", board.updates[0].Status)
 }
+
+func TestDelegateToolChildGetsInteractionChannel(t *testing.T) {
+	// Worker calls request_input, gets auto-answered, then finishes.
+	workerCompleter := &sequenceCompleter{
+		replies: []message.Message{
+			message.New("", role.Assistant,
+				content.ToolCall{
+					ID:        "c1",
+					Name:      "request_input",
+					Arguments: `{"question":"What is the target?"}`,
+				},
+			),
+			message.NewText("", role.Assistant, "done with answer"),
+		},
+	}
+
+	reg := NewRegistry()
+	reg.Register("worker", "Worker", func() *Agent {
+		return New("worker", "", "", workerCompleter, Options{})
+	})
+
+	a := &Agent{name: "orch", configName: "orch", registry: reg, chat: chat.New(), delegation: delegationConfig{maxDepth: 1}}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"worker","task":"do work","context":"target is /tmp"}]}`,
+	))
+
+	require.NoError(t, err)
+
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	assert.Equal(t, "done with answer", results[0].Result)
+}
+
+func TestDelegateToolAutoAnswerUsesContext(t *testing.T) {
+	// Worker calls request_input; verify the auto-answer contains the
+	// delegation context.
+	var captured []message.Message
+	workerCompleter := &capturingAfterToolCompleter{
+		toolReply: message.New("", role.Assistant,
+			content.ToolCall{
+				ID:        "c1",
+				Name:      "request_input",
+				Arguments: `{"question":"Where do I write output?"}`,
+			},
+		),
+		finalReply: message.NewText("", role.Assistant, "wrote output"),
+	}
+
+	reg := NewRegistry()
+	reg.Register("worker", "Worker", func() *Agent {
+		return New("worker", "", "", workerCompleter, Options{})
+	})
+
+	a := &Agent{name: "orch", configName: "orch", registry: reg, chat: chat.New(), delegation: delegationConfig{maxDepth: 1}}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"worker","task":"write files","context":"output goes to /var/data"}]}`,
+	))
+
+	require.NoError(t, err)
+
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	assert.Equal(t, "wrote output", results[0].Result)
+
+	// Verify the tool result (auto-answer) contains the delegation context.
+	_ = captured
+	// The auto-answer is injected into the child's chat as a tool result.
+	// We verify via the capturingAfterToolCompleter that the tool result
+	// contained the delegation context.
+	assert.Contains(t, workerCompleter.lastToolResult, "output goes to /var/data")
+}
+
+// capturingAfterToolCompleter returns the toolReply first, then captures
+// the tool result from the chat before returning finalReply.
+type capturingAfterToolCompleter struct {
+	toolReply      message.Message
+	finalReply     message.Message
+	callCount      int
+	lastToolResult string
+}
+
+func (c *capturingAfterToolCompleter) Complete(_ context.Context, ch *chat.Chat, _ []toolbox.Tool) (message.Message, error) {
+	c.callCount++
+	if c.callCount == 1 {
+		return c.toolReply, nil
+	}
+	// Capture the last tool result message from the chat.
+	msgs := ch.Messages()
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == role.Tool {
+			for _, p := range msgs[i].Parts {
+				if tr, ok := p.(content.ToolResult); ok {
+					c.lastToolResult = tr.Content
+					break
+				}
+			}
+			break
+		}
+	}
+	return c.finalReply, nil
+}
+
+func TestDelegateToolHandoffPeerGetsInteraction(t *testing.T) {
+	// Planner hands off to coder, coder calls request_input, gets auto-answered.
+	plannerCompleter := &sequenceCompleter{
+		replies: []message.Message{
+			message.New("", role.Assistant,
+				content.ToolCall{
+					ID:        "c1",
+					Name:      "handoff",
+					Arguments: `{"target_agent":"coder","reason":"need coding","context":"use Go"}`,
+				},
+			),
+		},
+	}
+
+	coderCompleter := &sequenceCompleter{
+		replies: []message.Message{
+			message.New("", role.Assistant,
+				content.ToolCall{
+					ID:        "c2",
+					Name:      "request_input",
+					Arguments: `{"question":"Which file to edit?"}`,
+				},
+			),
+			message.NewText("", role.Assistant, "edited file"),
+		},
+	}
+
+	reg := NewRegistry()
+	reg.Register("planner", "Planner", func() *Agent {
+		return New("planner", "", "", plannerCompleter, Options{MaxHandoffs: 3})
+	})
+	reg.Register("coder", "Coder", func() *Agent {
+		return New("coder", "", "", coderCompleter, Options{MaxHandoffs: 3})
+	})
+
+	a := &Agent{
+		name:       "orch",
+		configName: "orch",
+		registry:   reg,
+		chat:       chat.New(),
+		delegation: delegationConfig{maxDepth: 1, maxHandoffs: 3},
+	}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"planner","task":"build feature","context":"project uses Go"}]}`,
+	))
+
+	require.NoError(t, err)
+
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	assert.Equal(t, "edited file", results[0].Result)
+}

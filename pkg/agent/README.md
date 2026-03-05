@@ -360,6 +360,7 @@ When depth > 0 (sub-agent), additional tools are injected:
 |------|-------------|
 | `task_complete` | Signals task completion with structured metadata (status, summary, files modified, tests run, caveats). Only callable once per agent run (duplicates are silently ignored). |
 | `handoff` | Transfers control to a peer agent (only when `MaxHandoffs > 0` and a registry is set). Stops the current agent's loop and the delegation machinery spawns the target peer with the provided context. |
+| `request_input` | Asks the parent a question and waits for the response (only when an `InteractionChannel` is wired). Auto-answered using delegation context during standard delegation. |
 
 ### Delegation Mechanics
 
@@ -456,6 +457,42 @@ When a sub-agent calls the `handoff` tool, the delegation machinery transfers co
 - **Nonexistent target**: Handoff to an unregistered agent produces a failed result.
 - **Task board re-claim**: When `task_id` is set, the task is re-claimed for the peer agent.
 
+### Bidirectional Child-to-Parent Communication
+
+During delegation, each child agent receives an `InteractionChannel` that provides a `request_input` tool. This tool allows the child to ask the parent (or an auto-answer mechanism) a question and wait for the response.
+
+**Auto-answer mode (Solution A):** The delegation machinery starts an auto-answer goroutine that reads questions from the `InteractionChannel` and responds using the delegation context. This is transparent to the child -- `request_input` behaves like any other blocking tool call.
+
+**InteractionChannel:**
+
+```go
+type InteractionChannel struct { /* unexported fields */ }
+
+type Question struct {
+    ID      string `json:"id"`
+    Agent   string `json:"agent"`
+    Content string `json:"content"`
+}
+```
+
+| Method | Description |
+|--------|-------------|
+| `NewInteractionChannel()` | Creates a new channel with buffered question/answer pipes. |
+| `Questions() <-chan Question` | Returns the receive-only channel for reading child questions. |
+| `Answer(answer string)` | Sends a response to the child's pending `request_input` call. |
+
+**request_input tool** (available to sub-agents with depth > 0 when an `InteractionChannel` is wired):
+
+| Field | Description |
+|-------|-------------|
+| `question` (required) | The question to ask the parent. |
+
+The tool sends a `Question` on the channel, then blocks waiting for the answer. Context cancellation unblocks the call.
+
+**System prompt:** When `request_input` is available, the `<interaction_protocol>` section is included in the system prompt, instructing the agent when and how to use it.
+
+**Handoff peers** also receive their own `InteractionChannel`, so peer agents spawned via handoff can also use `request_input`.
+
 ### Toolbox Isolation
 
 Children use only their own configured toolboxes. Parent toolboxes are **not** inherited during delegation. This enforces least-privilege: a child configured with `[filesystem, search]` only has access to those tools, regardless of what the parent has.
@@ -471,6 +508,7 @@ The system prompt is built by `buildSystemPrompt()` using XML tags for clear sec
 1. `<identity>` -- Agent name and description (static, cacheable prefix)
 2. `<completion_protocol>` -- Sub-agent completion instructions (static, depth > 0 only)
 2b. `<handoff_protocol>` -- Peer handoff instructions (static, depth > 0 and `MaxHandoffs > 0` only)
+2c. `<interaction_protocol>` -- Child-to-parent communication instructions (static, depth > 0 and `InteractionChannel` wired)
 3. `<notes_protocol>` -- Cross-agent notes awareness (static, only when notes tools are present)
 4. `<instructions>` -- Agent-specific instructions (static)
 5. `<behavioral_constraints>` -- Heuristic behavioural hints (static, can be disabled via `DisableBehavioralHints`)
@@ -507,6 +545,7 @@ completion.go   -- CompletionResult, completionHandler, task_complete tool
 delegation.go          -- Orchestration tools (list_agents, delegate), AgentEventData, context helpers
 delegation_stream.go   -- DelegationEvent types, progress/result event emission
 handoff.go             -- HandoffResult, handoffHandler, handoff tool
+interaction.go         -- InteractionChannel, Question, request_input tool, autoAnswer
 effect.go       -- Effect interface, EffectFunc, Resetter, IterationPhase, IterationContext
 effects/        -- Reusable Effect implementations (see pkg/agent/effects/README.md)
 middleware.go   -- Runner interface, Middleware type, built-in middleware

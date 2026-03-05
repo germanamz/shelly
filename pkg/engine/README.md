@@ -359,6 +359,10 @@ When designing agent configs, keep in mind:
 - To restrict a child's tools strictly to its config, avoid delegating from agents with broader toolbox sets, or adjust the delegation logic.
 - Built-in toolboxes that require filesystem permissions (`filesystem`, `exec`, `search`, `git`, `http`, `browser`) share a single `permissions.Store` instance and an `ask.Responder` for user prompts.
 
+### Child-to-Parent Communication
+
+During delegation, each child agent is automatically wired with an `InteractionChannel` that provides a `request_input` tool. The delegation machinery starts an auto-answer goroutine that responds to child questions using the delegation context. This enables children to ask for clarification without changing the blocking delegation model. Handoff peers also receive their own `InteractionChannel`. See `pkg/agent/README.md` for details.
+
 ### Task Board Adapter
 
 When the `tasks` toolbox is referenced by at least one agent, the engine creates a `*tasks.Store` and wires a `taskBoardAdapter` into each agent's options. This adapter implements `agent.TaskBoard` by delegating `ClaimTask` and `UpdateTaskStatus` calls to the shared task store, enabling agents to coordinate work through a shared task board.
