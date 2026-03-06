@@ -183,12 +183,14 @@ func TestAnswerDelegationQuestionsToolFollowUp(t *testing.T) {
 	doneCh := make(chan delegateResult, 1)
 	answerCh := make(chan string, 1)
 
+	questionCh := make(chan PendingQuestion, 1)
 	pd := &PendingDelegation{
-		ID:       "d-1",
-		Agent:    "worker",
-		AnswerCh: answerCh,
-		DoneCh:   doneCh,
-		Cancel:   func() {},
+		ID:         "d-1",
+		Agent:      "worker",
+		QuestionCh: questionCh,
+		AnswerCh:   answerCh,
+		DoneCh:     doneCh,
+		Cancel:     func() {},
 	}
 	require.NoError(t, reg.Register(pd))
 
@@ -214,8 +216,8 @@ func TestAnswerDelegationQuestionsToolFollowUp(t *testing.T) {
 		t.Fatal("timed out")
 	}
 
-	// Child asks a follow-up via shared queue.
-	reg.questions <- PendingQuestion{
+	// Child asks a follow-up via per-delegation channel.
+	pd.QuestionCh <- PendingQuestion{
 		DelegationID: "d-1",
 		Question:     Question{ID: "q-2", Agent: "worker", Content: "what format?"},
 	}

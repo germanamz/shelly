@@ -20,30 +20,27 @@ type PendingQuestion struct {
 
 // PendingDelegation represents one in-flight interactive child.
 type PendingDelegation struct {
-	ID       string
-	Agent    string
-	Task     string
-	AnswerCh chan string           // route answers back to this child
-	DoneCh   <-chan delegateResult // receives final result
-	Cancel   context.CancelFunc    // cancel the child
+	ID         string
+	Agent      string
+	Task       string
+	QuestionCh chan PendingQuestion  // per-delegation question intake
+	AnswerCh   chan string           // route answers back to this child
+	DoneCh     <-chan delegateResult // receives final result
+	Cancel     context.CancelFunc    // cancel the child
 }
 
 // DelegationRegistry tracks active interactive delegations for a parent agent.
-// All children push questions to a single shared channel; each child has its
-// own answerCh for 1:1 response routing.
+// Each child has its own QuestionCh and AnswerCh for 1:1 routing.
 type DelegationRegistry struct {
-	mu        sync.Mutex
-	pending   map[string]*PendingDelegation
-	questions chan PendingQuestion // single intake for ALL children
-	counter   atomic.Int64
+	mu      sync.Mutex
+	pending map[string]*PendingDelegation
+	counter atomic.Int64
 }
 
-// NewDelegationRegistry creates a DelegationRegistry with a buffered shared
-// question channel.
+// NewDelegationRegistry creates a DelegationRegistry.
 func NewDelegationRegistry() *DelegationRegistry {
 	return &DelegationRegistry{
-		pending:   make(map[string]*PendingDelegation),
-		questions: make(chan PendingQuestion, 16),
+		pending: make(map[string]*PendingDelegation),
 	}
 }
 
@@ -79,12 +76,7 @@ func (dr *DelegationRegistry) Remove(id string) {
 	delete(dr.pending, id)
 }
 
-// SharedQueue returns the write-only shared question channel for children.
-func (dr *DelegationRegistry) SharedQueue() chan<- PendingQuestion {
-	return dr.questions
-}
-
-// Close cancels all pending children and drains the question channel.
+// Close cancels all pending children.
 func (dr *DelegationRegistry) Close() {
 	dr.mu.Lock()
 	defer dr.mu.Unlock()
@@ -185,20 +177,11 @@ func waitForChildResponse(ctx context.Context, reg *DelegationRegistry, pd *Pend
 
 	for {
 		select {
-		case pq := <-reg.questions:
-			if pq.DelegationID == delegationID {
-				return interactiveDelegateResult{
-					Agent:           pd.Agent,
-					DelegationID:    delegationID,
-					PendingQuestion: &pq.Question,
-				}
-			}
-			// Not for us — put it back.
-			select {
-			case reg.questions <- pq:
-			default:
-				// Channel full; drop and let the child retry. This shouldn't
-				// happen in practice since queue is bounded by child count.
+		case pq := <-pd.QuestionCh:
+			return interactiveDelegateResult{
+				Agent:           pd.Agent,
+				DelegationID:    delegationID,
+				PendingQuestion: &pq.Question,
 			}
 		case dr := <-pd.DoneCh:
 			reg.Remove(delegationID)

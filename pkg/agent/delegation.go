@@ -161,6 +161,7 @@ func runInteractiveDelegate(ctx context.Context, a *Agent, tasks []delegateTask)
 	type childInfo struct {
 		delegationID string
 		task         delegateTask
+		questionCh   chan PendingQuestion
 		doneCh       chan delegateResult
 	}
 
@@ -169,32 +170,34 @@ func runInteractiveDelegate(ctx context.Context, a *Agent, tasks []delegateTask)
 	// Spawn all children.
 	for i, t := range tasks {
 		delegationID := reg.NextDelegationID()
+		questionCh := make(chan PendingQuestion, 1)
 		doneCh := make(chan delegateResult, 1)
 
-		child, err := buildInteractiveDelegateChild(a, t, delegationID, reg)
+		child, err := buildInteractiveDelegateChild(a, t, delegationID, questionCh)
 		if err != nil {
-			children[i] = childInfo{delegationID: delegationID, task: t, doneCh: doneCh}
+			children[i] = childInfo{delegationID: delegationID, task: t, questionCh: questionCh, doneCh: doneCh}
 			doneCh <- delegateResult{Agent: t.Agent, Error: err.Error()}
 			continue
 		}
 
 		childCtx, childCancel := context.WithCancel(ctx)
 		pd := &PendingDelegation{
-			ID:       delegationID,
-			Agent:    t.Agent,
-			Task:     t.Task,
-			AnswerCh: child.interaction.answerCh,
-			DoneCh:   doneCh,
-			Cancel:   childCancel,
+			ID:         delegationID,
+			Agent:      t.Agent,
+			Task:       t.Task,
+			QuestionCh: questionCh,
+			AnswerCh:   child.interaction.answerCh,
+			DoneCh:     doneCh,
+			Cancel:     childCancel,
 		}
 		if err := reg.Register(pd); err != nil {
 			childCancel()
-			children[i] = childInfo{delegationID: delegationID, task: t, doneCh: doneCh}
+			children[i] = childInfo{delegationID: delegationID, task: t, questionCh: questionCh, doneCh: doneCh}
 			doneCh <- delegateResult{Agent: t.Agent, Error: err.Error()}
 			continue
 		}
 
-		children[i] = childInfo{delegationID: delegationID, task: t, doneCh: doneCh}
+		children[i] = childInfo{delegationID: delegationID, task: t, questionCh: questionCh, doneCh: doneCh}
 
 		// Run child in background goroutine. Use runChildWithHandoff directly
 		// since buildInteractiveDelegateChild already configured the child.
@@ -221,7 +224,7 @@ func runInteractiveDelegate(ctx context.Context, a *Agent, tasks []delegateTask)
 	var wg sync.WaitGroup
 	for i, ci := range children {
 		wg.Go(func() {
-			results[i] = waitForInitialChildResponse(ctx, reg, ci.delegationID, ci.task.Agent, ci.doneCh, a.delegation.questionTimeout)
+			results[i] = waitForInitialChildResponse(ctx, reg, ci.delegationID, ci.task.Agent, ci.questionCh, ci.doneCh, a.delegation.questionTimeout)
 		})
 	}
 	wg.Wait()
@@ -235,7 +238,7 @@ func runInteractiveDelegate(ctx context.Context, a *Agent, tasks []delegateTask)
 
 // waitForInitialChildResponse waits for a child to either complete or ask its
 // first question after being spawned in interactive mode.
-func waitForInitialChildResponse(ctx context.Context, reg *DelegationRegistry, delegationID, agentName string, doneCh <-chan delegateResult, timeout time.Duration) interactiveDelegateResult {
+func waitForInitialChildResponse(ctx context.Context, reg *DelegationRegistry, delegationID, agentName string, questionCh <-chan PendingQuestion, doneCh <-chan delegateResult, timeout time.Duration) interactiveDelegateResult {
 	var timer <-chan time.Time
 	if timeout > 0 {
 		t := time.NewTimer(timeout)
@@ -245,18 +248,11 @@ func waitForInitialChildResponse(ctx context.Context, reg *DelegationRegistry, d
 
 	for {
 		select {
-		case pq := <-reg.questions:
-			if pq.DelegationID == delegationID {
-				return interactiveDelegateResult{
-					Agent:           agentName,
-					DelegationID:    delegationID,
-					PendingQuestion: &pq.Question,
-				}
-			}
-			// Not for us — put it back.
-			select {
-			case reg.questions <- pq:
-			default:
+		case pq := <-questionCh:
+			return interactiveDelegateResult{
+				Agent:           agentName,
+				DelegationID:    delegationID,
+				PendingQuestion: &pq.Question,
 			}
 		case dr := <-doneCh:
 			reg.Remove(delegationID)
@@ -281,7 +277,7 @@ func waitForInitialChildResponse(ctx context.Context, reg *DelegationRegistry, d
 
 // buildInteractiveDelegateChild creates a child agent wired for interactive
 // delegation with a shared question queue.
-func buildInteractiveDelegateChild(a *Agent, t delegateTask, delegationID string, reg *DelegationRegistry) (*Agent, error) {
+func buildInteractiveDelegateChild(a *Agent, t delegateTask, delegationID string, questionCh chan PendingQuestion) (*Agent, error) {
 	child, ok := a.registry.Spawn(t.Agent, a.depth+1)
 	if !ok {
 		return nil, fmt.Errorf("agent %q not found", t.Agent)
@@ -296,8 +292,8 @@ func buildInteractiveDelegateChild(a *Agent, t delegateTask, delegationID string
 	child.delegation.reflectionDir = a.delegation.reflectionDir
 	child.delegation.taskBoard = a.delegation.taskBoard
 
-	// Wire shared InteractionChannel.
-	child.interaction = NewSharedInteractionChannel(delegationID, reg.SharedQueue())
+	// Wire per-delegation InteractionChannel.
+	child.interaction = NewSharedInteractionChannel(delegationID, questionCh)
 
 	prependContext(child, t.Context)
 

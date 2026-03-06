@@ -158,18 +158,18 @@ type Agent struct {
 // New creates an Agent with the given configuration.
 func New(name, description, instructions string, completer modeladapter.Completer, opts Options) *Agent {
 	a := &Agent{
-		name:          name,
-		configName:    name,
-		description:   description,
-		instructions:  instructions,
-		completer:     completer,
-		chat:          chat.New(),
-		prefix:        opts.Prefix,
-		providerLabel: opts.ProviderLabel,
+		name:           name,
+		configName:     name,
+		description:    description,
+		instructions:   instructions,
+		completer:      completer,
+		chat:           chat.New(),
+		prefix:         opts.Prefix,
+		providerLabel:  opts.ProviderLabel,
 		maxIterations:  opts.MaxIterations,
 		warnIterations: opts.WarnIterations,
 		middleware:     opts.Middleware,
-		effects:       opts.Effects,
+		effects:        opts.Effects,
 		delegation: delegationConfig{
 			maxDepth:        opts.MaxDelegationDepth,
 			maxHandoffs:     opts.MaxHandoffs,

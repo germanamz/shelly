@@ -22,8 +22,8 @@ type Question struct {
 //
 // Two wiring modes:
 //   - Per-child (default): questionCh is local, used with autoAnswer.
-//   - Shared queue: sharedQueue is set and questions go to the parent's
-//     DelegationRegistry. Used in interactive delegation mode.
+//   - Per-delegation: sharedQueue is set to a per-delegation channel that
+//     routes questions to the parent. Used in interactive delegation mode.
 type InteractionChannel struct {
 	delegationID string
 	questionCh   chan Question          // per-child channel (nil when using shared queue)
