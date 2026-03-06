@@ -71,9 +71,9 @@ implementations to these shared functions, keeping only provider-specific config
   tool results in `"user"` role messages. Tool schemas use `input_schema`.
   Default max tokens: 4096. Uses `ParseAnthropicRateLimitHeaders` for rate
   limit handling. Sends a custom `anthropic-version: 2023-06-01` header.
-  **Prompt caching**: Every request includes `cache_control: {type: "ephemeral"}`
-  which enables automatic prefix caching. The API caches the entire prefix up to
-  the last cacheable block (tools -> system -> messages). Cache metrics
+  **Prompt caching**: The adapter attaches `cache_control: {type: "ephemeral"}`
+  to the system message block and the last tool definition. The API caches the
+  entire prefix up to the last block marked with `cache_control`. Cache metrics
   (`cache_creation_input_tokens`, `cache_read_input_tokens`) are tracked in the
   usage system.
 - **OpenAI** sends the system prompt as a `"system"` role message in the messages

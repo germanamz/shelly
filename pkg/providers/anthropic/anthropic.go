@@ -84,12 +84,17 @@ type cacheControl struct {
 }
 
 type apiRequest struct {
-	Model        string        `json:"model"`
-	MaxTokens    int           `json:"max_tokens"`
-	System       string        `json:"system,omitempty"`
-	Messages     []apiMessage  `json:"messages"`
-	Temperature  *float64      `json:"temperature,omitempty"`
-	Tools        []apiToolDef  `json:"tools,omitempty"`
+	Model       string           `json:"model"`
+	MaxTokens   int              `json:"max_tokens"`
+	System      []apiSystemBlock `json:"system,omitempty"`
+	Messages    []apiMessage     `json:"messages"`
+	Temperature *float64         `json:"temperature,omitempty"`
+	Tools       []apiToolDef     `json:"tools,omitempty"`
+}
+
+type apiSystemBlock struct {
+	Type         string        `json:"type"`
+	Text         string        `json:"text"`
 	CacheControl *cacheControl `json:"cache_control,omitempty"`
 }
 
@@ -117,9 +122,10 @@ type apiSource struct {
 }
 
 type apiToolDef struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	InputSchema json.RawMessage `json:"input_schema"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description,omitempty"`
+	InputSchema  json.RawMessage `json:"input_schema"`
+	CacheControl *cacheControl   `json:"cache_control,omitempty"`
 }
 
 // --- response types ---
@@ -143,15 +149,18 @@ func (a *Adapter) buildRequest(c *chat.Chat, tools []toolbox.Tool) apiRequest {
 	req := apiRequest{
 		Model:     a.Config.Name,
 		MaxTokens: a.Config.MaxTokens,
-		System:    c.SystemPrompt(),
+	}
+
+	if sp := c.SystemPrompt(); sp != "" {
+		req.System = []apiSystemBlock{
+			{Type: "text", Text: sp, CacheControl: &cacheControl{Type: "ephemeral"}},
+		}
 	}
 
 	if a.Config.Temperature != 0 {
 		t := a.Config.Temperature
 		req.Temperature = &t
 	}
-
-	req.CacheControl = &cacheControl{Type: "ephemeral"}
 
 	if len(tools) > 0 {
 		req.Tools = make([]apiToolDef, len(tools))
@@ -166,6 +175,9 @@ func (a *Adapter) buildRequest(c *chat.Chat, tools []toolbox.Tool) apiRequest {
 				InputSchema: schema,
 			}
 		}
+		// Mark the last tool with cache_control so the API caches the
+		// entire prefix (tools + system + earlier messages).
+		req.Tools[len(req.Tools)-1].CacheControl = &cacheControl{Type: "ephemeral"}
 	}
 
 	msgs := c.Messages()

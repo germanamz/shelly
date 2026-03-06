@@ -65,7 +65,12 @@ func TestComplete_SimpleText(t *testing.T) {
 		req := readBody(t, r)
 
 		assert.Equal(t, "claude-test", req["model"])
-		assert.Equal(t, "You are helpful.", req["system"])
+		system, ok := req["system"].([]any)
+		assert.True(t, ok, "system should be an array")
+		if ok && len(system) > 0 {
+			block, _ := system[0].(map[string]any)
+			assert.Equal(t, "You are helpful.", block["text"])
+		}
 
 		msgs, ok := req["messages"].([]any)
 		assert.True(t, ok)
@@ -309,7 +314,12 @@ func TestComplete_SystemPromptSkipped(t *testing.T) {
 			assert.NotEqual(t, "system", msg["role"], "system role must not appear in messages array")
 		}
 
-		assert.Equal(t, "Be concise.", req["system"])
+		system, ok := req["system"].([]any)
+		assert.True(t, ok, "system should be an array")
+		if ok && len(system) > 0 {
+			block, _ := system[0].(map[string]any)
+			assert.Equal(t, "Be concise.", block["text"])
+		}
 
 		writeJSON(t, w, map[string]any{
 			"content":     []map[string]any{{"type": "text", "text": "OK"}},
@@ -331,10 +341,27 @@ func TestComplete_CacheControl(t *testing.T) {
 	_, adapter := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		req := readBody(t, r)
 
-		// Verify cache_control is present in the request.
-		cc, ok := req["cache_control"].(map[string]any)
-		assert.True(t, ok, "cache_control field should be present")
-		assert.Equal(t, "ephemeral", cc["type"])
+		// cache_control must NOT be at the request root.
+		_, hasTopLevel := req["cache_control"]
+		assert.False(t, hasTopLevel, "cache_control must not be at the request root")
+
+		// Verify cache_control on system block.
+		system, ok := req["system"].([]any)
+		assert.True(t, ok, "system should be an array of content blocks")
+		if ok && len(system) > 0 {
+			block, _ := system[0].(map[string]any)
+			cc, _ := block["cache_control"].(map[string]any)
+			assert.Equal(t, "ephemeral", cc["type"], "system block should have cache_control")
+		}
+
+		// Verify cache_control on the last tool.
+		tools, ok := req["tools"].([]any)
+		assert.True(t, ok)
+		if ok && len(tools) > 0 {
+			lastTool, _ := tools[len(tools)-1].(map[string]any)
+			cc, _ := lastTool["cache_control"].(map[string]any)
+			assert.Equal(t, "ephemeral", cc["type"], "last tool should have cache_control")
+		}
 
 		writeJSON(t, w, map[string]any{
 			"content":     []map[string]any{{"type": "text", "text": "OK"}},
@@ -348,12 +375,20 @@ func TestComplete_CacheControl(t *testing.T) {
 		})
 	})
 
+	tools := []toolbox.Tool{
+		{
+			Name:        "test_tool",
+			Description: "A test tool",
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+		},
+	}
+
 	c := chat.New(
 		message.NewText("system", role.System, "You are helpful."),
 		message.NewText("user", role.User, "Hi"),
 	)
 
-	_, err := adapter.Complete(context.Background(), c, nil)
+	_, err := adapter.Complete(context.Background(), c, tools)
 	require.NoError(t, err)
 
 	last, ok := adapter.UsageTracker().Last()
