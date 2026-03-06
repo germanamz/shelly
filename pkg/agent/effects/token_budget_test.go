@@ -175,9 +175,55 @@ func TestTokenBudgetEffect_Reset(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, e.warned)
 
-	// Reset clears the warned flag.
+	// Reset clears the warned flag and snapshots baseline.
 	e.Reset()
 	assert.False(t, e.warned)
+	assert.Equal(t, 850, e.baseline)
+}
+
+func TestTokenBudgetEffect_ResetBaselineAcrossRuns(t *testing.T) {
+	e := NewTokenBudgetEffect(TokenBudgetConfig{MaxTokens: 1000, WarnThreshold: 0.8})
+
+	uc := &usageCompleter{}
+
+	// Simulate first run consuming 500 tokens.
+	uc.tracker.Add(usage.TokenCount{InputTokens: 300, OutputTokens: 200})
+
+	c := chat.New(message.NewText("", role.System, "sys"))
+	ic := agent.IterationContext{
+		Phase:     agent.PhaseAfterComplete,
+		Iteration: 1,
+		Chat:      c,
+		Completer: uc,
+	}
+	err := e.Eval(context.Background(), ic)
+	require.NoError(t, err)
+	assert.Equal(t, 1, c.Len()) // no warning at 50%
+
+	// Reset between runs — snapshots baseline at 500.
+	e.Reset()
+	assert.Equal(t, 500, e.baseline)
+
+	// Simulate second run: add 400 more tokens (cumulative 900, but per-run 400).
+	uc.tracker.Add(usage.TokenCount{InputTokens: 200, OutputTokens: 200})
+
+	c2 := chat.New(message.NewText("", role.System, "sys"))
+	ic2 := agent.IterationContext{
+		Phase:     agent.PhaseAfterComplete,
+		Iteration: 1,
+		Chat:      c2,
+		Completer: uc,
+	}
+	// Per-run usage is 400/1000 = 40%, no warning expected.
+	err = e.Eval(context.Background(), ic2)
+	require.NoError(t, err)
+	assert.Equal(t, 1, c2.Len()) // no warning injected
+
+	// Add more tokens to push per-run usage to 850 (cumulative 1350).
+	uc.tracker.Add(usage.TokenCount{InputTokens: 250, OutputTokens: 200})
+	err = e.Eval(context.Background(), ic2)
+	require.NoError(t, err)
+	assert.Equal(t, 2, c2.Len()) // warning injected at 85% of per-run budget
 }
 
 func TestTokenBudgetEffect_DefaultWarnThreshold(t *testing.T) {

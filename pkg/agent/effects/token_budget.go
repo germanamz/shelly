@@ -23,8 +23,10 @@ type TokenBudgetConfig struct {
 // UsageTracker. At the warn threshold it injects a wrap-up message; at 100%
 // it returns ErrTokenBudgetExhausted.
 type TokenBudgetEffect struct {
-	cfg    TokenBudgetConfig
-	warned bool
+	cfg       TokenBudgetConfig
+	warned    bool
+	baseline  int // cumulative tokens at the start of the current run
+	completer modeladapter.Completer
 }
 
 // NewTokenBudgetEffect creates a TokenBudgetEffect with the given configuration.
@@ -38,6 +40,10 @@ func NewTokenBudgetEffect(cfg TokenBudgetConfig) *TokenBudgetEffect {
 // Reset implements agent.Resetter.
 func (e *TokenBudgetEffect) Reset() {
 	e.warned = false
+	if reporter, ok := e.completer.(modeladapter.UsageReporter); ok {
+		total := reporter.UsageTracker().Total()
+		e.baseline = total.InputTokens + total.OutputTokens
+	}
 }
 
 // Eval implements agent.Effect.
@@ -55,8 +61,11 @@ func (e *TokenBudgetEffect) Eval(_ context.Context, ic agent.IterationContext) e
 		return nil
 	}
 
+	// Store completer so Reset() can snapshot the baseline for the next run.
+	e.completer = ic.Completer
+
 	total := reporter.UsageTracker().Total()
-	used := total.InputTokens + total.OutputTokens
+	used := total.InputTokens + total.OutputTokens - e.baseline
 	ratio := float64(used) / float64(e.cfg.MaxTokens)
 
 	if ratio >= 1.0 {
