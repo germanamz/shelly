@@ -79,6 +79,8 @@ func (m *AppModel) executeClear() tea.Cmd {
 	m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: "\n" + styles.DimStyle.Render("⌘ /clear") + "\n"})
 	m.inputBox, _ = m.inputBox.Update(msgs.InputResetMsg{})
 	m.tokenCount = ""
+	m.cacheInfo = ""
+	m.sessionCost = ""
 	m.cancelBridge = bridge.Start(m.ctx, m.program, m.sess.Chat(), m.eng.Events(), m.eng.Tasks(), m.sess.AgentName())
 	m.state = StateIdle
 	return nil
@@ -180,6 +182,8 @@ func (m *AppModel) executeResumeSession(id string) tea.Cmd {
 
 	m.inputBox, _ = m.inputBox.Update(msgs.InputResetMsg{})
 	m.tokenCount = ""
+	m.cacheInfo = ""
+	m.sessionCost = ""
 	m.cancelBridge = bridge.Start(m.ctx, m.program, m.sess.Chat(), m.eng.Events(), m.eng.Tasks(), m.sess.AgentName())
 	m.state = StateIdle
 	return nil

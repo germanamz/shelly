@@ -20,6 +20,7 @@ import (
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/engine"
 	"github.com/germanamz/shelly/pkg/modeladapter"
+	"github.com/germanamz/shelly/pkg/modeladapter/usage"
 )
 
 // State represents the application state machine.
@@ -56,6 +57,7 @@ type AppModel struct {
 	sendGeneration uint64
 	tokenCount     string // formatted total session tokens for status bar
 	cacheInfo      string // formatted cache hit ratio for status bar
+	sessionCost    string // formatted cumulative USD cost for status bar
 	configPath     string
 	shellyDir      string
 	configWizard   *configwizard.WizardModel
@@ -451,6 +453,13 @@ func (m *AppModel) updateTokenCounter() {
 	if ratio := total.CacheSavings(); ratio > 0 {
 		m.cacheInfo = fmt.Sprintf("cache %.0f%%", ratio*100)
 	}
+	info := m.sess.ProviderInfo()
+	if pricing, ok := usage.LookupPricing(info.Kind, info.Model); ok {
+		cost := usage.CalculateCost(total, pricing)
+		if cost > 0 {
+			m.sessionCost = format.FmtCost(cost)
+		}
+	}
 }
 
 // statusBar renders the task panel and token counter below the input.
@@ -465,6 +474,9 @@ func (m AppModel) statusBar() string {
 	}
 	if m.tokenCount != "" {
 		segments = append(segments, m.tokenCount+" tokens")
+	}
+	if m.sessionCost != "" {
+		segments = append(segments, m.sessionCost)
 	}
 	if m.cacheInfo != "" {
 		segments = append(segments, m.cacheInfo)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/germanamz/shelly/pkg/chats/role"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/ask"
 	"github.com/germanamz/shelly/pkg/modeladapter"
+	"github.com/germanamz/shelly/pkg/modeladapter/usage"
 	"github.com/germanamz/shelly/pkg/projectctx"
 	"github.com/germanamz/shelly/pkg/sessions"
 	"github.com/germanamz/shelly/pkg/shellydir"
@@ -72,6 +74,9 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 	}
 
 	dir := shellydir.New(shellyDirPath)
+
+	// Allow user-level pricing overrides from .shelly/local/pricing.yaml.
+	usage.SetOverridePath(filepath.Join(dir.LocalDir(), "pricing.yaml"))
 
 	ctx, cancel := context.WithCancel(ctx)
 

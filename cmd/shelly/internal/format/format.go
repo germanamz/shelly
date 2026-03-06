@@ -113,6 +113,18 @@ func FmtTokens(n int) string {
 	}
 }
 
+// FmtCost formats a USD cost for display.
+func FmtCost(usd float64) string {
+	switch {
+	case usd < 0.01:
+		return fmt.Sprintf("$%.4f", usd)
+	case usd < 1.0:
+		return fmt.Sprintf("$%.3f", usd)
+	default:
+		return fmt.Sprintf("$%.2f", usd)
+	}
+}
+
 // FmtBytes formats a byte count for human-readable display.
 func FmtBytes(n int) string {
 	switch {

@@ -12,15 +12,15 @@ config:
     - name: default
       kind: anthropic
       api_key: ${ANTHROPIC_API_KEY}
-      model: claude-sonnet-4-20250514
+      model: claude-opus-4-6
     - name: openai
       kind: openai
       api_key: ${OPENAI_API_KEY}
-      model: gpt-4.1
+      model: gpt-5.4
     - name: grok
       kind: grok
       api_key: ${GROK_API_KEY}
-      model: grok-3
+      model: grok-4-1-fast
     - name: gemini
       kind: gemini
       api_key: ${GEMINI_API_KEY}

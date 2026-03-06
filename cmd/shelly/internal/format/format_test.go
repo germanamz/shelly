@@ -64,6 +64,26 @@ func TestRenderUserMessageMultiLine(t *testing.T) {
 	assert.Contains(t, msg, "line2")
 }
 
+func TestFmtCost(t *testing.T) {
+	tests := []struct {
+		input    float64
+		expected string
+	}{
+		{0.0, "$0.0000"},
+		{0.0023, "$0.0023"},
+		{0.0099, "$0.0099"},
+		{0.01, "$0.010"},
+		{0.342, "$0.342"},
+		{0.999, "$0.999"},
+		{1.0, "$1.00"},
+		{12.5, "$12.50"},
+		{100.123, "$100.12"},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.expected, FmtCost(tt.input), "FmtCost(%v)", tt.input)
+	}
+}
+
 func TestFmtBytes(t *testing.T) {
 	tests := []struct {
 		input    int
