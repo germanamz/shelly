@@ -235,7 +235,7 @@ These integrate with the existing delegation error handling in `pkg/agent/delega
 
 ## Implementation Order
 
-1. **Phase 1** (token_budget) — Highest impact, replaces iteration limit as primary cost control
+1. ~~**Phase 1** (token_budget) — Highest impact, replaces iteration limit as primary cost control~~ **DONE**
 2. **Phase 2** (time_budget) — Quick to implement, shares pattern with token_budget
 3. **Phase 4** (graceful exhaustion) — Small change, big UX improvement
 4. **Phase 5** (raise limits + update templates) — Applies the new effects to real configs

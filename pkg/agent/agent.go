@@ -26,6 +26,10 @@ import (
 // without the model producing a final answer.
 var ErrMaxIterations = errors.New("agent: max iterations reached")
 
+// ErrTokenBudgetExhausted is returned when cumulative token usage exceeds
+// the configured token budget.
+var ErrTokenBudgetExhausted = errors.New("agent: token budget exhausted")
+
 // EventNotifier is called by orchestration tools to publish sub-agent
 // lifecycle events (e.g. "agent_start", "agent_end") to the engine's EventBus.
 type EventNotifier func(ctx context.Context, kind string, agentName string, data any)

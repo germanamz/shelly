@@ -401,11 +401,17 @@ func runChildWithHandoff(ctx context.Context, a *Agent, child *Agent, t delegate
 	}
 
 	if runErr != nil {
-		if errors.Is(runErr, ErrMaxIterations) {
+		if errors.Is(runErr, ErrMaxIterations) || errors.Is(runErr, ErrTokenBudgetExhausted) {
+			summary := fmt.Sprintf("Agent %q exhausted its iteration limit without completing the task.", t.Agent)
+			caveats := "Iteration limit reached. Check progress notes for partial work."
+			if errors.Is(runErr, ErrTokenBudgetExhausted) {
+				summary = fmt.Sprintf("Agent %q exhausted its token budget without completing the task.", t.Agent)
+				caveats = "Token budget exhausted. Check progress notes for partial work."
+			}
 			cr := &CompletionResult{
 				Status:  "failed",
-				Summary: fmt.Sprintf("Agent %q exhausted its iteration limit without completing the task.", t.Agent),
-				Caveats: "Iteration limit reached. Check progress notes for partial work.",
+				Summary: summary,
+				Caveats: caveats,
 			}
 			writeReflection(a.delegation.reflectionDir, t.Agent, t.Task, cr)
 			dr := delegateResult{Agent: t.Agent, Completion: cr}

@@ -34,6 +34,7 @@ var effectFactories = map[string]EffectFactory{
 	"progress":          buildProgressEffect,
 	"tool_scope":        buildToolScopeEffect,
 	"offload":           buildOffloadEffect,
+	"token_budget":      buildTokenBudgetEffect,
 }
 
 // KnownEffectKinds returns the sorted list of recognised effect kind strings,
@@ -273,6 +274,22 @@ func buildToolScopeEffect(params map[string]any, _ EffectWiringContext) (agent.E
 	}
 	return effects.NewToolScopeEffect(effects.ToolScopeConfig{
 		Exclude: exclude,
+	}), nil
+}
+
+// buildTokenBudgetEffect creates a TokenBudgetEffect from YAML params.
+func buildTokenBudgetEffect(params map[string]any, _ EffectWiringContext) (agent.Effect, error) {
+	maxTokens, err := paramInt(params, "max_tokens", 0)
+	if err != nil {
+		return nil, err
+	}
+	warnThreshold, err := paramFloat(params, "warn_threshold", 0.8)
+	if err != nil {
+		return nil, err
+	}
+	return effects.NewTokenBudgetEffect(effects.TokenBudgetConfig{
+		MaxTokens:     maxTokens,
+		WarnThreshold: warnThreshold,
 	}), nil
 }
 
