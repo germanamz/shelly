@@ -6,7 +6,7 @@ config:
   mcp_servers:
     - name: playwright
       command: npx
-      args: ["-y", "@anthropic-ai/mcp-playwright"]
+      args: ["-y", "@playwright/mcp"]
 
   providers:
     - name: default

@@ -60,7 +60,7 @@ providers:
       kind: gemini
       base_url: ""
       api_key: ${GEMINI_API_KEY}
-      model: gemini-3.1-pro-preview
+      model: gemini-2.5-pro
       context_window: null
       max_tokens: null
       rate_limit:
@@ -81,10 +81,11 @@ mcp_servers:
       args:
         - -y
         - '@playwright/mcp'
+      url: ""
 agents:
     - name: lead
       description: Stakeholder who owns the outcome, evaluates reports, and makes strategic decisions
-      instructions: 'You are the lead — you own the outcome of every task. You evaluate subagent reports critically, make strategic decisions at each step, and ensure the final result meets the user''s expectations. You are not a dispatcher — you read findings, verify claims using your own tools, and decide next actions. MANDATORY: after the planner produces a plan, you must present it to the user via ask_user and get explicit approval before delegating any coding work. Never skip this approval step.'
+      instructions: 'You are the lead — you own the outcome of every task. You evaluate subagent reports critically, make strategic decisions at each step, and ensure the final result meets the user''s expectations. You are not a dispatcher — you read findings, verify claims using your own tools, and decide next actions. MANDATORY: after the planner produces a plan, you must present it to the user via ask_user and get explicit approval before delegating any coding work. Never skip this approval step. You have access to Playwright browser tools — use them to verify external claims, look up documentation, or research solutions when evaluating subagent work.'
       provider: default
       toolboxes:
         - name: filesystem
@@ -95,6 +96,7 @@ agents:
             - fs_stat
         - search
         - ask
+        - playwright
         - tasks
         - notes
       skills:
@@ -111,14 +113,23 @@ agents:
         - kind: compact
           params:
             threshold: 0.75
+        - kind: stall_detect
+          params: {}
+        - kind: time_budget
+          params:
+            max_duration: 10m
       options:
         max_iterations: 20
+        warn_iterations: 0
         max_delegation_depth: 2
+        max_handoffs: 0
         context_threshold: 0
+        interaction_mode: ""
+        question_timeout: ""
       prefix: ""
     - name: explorer
       description: Gathers codebase intelligence — architecture, patterns, dependencies, relevant files
-      instructions: You are a codebase explorer. Your job is to gather intelligence about the codebase — architecture, patterns, dependencies, and relevant files — then write a structured findings note for the lead. You never modify files.
+      instructions: You are a codebase explorer. Your job is to gather intelligence about the codebase — architecture, patterns, dependencies, and relevant files — then write a structured findings note for the lead. You never modify files. You have access to Playwright browser tools — use them to browse the internet for up-to-date documentation, library APIs, or any external information that would strengthen your findings.
       provider: default
       toolboxes:
         - name: filesystem
@@ -133,9 +144,11 @@ agents:
             - git_status
             - git_diff
             - git_log
+        - playwright
         - notes
       skills:
         - explorer-workflow
+        - project-indexer
       effects:
         - kind: observation_mask
           params: {}
@@ -146,14 +159,23 @@ agents:
         - kind: compact
           params:
             threshold: 0.8
+        - kind: stall_detect
+          params: {}
+        - kind: time_budget
+          params:
+            max_duration: 5m
       options:
         max_iterations: 10
+        warn_iterations: 0
         max_delegation_depth: 0
+        max_handoffs: 0
         context_threshold: 0
+        interaction_mode: ""
+        question_timeout: ""
       prefix: ""
     - name: planner
       description: Creates implementation plans based on explorer findings and lead direction
-      instructions: You are a planner. You consume explorer findings and lead direction to create detailed implementation plans. Your primary output is a plan note — the lead evaluates and approves it before coding begins. If requirements are ambiguous, use ask_user to clarify before planning.
+      instructions: You are a planner. You consume explorer findings and lead direction to create detailed implementation plans. Your primary output is a plan note — the lead evaluates and approves it before coding begins. If requirements are ambiguous, use ask_user to clarify before planning. You have access to Playwright browser tools — use them to research best practices, library documentation, or API references when planning implementation approaches.
       provider: default
       toolboxes:
         - name: filesystem
@@ -169,6 +191,7 @@ agents:
             - git_diff
             - git_log
         - ask
+        - playwright
         - tasks
         - notes
       skills:
@@ -183,14 +206,23 @@ agents:
         - kind: compact
           params:
             threshold: 0.8
+        - kind: stall_detect
+          params: {}
+        - kind: time_budget
+          params:
+            max_duration: 5m
       options:
         max_iterations: 10
+        warn_iterations: 0
         max_delegation_depth: 0
+        max_handoffs: 0
         context_threshold: 0
+        interaction_mode: ""
+        question_timeout: ""
       prefix: ""
     - name: coder
       description: Implements code changes per the approved plan
-      instructions: You are a coder. Your first action must always be to read the plan note written by the planner. Implement changes based on that plan, stay within your assigned file scope, write clean code, and run tests to verify your work. Write a thorough result note so the lead can evaluate your work.
+      instructions: You are a coder. Your first action must always be to read the plan note written by the planner. Implement changes based on that plan, stay within your assigned file scope, write clean code, and run tests to verify your work. Write a thorough result note so the lead can evaluate your work. You have access to Playwright browser tools — use them to look up documentation, API references, or examples when implementing unfamiliar libraries or patterns.
       provider: default
       toolboxes:
         - filesystem
@@ -198,6 +230,7 @@ agents:
         - search
         - git
         - http
+        - playwright
         - tasks
         - notes
       skills:
@@ -218,10 +251,19 @@ agents:
         - kind: compact
           params:
             threshold: 0.75
+        - kind: stall_detect
+          params: {}
+        - kind: time_budget
+          params:
+            max_duration: 10m
       options:
         max_iterations: 20
+        warn_iterations: 0
         max_delegation_depth: 0
+        max_handoffs: 0
         context_threshold: 0
+        interaction_mode: ""
+        question_timeout: ""
       prefix: ""
     - name: reviewer
       description: Reviews implementation and reports findings to lead
@@ -250,14 +292,25 @@ agents:
         - kind: compact
           params:
             threshold: 0.8
+        - kind: stall_detect
+          params: {}
+        - kind: time_budget
+          params:
+            max_duration: 5m
       options:
         max_iterations: 10
+        warn_iterations: 0
         max_delegation_depth: 0
+        max_handoffs: 0
         context_threshold: 0
+        interaction_mode: ""
+        question_timeout: ""
       prefix: ""
 entry_agent: lead
 filesystem:
     permissions_file: ""
+context:
+    max_external_file_size: 0
 git:
     work_dir: ""
 default_context_windows: {}
