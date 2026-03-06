@@ -429,12 +429,415 @@ This is a placeholder — in practice the parent's delegation context often cont
 
 ---
 
+## Phase 6: Interactive Delegation (Solution B) ✅ COMPLETE
+
+**Priority:** P2 | **Complexity:** High | **Depends on Phase 5 (Child-to-Parent)**
+
+Replaces the `autoAnswer` mechanism with a protocol where the `delegate` tool returns early when children ask questions, letting the parent LLM reason about them and respond via `answer_delegation_questions`. Questions are bundled through a shared queue and answered in batches for token efficiency.
+
+### Core Design
+
+Two tools alternate in a simple loop:
+
+```
+delegate(interactive, [A, B, C])
+  -> [{d-1, question}, {completed B}, {d-2, question}]
+
+answer_delegation_questions([{d-1, "REST"}, {d-2, "JSON"}])
+  -> [{d-1, question}, {d-2, completed}]
+
+answer_delegation_questions([{d-1, "v2"}])
+  -> [{d-1, completed}]
+```
+
+Each call fans out concurrently, blocks until every child has either asked a question or completed, then returns a bundled result. Minimal round-trips — one tool call per "wave."
+
+### 6.1 Shared `QuestionQueue` in `DelegationRegistry`
+
+All children push questions to a single intake channel on the parent's registry. Each child keeps its own `answerCh` for 1:1 response routing.
+
+```go
+// PendingQuestion pairs a question with its delegation handle.
+type PendingQuestion struct {
+    DelegationID string
+    Question     Question
+}
+
+// DelegationRegistry tracks active interactive delegations for a parent agent.
+type DelegationRegistry struct {
+    mu        sync.Mutex
+    pending   map[string]*PendingDelegation
+    questions chan PendingQuestion // single intake for ALL children
+    counter   atomic.Int64
+}
+
+// PendingDelegation represents one in-flight interactive child.
+type PendingDelegation struct {
+    ID          string
+    Agent       string
+    Task        string
+    AnswerCh    chan string              // route answers back to this child
+    DoneCh      <-chan delegateResult    // receives final result
+    Cancel      context.CancelFunc      // cancel the child
+}
+```
+
+Queue depth is bounded by the number of active children — `request_input` is blocking, so each child can have at most one pending question.
+
+**File:** `pkg/agent/interaction_registry.go` (new)
+
+### 6.2 Modify `InteractionChannel` to use shared queue
+
+Replace the per-child `questionCh` with a reference to the parent's shared queue. The child's `request_input` tool pushes a `PendingQuestion` (tagged with `delegation_id`) onto the shared channel, then blocks on its own `answerCh` as before.
+
+```go
+type InteractionChannel struct {
+    delegationID string
+    sharedQueue  chan<- PendingQuestion  // write-only ref to parent's queue
+    answerCh     chan string             // per-child, read by request_input
+    idCounter    atomic.Int64
+}
+```
+
+`request_input` handler becomes:
+
+```go
+select {
+case ic.sharedQueue <- PendingQuestion{DelegationID: ic.delegationID, Question: q}:
+case <-ctx.Done():
+    return "", ctx.Err()
+}
+// block for answer (unchanged)
+select {
+case answer := <-ic.answerCh:
+    return answer, nil
+case <-ctx.Done():
+    return "", ctx.Err()
+}
+```
+
+**File:** `pkg/agent/interaction.go` (modify)
+
+### 6.3 Add `mode` field to `delegateTask`
+
+```go
+type delegateTask struct {
+    Agent   string `json:"agent"`
+    Task    string `json:"task"`
+    Context string `json:"context"`
+    TaskID  string `json:"task_id"`
+    Mode    string `json:"mode"` // "" | "blocking" | "interactive"
+}
+```
+
+Update the `delegate` tool's JSON schema to include `mode`.
+
+**Behavior by mode:**
+
+| Mode | Behavior |
+|------|----------|
+| `""` / `"blocking"` | Current behavior. `autoAnswer` handles questions. Tool blocks until all children complete. |
+| `"interactive"` | Children run concurrently. Tool returns as soon as every child has either completed or asked a question. Pending children are registered in `DelegationRegistry`. |
+
+When `mode` is `"interactive"`, the `delegate` handler:
+
+1. Spawns all children with `InteractionChannel`s wired to the shared queue.
+2. Runs each child in a goroutine, sending its final `delegateResult` on a per-child `doneCh`.
+3. For each child, selects between `doneCh` and a question arriving on the shared queue (filtered by delegation ID).
+4. Returns a mixed result array — completed results inline, pending questions as handles.
+
+**Return type for interactive mode:**
+
+```go
+type interactiveDelegateResult struct {
+    // Always present.
+    Agent string `json:"agent"`
+
+    // Set for completed children (mutually exclusive with DelegationID).
+    Result     string            `json:"result,omitempty"`
+    Completion *CompletionResult `json:"completion,omitempty"`
+    Error      string            `json:"error,omitempty"`
+    Warning    string            `json:"warning,omitempty"`
+
+    // Set for children with pending questions (mutually exclusive with Result).
+    DelegationID    string    `json:"delegation_id,omitempty"`
+    PendingQuestion *Question `json:"pending_question,omitempty"`
+}
+```
+
+**File:** `pkg/agent/delegation.go` (modify)
+
+### 6.4 New tool: `answer_delegation_questions`
+
+Single tool for batched question answering. Questions always come back inline from `delegate` or `answer_delegation_questions` — no separate polling tool needed.
+
+```go
+func answerDelegationQuestionsTool(a *Agent) toolbox.Tool
+```
+
+- **Name:** `answer_delegation_questions`
+- **Input:**
+  ```json
+  {
+    "answers": [
+      {"delegation_id": "string", "answer": "string"}
+    ]
+  }
+  ```
+- **Handler:**
+  1. Validates all delegation IDs exist in the registry.
+  2. Sends all answers concurrently (each answer goes to the child's `answerCh`).
+  3. For each answered child, selects between:
+     - Another question on the shared queue (filtered by delegation ID) -> return as `pending_question`.
+     - Child completion on `doneCh` -> return as completed result.
+     - Timeout -> cancel child, return timeout error.
+  4. Returns bundled array — same `[]interactiveDelegateResult` shape as the interactive `delegate` return.
+
+The tool **blocks** until every answered child has either asked a follow-up or completed. This reduces token usage — the parent gets all results in one round-trip.
+
+**File:** `pkg/agent/interaction_registry.go`
+
+### 6.5 Configurable question timeout
+
+Add to `AgentOptions`:
+
+```go
+type AgentOptions struct {
+    // ... existing ...
+    InteractionMode string `yaml:"interaction_mode"`    // "auto" | "interactive" | "blocking"
+    QuestionTimeout string `yaml:"question_timeout"`    // Duration string, e.g. "5m". "" = no timeout.
+}
+```
+
+Parsed to `time.Duration` in `delegationConfig`:
+
+```go
+type delegationConfig struct {
+    // ... existing ...
+    interactionMode string
+    questionTimeout time.Duration
+}
+```
+
+Applied in two places:
+1. **`delegate` interactive handler** — while waiting for each child's initial question-or-completion.
+2. **`answer_delegation_questions` handler** — while waiting for next question-or-completion after sending an answer.
+
+```go
+var timer <-chan time.Time
+if a.delegation.questionTimeout > 0 {
+    t := time.NewTimer(a.delegation.questionTimeout)
+    defer t.Stop()
+    timer = t.C
+}
+
+select {
+case q := <-filteredQuestion:
+    // next question
+case result := <-pd.DoneCh:
+    // completed
+case <-timer:
+    pd.Cancel()
+    // return timeout error for this child
+case <-ctx.Done():
+    return "", ctx.Err()
+}
+```
+
+**Validation in `config.go`:**
+
+```go
+if a.Options.QuestionTimeout != "" {
+    if _, err := time.ParseDuration(a.Options.QuestionTimeout); err != nil {
+        return nil, fmt.Errorf("engine: config: agent %q: question_timeout: %w", a.Name, err)
+    }
+}
+if a.Options.InteractionMode != "" &&
+    a.Options.InteractionMode != "auto" &&
+    a.Options.InteractionMode != "interactive" &&
+    a.Options.InteractionMode != "blocking" {
+    return nil, fmt.Errorf(
+        "engine: config: agent %q: interaction_mode must be \"auto\", \"interactive\", or \"blocking\"",
+        a.Name,
+    )
+}
+```
+
+Example YAML:
+
+```yaml
+agents:
+  - name: orchestrator
+    options:
+      max_delegation_depth: 3
+      interaction_mode: interactive
+      question_timeout: 5m
+```
+
+**File:** `pkg/engine/config.go` (modify)
+
+### 6.6 Wire tools into `orchestrationToolBox`
+
+Register `answer_delegation_questions` when the agent has a `DelegationRegistry`:
+
+```go
+func orchestrationToolBox(a *Agent) *toolbox.ToolBox {
+    tb := toolbox.New()
+    tb.Register(
+        listAgentsTool(a),
+        delegateTool(a),
+    )
+    if a.interactiveDelegations != nil {
+        tb.Register(answerDelegationQuestionsTool(a))
+    }
+    return tb
+}
+```
+
+**File:** `pkg/agent/delegation.go` (modify)
+
+### 6.7 Agent struct changes
+
+```go
+type Agent struct {
+    // ... existing ...
+    interactiveDelegations *DelegationRegistry // nil when interaction_mode != "interactive"
+}
+```
+
+Cleanup: `DelegationRegistry.Close()` cancels all pending children. Called via `defer` in `run()`:
+
+```go
+func (a *Agent) run(ctx context.Context) (message.Message, error) {
+    if a.interactiveDelegations != nil {
+        defer a.interactiveDelegations.Close()
+    }
+    // ... existing loop ...
+}
+```
+
+**File:** `pkg/agent/agent.go` (modify)
+
+### 6.8 Update system prompt
+
+Add `HasInteractiveDelegation` to `promptBuilder`. Render when true:
+
+```
+<interactive_delegation_protocol>
+You can delegate tasks with mode "interactive" when children may need your input.
+Interactive delegation returns immediately with any pending questions from children.
+Use answer_delegation_questions to respond to all pending questions in a single call.
+Each answer call blocks until every answered child either asks a follow-up or completes.
+Use "interactive" mode when the task may need clarification you can provide.
+Use default mode (no mode field) for self-contained tasks where children have all context.
+</interactive_delegation_protocol>
+```
+
+**File:** `pkg/agent/prompt.go` (modify)
+
+### 6.9 Engine wiring
+
+In `pkg/engine/registration.go`, parse config and wire into agent options:
+
+```go
+// In registerFactory or buildAgent:
+if ac.Options.InteractionMode == "interactive" {
+    opts.InteractionMode = "interactive"
+}
+if ac.Options.QuestionTimeout != "" {
+    d, _ := time.ParseDuration(ac.Options.QuestionTimeout) // already validated
+    opts.QuestionTimeout = d
+}
+```
+
+In agent construction (`New()`), create the `DelegationRegistry` when interactive:
+
+```go
+if opts.InteractionMode == "interactive" {
+    a.interactiveDelegations = NewDelegationRegistry()
+}
+```
+
+**File:** `pkg/engine/registration.go` (modify)
+
+### 6.10 Backward compatibility
+
+| Scenario | Behavior |
+|----------|----------|
+| No `interaction_mode` in config | Default `"auto"` — `autoAnswer` as today |
+| `interaction_mode: blocking` | No `InteractionChannel`, no `request_input` tool on children |
+| `interaction_mode: interactive` | `DelegationRegistry` created, `answer_delegation_questions` tool available |
+| `delegate` called without `mode` field | Blocking behavior regardless of `interaction_mode` config |
+| `delegate` called with `mode: "interactive"` | Interactive behavior. Only works when `DelegationRegistry` exists (error otherwise) |
+
+The `autoAnswer` goroutine is only started for blocking-mode delegations. Interactive-mode delegations skip it entirely — questions flow through the registry.
+
+### 6.11 Tests
+
+- **Unit: `DelegationRegistry`** — register, lookup by ID, `Close()` cancels all children, double-register rejection.
+- **Unit: `answerDelegationQuestionsTool`** — sends answers concurrently, blocks for next wave, returns mixed results. Invalid delegation ID returns error. Partial answers (answer some, not all) rejected.
+- **Unit: shared `QuestionQueue`** — multiple children push concurrently, questions arrive in order, bounded by child count.
+- **Integration: single child interactive flow** — `delegate(interactive, [A])` -> question -> `answer(...)` -> completion.
+- **Integration: multi-child parallel questions** — `delegate(interactive, [A, B, C])` -> B completes, A+C ask -> `answer([A, C])` -> A asks again, C completes -> `answer([A])` -> A completes.
+- **Integration: child completes without asking** — interactive mode, child never calls `request_input`, appears as normal completed result in `delegate` return.
+- **Integration: question timeout** — child asks, parent doesn't answer within timeout, child is canceled, timeout error returned.
+- **Integration: parent context canceled** — `DelegationRegistry.Close()` cancels all pending children, blocked `answer_delegation_questions` returns `context.Canceled`.
+- **Config: validation** — `interaction_mode` accepts `auto`/`interactive`/`blocking`, rejects others. `question_timeout` parses valid durations, rejects invalid.
+- **Backward compat** — default config produces identical behavior to current `autoAnswer`. Blocking-mode `delegate` calls work alongside interactive ones on the same agent.
+
+### 6.12 Update READMEs
+
+- `pkg/agent/README.md`: document `DelegationRegistry`, shared queue, `answer_delegation_questions` tool, interactive delegation flow.
+- `pkg/engine/README.md`: document `interaction_mode` and `question_timeout` config options.
+
+### Sequence Diagram (parallel multi-child)
+
+```
+Parent LLM              delegate handler           Registry Queue        Children
+    |                        |                          |               A    B    C
+    |-- delegate(int,[A,B,C])|                          |               |    |    |
+    |                        |-- spawn all 3 + wire --->|-------------->|    |    |
+    |                        |                          |               |    |    |
+    |                        |                          |  A: request_input("API?")
+    |                        |                          |<----q(d-1)----|    |    |
+    |                        |                          |               |    |    |
+    |                        |                          |         B: task_complete
+    |                        |<--- done(d-2) -----------|-------result--+----|    |
+    |                        |                          |               |         |
+    |                        |                          |  C: request_input("fmt?")
+    |                        |                          |<----q(d-3)----+---------|
+    |                        |                          |               |         |
+    |<-[{d-1,q},{B,done},{d-3,q}]                       |               |         |
+    |                        |                          |               |         |
+    |-- answer([{d-1,"REST"},{d-3,"JSON"}]) ----------->|               |         |
+    |                        |-- send answers --------->|--ans(d-1)---->|         |
+    |                        |                          |--ans(d-3)---->+---------|
+    |                        |                          |               |         |
+    |                        |                          |  A: request_input("v?")
+    |                        |                          |<----q(d-1)----|         |
+    |                        |                          |         C: task_complete
+    |                        |<--- done(d-3) -----------|-------result--+---------|
+    |                        |                          |               |
+    |<-[{d-1,q},{d-3,done}]--|                          |               |
+    |                        |                          |               |
+    |-- answer([{d-1,"v2"}])-|                          |               |
+    |                        |-- send answer ---------->|--ans(d-1)---->|
+    |                        |                          |         A: task_complete
+    |                        |<--- done(d-1) -----------|-------result--|
+    |                        |                          |
+    |<-[{d-1,done}]----------|
+```
+
+---
+
 ## Dependency Graph
 
 ```
 Phase 1 (Agent Cards) --------------------------+
                                                  +-- Phase 4 (Peer Handoff)
 Phase 2 (Task Cancellation) --- Phase 3 (Streaming) --- Phase 5 (Child-to-Parent)
+                                                                    |
+                                                         Phase 6 (Interactive Delegation)
 ```
 
 ## Files Modified Per Phase
@@ -446,6 +849,7 @@ Phase 2 (Task Cancellation) --- Phase 3 (Streaming) --- Phase 5 (Child-to-Parent
 | 3 | `delegation_stream.go` | `delegation.go`, `agent.go`, `event.go`, `registration.go` |
 | 4 | `handoff.go` | `completion.go`, `delegation.go`, `prompt.go`, `agent.go`, `config.go` |
 | 5 | `interaction.go` | `delegation.go`, `agent.go`, `completion.go` |
+| 6 | `interaction_registry.go` | `interaction.go`, `delegation.go`, `agent.go`, `prompt.go`, `config.go`, `registration.go` |
 
 ## Estimated Scope
 
@@ -456,3 +860,4 @@ Phase 2 (Task Cancellation) --- Phase 3 (Streaming) --- Phase 5 (Child-to-Parent
 | 3 — Streaming Delegation | ~400 LOC | ~300 LOC |
 | 4 — Peer Handoff | ~500 LOC | ~400 LOC |
 | 5 — Child-to-Parent Comm | ~600 LOC | ~400 LOC |
+| 6 — Interactive Delegation | ~620 LOC | ~500 LOC |

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/germanamz/shelly/pkg/agentctx"
@@ -85,14 +86,18 @@ type Options struct {
 	CancelRegistrar        CancelRegistrar   // Registers child-agent cancel funcs for external cancellation.
 	CancelUnregistrar      CancelUnregistrar // Unregisters child-agent cancel funcs.
 	ProviderLabel          string            // Display label for the provider (e.g. "anthropic/claude-sonnet-4").
+	InteractionMode        string            // "" | "auto" | "interactive" | "blocking". Controls child question handling.
+	QuestionTimeout        time.Duration     // Timeout for child questions in interactive mode (0 = no timeout).
 }
 
 // delegationConfig groups fields used by the delegation handler.
 type delegationConfig struct {
-	maxDepth      int
-	maxHandoffs   int
-	reflectionDir string
-	taskBoard     TaskBoard
+	maxDepth        int
+	maxHandoffs     int
+	reflectionDir   string
+	taskBoard       TaskBoard
+	interactionMode string        // "" | "auto" | "interactive" | "blocking"
+	questionTimeout time.Duration // timeout for child questions in interactive mode
 }
 
 // promptConfig groups fields used by the prompt builder.
@@ -113,31 +118,32 @@ type eventConfig struct {
 // Agent is the unified agent type. It runs a ReAct loop, can delegate to other
 // agents via a Registry, and learns procedures from Skills.
 type Agent struct {
-	name          string
-	configName    string // Template/kind name for registry lookups (defaults to name).
-	description   string
-	instructions  string
-	completer     modeladapter.Completer
-	chat          *chat.Chat
-	toolboxes     []*toolbox.ToolBox
-	registry      *Registry
-	prefix        string
-	providerLabel string
-	maxIterations int
-	middleware    []Middleware
-	effects       []Effect
-	delegation    delegationConfig
-	prompt        promptConfig
-	events        eventConfig
-	depth         int
-	completion    completionHandler
-	handoff       handoffHandler
-	interaction   *InteractionChannel
+	name                   string
+	configName             string // Template/kind name for registry lookups (defaults to name).
+	description            string
+	instructions           string
+	completer              modeladapter.Completer
+	chat                   *chat.Chat
+	toolboxes              []*toolbox.ToolBox
+	registry               *Registry
+	prefix                 string
+	providerLabel          string
+	maxIterations          int
+	middleware             []Middleware
+	effects                []Effect
+	delegation             delegationConfig
+	prompt                 promptConfig
+	events                 eventConfig
+	depth                  int
+	completion             completionHandler
+	handoff                handoffHandler
+	interaction            *InteractionChannel
+	interactiveDelegations *DelegationRegistry // nil when interaction_mode != "interactive"
 }
 
 // New creates an Agent with the given configuration.
 func New(name, description, instructions string, completer modeladapter.Completer, opts Options) *Agent {
-	return &Agent{
+	a := &Agent{
 		name:          name,
 		configName:    name,
 		description:   description,
@@ -150,10 +156,12 @@ func New(name, description, instructions string, completer modeladapter.Complete
 		middleware:    opts.Middleware,
 		effects:       opts.Effects,
 		delegation: delegationConfig{
-			maxDepth:      opts.MaxDelegationDepth,
-			maxHandoffs:   opts.MaxHandoffs,
-			reflectionDir: opts.ReflectionDir,
-			taskBoard:     opts.TaskBoard,
+			maxDepth:        opts.MaxDelegationDepth,
+			maxHandoffs:     opts.MaxHandoffs,
+			reflectionDir:   opts.ReflectionDir,
+			taskBoard:       opts.TaskBoard,
+			interactionMode: opts.InteractionMode,
+			questionTimeout: opts.QuestionTimeout,
 		},
 		prompt: promptConfig{
 			context:                opts.Context,
@@ -167,6 +175,12 @@ func New(name, description, instructions string, completer modeladapter.Complete
 			cancelUnregistrar: opts.CancelUnregistrar,
 		},
 	}
+
+	if opts.InteractionMode == "interactive" {
+		a.interactiveDelegations = NewDelegationRegistry()
+	}
+
+	return a
 }
 
 // Init builds the system prompt and sets it in the chat. Call this after
@@ -281,6 +295,10 @@ func capToolResult(result content.ToolResult) content.ToolResult {
 // run is the internal ReAct loop.
 func (a *Agent) run(ctx context.Context) (message.Message, error) {
 	ctx = agentctx.WithAgentName(ctx, a.name)
+
+	if a.interactiveDelegations != nil {
+		defer a.interactiveDelegations.Close()
+	}
 
 	// Ensure system prompt exists (fallback for direct usage without Init).
 	a.Init()
@@ -442,18 +460,19 @@ func (a *Agent) allToolBoxes() []*toolbox.ToolBox {
 // buildSystemPrompt constructs the system prompt by delegating to promptBuilder.
 func (a *Agent) buildSystemPrompt() string {
 	pb := promptBuilder{
-		Name:                   a.name,
-		Description:            a.description,
-		Instructions:           a.instructions,
-		Context:                a.prompt.context,
-		ConfigName:             a.configName,
-		Depth:                  a.depth,
-		Skills:                 a.prompt.skills,
-		DisableBehavioralHints: a.prompt.disableBehavioralHints,
-		HasNotesTools:          a.hasNotesTools(),
-		CanDelegate:            a.canDelegate(),
-		CanHandoff:             a.depth > 0 && a.registry != nil && a.delegation.maxHandoffs > 0,
-		HasInteraction:         a.depth > 0 && a.interaction != nil,
+		Name:                     a.name,
+		Description:              a.description,
+		Instructions:             a.instructions,
+		Context:                  a.prompt.context,
+		ConfigName:               a.configName,
+		Depth:                    a.depth,
+		Skills:                   a.prompt.skills,
+		DisableBehavioralHints:   a.prompt.disableBehavioralHints,
+		HasNotesTools:            a.hasNotesTools(),
+		CanDelegate:              a.canDelegate(),
+		CanHandoff:               a.depth > 0 && a.registry != nil && a.delegation.maxHandoffs > 0,
+		HasInteraction:           a.depth > 0 && a.interaction != nil,
+		HasInteractiveDelegation: a.interactiveDelegations != nil,
 	}
 
 	if pb.CanDelegate {

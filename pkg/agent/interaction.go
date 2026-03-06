@@ -19,18 +19,35 @@ type Question struct {
 // InteractionChannel provides bidirectional communication between a child
 // agent and its parent during delegation. The child sends questions via
 // request_input, and the parent (or an auto-answer mechanism) responds.
+//
+// Two wiring modes:
+//   - Per-child (default): questionCh is local, used with autoAnswer.
+//   - Shared queue: sharedQueue is set and questions go to the parent's
+//     DelegationRegistry. Used in interactive delegation mode.
 type InteractionChannel struct {
-	questionCh chan Question
-	answerCh   chan string
-	idCounter  atomic.Int64
+	delegationID string
+	questionCh   chan Question          // per-child channel (nil when using shared queue)
+	sharedQueue  chan<- PendingQuestion // write-only ref to parent's shared queue (nil in per-child mode)
+	answerCh     chan string
+	idCounter    atomic.Int64
 }
 
 // NewInteractionChannel creates a new InteractionChannel with buffered
-// channels for question/answer exchange.
+// channels for question/answer exchange (per-child mode).
 func NewInteractionChannel() *InteractionChannel {
 	return &InteractionChannel{
 		questionCh: make(chan Question, 1),
 		answerCh:   make(chan string, 1),
+	}
+}
+
+// NewSharedInteractionChannel creates an InteractionChannel wired to a shared
+// question queue for interactive delegation mode.
+func NewSharedInteractionChannel(delegationID string, sharedQueue chan<- PendingQuestion) *InteractionChannel {
+	return &InteractionChannel{
+		delegationID: delegationID,
+		sharedQueue:  sharedQueue,
+		answerCh:     make(chan string, 1),
 	}
 }
 
@@ -68,11 +85,20 @@ func requestInputTool(a *Agent, ic *InteractionChannel) toolbox.Tool {
 				Content: ri.Question,
 			}
 
-			// Send question to parent.
-			select {
-			case ic.questionCh <- q:
-			case <-ctx.Done():
-				return "", ctx.Err()
+			// Send question to parent (shared queue or per-child channel).
+			if ic.sharedQueue != nil {
+				pq := PendingQuestion{DelegationID: ic.delegationID, Question: q}
+				select {
+				case ic.sharedQueue <- pq:
+				case <-ctx.Done():
+					return "", ctx.Err()
+				}
+			} else {
+				select {
+				case ic.questionCh <- q:
+				case <-ctx.Done():
+					return "", ctx.Err()
+				}
 			}
 
 			// Wait for answer.

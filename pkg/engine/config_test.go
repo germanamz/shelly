@@ -639,3 +639,82 @@ agents:
 	require.NotNil(t, cfg.Providers[0].MaxTokens)
 	assert.Equal(t, 16384, *cfg.Providers[0].MaxTokens)
 }
+
+func TestConfig_Validate_InteractionModeValid(t *testing.T) {
+	for _, mode := range []string{"", "auto", "interactive", "blocking"} {
+		t.Run(mode, func(t *testing.T) {
+			cfg := Config{
+				Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
+				Agents:    []AgentConfig{{Name: "a1", Options: AgentOptions{InteractionMode: mode}}},
+			}
+			assert.NoError(t, cfg.Validate())
+		})
+	}
+}
+
+func TestConfig_Validate_InteractionModeInvalid(t *testing.T) {
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
+		Agents:    []AgentConfig{{Name: "a1", Options: AgentOptions{InteractionMode: "stream"}}},
+	}
+	assert.ErrorContains(t, cfg.Validate(), "interaction_mode")
+}
+
+func TestConfig_Validate_QuestionTimeoutValid(t *testing.T) {
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
+		Agents:    []AgentConfig{{Name: "a1", Options: AgentOptions{QuestionTimeout: "5m"}}},
+	}
+	assert.NoError(t, cfg.Validate())
+}
+
+func TestConfig_Validate_QuestionTimeoutInvalid(t *testing.T) {
+	cfg := Config{
+		Providers: []ProviderConfig{{Name: "p1", Kind: "anthropic"}},
+		Agents:    []AgentConfig{{Name: "a1", Options: AgentOptions{QuestionTimeout: "not-a-duration"}}},
+	}
+	assert.ErrorContains(t, cfg.Validate(), "question_timeout")
+}
+
+func TestConfig_LoadInteractionModeFromYAML(t *testing.T) {
+	yamlData := `
+providers:
+  - name: p1
+    kind: anthropic
+agents:
+  - name: orchestrator
+    options:
+      max_delegation_depth: 3
+      interaction_mode: interactive
+      question_timeout: 5m
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(yamlData), 0o600))
+
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+
+	a := cfg.Agents[0]
+	assert.Equal(t, "interactive", a.Options.InteractionMode)
+	assert.Equal(t, "5m", a.Options.QuestionTimeout)
+}
+
+func TestConfig_ExpandConfigStrings_InteractionFields(t *testing.T) {
+	t.Setenv("SHELLY_TEST_MODE", "interactive")
+	t.Setenv("SHELLY_TEST_TIMEOUT", "10m")
+
+	cfg := Config{
+		Agents: []AgentConfig{{
+			Name: "a1",
+			Options: AgentOptions{
+				InteractionMode: "${SHELLY_TEST_MODE}",
+				QuestionTimeout: "${SHELLY_TEST_TIMEOUT}",
+			},
+		}},
+	}
+	ExpandConfigStrings(&cfg)
+
+	assert.Equal(t, "interactive", cfg.Agents[0].Options.InteractionMode)
+	assert.Equal(t, "10m", cfg.Agents[0].Options.QuestionTimeout)
+}

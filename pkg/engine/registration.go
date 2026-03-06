@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/germanamz/shelly/pkg/agent"
 	"github.com/germanamz/shelly/pkg/modeladapter"
@@ -47,18 +48,20 @@ type agentEvents struct {
 // registrationContext groups intermediate resolved state used while registering
 // an agent factory.
 type registrationContext struct {
-	identity      agentIdentity
-	completer     modeladapter.Completer
-	tooling       agentTooling
-	effects       effectSetup
-	events        agentEvents
-	contextStr    string
-	contextWindow int
-	reflectionDir string
-	maxIter       int
-	maxDepth      int
-	maxHandoffs   int
-	agentCard     agentCardFields
+	identity        agentIdentity
+	completer       modeladapter.Completer
+	tooling         agentTooling
+	effects         effectSetup
+	events          agentEvents
+	contextStr      string
+	contextWindow   int
+	reflectionDir   string
+	maxIter         int
+	maxDepth        int
+	maxHandoffs     int
+	interactionMode string
+	questionTimeout time.Duration
+	agentCard       agentCardFields
 }
 
 // agentCardFields holds rich capability metadata for an agent entry.
@@ -140,6 +143,11 @@ func (e *Engine) buildRegistrationContext(ac AgentConfig) (registrationContext, 
 
 	card := buildAgentCard(ac)
 
+	var questionTimeout time.Duration
+	if ac.Options.QuestionTimeout != "" {
+		questionTimeout, _ = time.ParseDuration(ac.Options.QuestionTimeout) // already validated
+	}
+
 	return registrationContext{
 		identity: agentIdentity{
 			name:          ac.Name,
@@ -164,13 +172,15 @@ func (e *Engine) buildRegistrationContext(ac AgentConfig) (registrationContext, 
 			cancelRegistrar:   agent.CancelRegistrar(e.RegisterAgentCancel),
 			cancelUnregistrar: agent.CancelUnregistrar(e.UnregisterAgentCancel),
 		},
-		contextStr:    e.projectCtx.String(),
-		contextWindow: contextWindow,
-		reflectionDir: reflectionDir,
-		maxIter:       ac.Options.MaxIterations,
-		maxDepth:      ac.Options.MaxDelegationDepth,
-		maxHandoffs:   ac.Options.MaxHandoffs,
-		agentCard:     card,
+		contextStr:      e.projectCtx.String(),
+		contextWindow:   contextWindow,
+		reflectionDir:   reflectionDir,
+		maxIter:         ac.Options.MaxIterations,
+		maxDepth:        ac.Options.MaxDelegationDepth,
+		maxHandoffs:     ac.Options.MaxHandoffs,
+		interactionMode: ac.Options.InteractionMode,
+		questionTimeout: questionTimeout,
+		agentCard:       card,
 	}, nil
 }
 
@@ -342,6 +352,8 @@ func (e *Engine) registerFactory(rc registrationContext) error {
 			Prefix:             rc.identity.prefix,
 			ProviderLabel:      rc.identity.providerLabel,
 			TaskBoard:          rc.tooling.taskBoard,
+			InteractionMode:    rc.interactionMode,
+			QuestionTimeout:    rc.questionTimeout,
 		}
 
 		a := agent.New(rc.identity.name, rc.identity.desc, rc.identity.instr, rc.completer, opts)

@@ -223,3 +223,19 @@ func TestPromptBuilderNoInteractionProtocolWhenDisabled(t *testing.T) {
 
 	assert.NotContains(t, prompt, "<interaction_protocol>")
 }
+
+func TestPromptBuilderInteractiveDelegationProtocol(t *testing.T) {
+	pb := promptBuilder{Name: "orch", HasInteractiveDelegation: true}
+	prompt := pb.build()
+
+	assert.Contains(t, prompt, "<interactive_delegation_protocol>")
+	assert.Contains(t, prompt, "answer_delegation_questions")
+	assert.Contains(t, prompt, "</interactive_delegation_protocol>")
+}
+
+func TestPromptBuilderNoInteractiveDelegationProtocol(t *testing.T) {
+	pb := promptBuilder{Name: "orch", HasInteractiveDelegation: false}
+	prompt := pb.build()
+
+	assert.NotContains(t, prompt, "<interactive_delegation_protocol>")
+}

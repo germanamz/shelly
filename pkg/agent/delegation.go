@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/germanamz/shelly/pkg/chats/message"
@@ -31,6 +32,10 @@ func orchestrationToolBox(a *Agent) *toolbox.ToolBox {
 		listAgentsTool(a),
 		delegateTool(a),
 	)
+
+	if a.interactiveDelegations != nil {
+		tb.Register(answerDelegationQuestionsTool(a))
+	}
 
 	return tb
 }
@@ -70,6 +75,7 @@ type delegateTask struct {
 	Task    string `json:"task"`
 	Context string `json:"context"`
 	TaskID  string `json:"task_id"`
+	Mode    string `json:"mode"` // "" | "blocking" | "interactive"
 }
 
 type delegateInput struct {
@@ -88,7 +94,7 @@ func delegateTool(a *Agent) toolbox.Tool {
 	return toolbox.Tool{
 		Name:        "delegate",
 		Description: "Delegate tasks to other agents. Accepts one or more tasks; all run concurrently. Use the context field to pass relevant background information so agents do not need to re-explore. Pass task_id on each task to automatically claim and update task board entries.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"tasks":{"type":"array","items":{"type":"object","properties":{"agent":{"type":"string","description":"Name of the agent"},"task":{"type":"string","description":"The task to delegate"},"context":{"type":"string","description":"Background context for the agent: relevant file contents, decisions, constraints, or any info the agent needs to complete the task without re-exploring."},"task_id":{"type":"string","description":"Optional task board ID. When provided, the task is auto-claimed for the child agent and its status is updated based on the completion result."}},"required":["agent","task","context"]},"description":"List of agent tasks to run concurrently"}},"required":["tasks"]}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"tasks":{"type":"array","items":{"type":"object","properties":{"agent":{"type":"string","description":"Name of the agent"},"task":{"type":"string","description":"The task to delegate"},"context":{"type":"string","description":"Background context for the agent: relevant file contents, decisions, constraints, or any info the agent needs to complete the task without re-exploring."},"task_id":{"type":"string","description":"Optional task board ID. When provided, the task is auto-claimed for the child agent and its status is updated based on the completion result."},"mode":{"type":"string","enum":["blocking","interactive"],"description":"Delegation mode. 'interactive' returns immediately when children ask questions. Default is blocking."}},"required":["agent","task","context"]},"description":"List of agent tasks to run concurrently"}},"required":["tasks"]}`),
 		Handler: func(ctx context.Context, input json.RawMessage) (string, error) {
 			var di delegateInput
 			if err := json.Unmarshal(input, &di); err != nil {
@@ -107,6 +113,19 @@ func delegateTool(a *Agent) toolbox.Tool {
 
 			if a.depth >= a.delegation.maxDepth {
 				return "", fmt.Errorf("delegate: max delegation depth %d reached", a.delegation.maxDepth)
+			}
+
+			// Check if any task requests interactive mode.
+			hasInteractive := false
+			for _, t := range di.Tasks {
+				if t.Mode == "interactive" {
+					hasInteractive = true
+					break
+				}
+			}
+
+			if hasInteractive {
+				return runInteractiveDelegate(ctx, a, di.Tasks)
 			}
 
 			results := make([]delegateResult, len(di.Tasks))
@@ -128,6 +147,167 @@ func delegateTool(a *Agent) toolbox.Tool {
 			return string(data), nil
 		},
 	}
+}
+
+// runInteractiveDelegate spawns all children concurrently with InteractionChannels
+// wired to the parent's DelegationRegistry shared queue. It returns as soon as
+// every child has either completed or asked a question.
+func runInteractiveDelegate(ctx context.Context, a *Agent, tasks []delegateTask) (string, error) {
+	reg := a.interactiveDelegations
+	if reg == nil {
+		return "", fmt.Errorf("delegate: interactive mode requires interaction_mode: interactive in config")
+	}
+
+	type childInfo struct {
+		delegationID string
+		task         delegateTask
+		doneCh       chan delegateResult
+	}
+
+	children := make([]childInfo, len(tasks))
+
+	// Spawn all children.
+	for i, t := range tasks {
+		delegationID := reg.NextDelegationID()
+		doneCh := make(chan delegateResult, 1)
+
+		child, err := buildInteractiveDelegateChild(a, t, delegationID, reg)
+		if err != nil {
+			children[i] = childInfo{delegationID: delegationID, task: t, doneCh: doneCh}
+			doneCh <- delegateResult{Agent: t.Agent, Error: err.Error()}
+			continue
+		}
+
+		childCtx, childCancel := context.WithCancel(ctx)
+		pd := &PendingDelegation{
+			ID:       delegationID,
+			Agent:    t.Agent,
+			Task:     t.Task,
+			AnswerCh: child.interaction.answerCh,
+			DoneCh:   doneCh,
+			Cancel:   childCancel,
+		}
+		if err := reg.Register(pd); err != nil {
+			childCancel()
+			children[i] = childInfo{delegationID: delegationID, task: t, doneCh: doneCh}
+			doneCh <- delegateResult{Agent: t.Agent, Error: err.Error()}
+			continue
+		}
+
+		children[i] = childInfo{delegationID: delegationID, task: t, doneCh: doneCh}
+
+		// Run child in background goroutine. Use runChildWithHandoff directly
+		// since buildInteractiveDelegateChild already configured the child.
+		go func() {
+			defer childCancel()
+			// Auto-claim task if task_id is provided.
+			taskBoard := a.delegation.taskBoard
+			if t.TaskID != "" && taskBoard != nil {
+				if claimErr := taskBoard.ClaimTask(t.TaskID, child.name); claimErr != nil {
+					doneCh <- delegateResult{
+						Agent: t.Agent,
+						Error: fmt.Sprintf("failed to claim task %q: %v", t.TaskID, claimErr),
+					}
+					return
+				}
+			}
+			dr := runChildWithHandoff(childCtx, a, child, t, 0)
+			doneCh <- dr
+		}()
+	}
+
+	// Wait for each child to either complete or ask a question.
+	results := make([]interactiveDelegateResult, len(tasks))
+	var wg sync.WaitGroup
+	for i, ci := range children {
+		wg.Go(func() {
+			results[i] = waitForInitialChildResponse(ctx, reg, ci.delegationID, ci.task.Agent, ci.doneCh, a.delegation.questionTimeout)
+		})
+	}
+	wg.Wait()
+
+	data, err := json.Marshal(results)
+	if err != nil {
+		return "", fmt.Errorf("delegate: %w", err)
+	}
+	return string(data), nil
+}
+
+// waitForInitialChildResponse waits for a child to either complete or ask its
+// first question after being spawned in interactive mode.
+func waitForInitialChildResponse(ctx context.Context, reg *DelegationRegistry, delegationID, agentName string, doneCh <-chan delegateResult, timeout time.Duration) interactiveDelegateResult {
+	var timer <-chan time.Time
+	if timeout > 0 {
+		t := time.NewTimer(timeout)
+		defer t.Stop()
+		timer = t.C
+	}
+
+	for {
+		select {
+		case pq := <-reg.questions:
+			if pq.DelegationID == delegationID {
+				return interactiveDelegateResult{
+					Agent:           agentName,
+					DelegationID:    delegationID,
+					PendingQuestion: &pq.Question,
+				}
+			}
+			// Not for us — put it back.
+			select {
+			case reg.questions <- pq:
+			default:
+			}
+		case dr := <-doneCh:
+			reg.Remove(delegationID)
+			return completedInteractiveResult(agentName, dr)
+		case <-timer:
+			if pd, ok := reg.Get(delegationID); ok {
+				pd.Cancel()
+				reg.Remove(delegationID)
+			}
+			return interactiveDelegateResult{
+				Agent: agentName,
+				Error: fmt.Sprintf("question timeout (%s) exceeded for delegation %s", timeout, delegationID),
+			}
+		case <-ctx.Done():
+			return interactiveDelegateResult{
+				Agent: agentName,
+				Error: ctx.Err().Error(),
+			}
+		}
+	}
+}
+
+// buildInteractiveDelegateChild creates a child agent wired for interactive
+// delegation with a shared question queue.
+func buildInteractiveDelegateChild(a *Agent, t delegateTask, delegationID string, reg *DelegationRegistry) (*Agent, error) {
+	child, ok := a.registry.Spawn(t.Agent, a.depth+1)
+	if !ok {
+		return nil, fmt.Errorf("agent %q not found", t.Agent)
+	}
+
+	child.name = fmt.Sprintf("%s-%s-%d", t.Agent, taskSlug(t.Task), a.registry.NextID(t.Agent))
+	child.registry = a.registry
+	child.events.notifier = a.events.notifier
+	child.events.eventFunc = delegationProgressFunc(a.events.eventFunc, a.events.notifier, child.name, a.name)
+	child.events.cancelRegistrar = a.events.cancelRegistrar
+	child.events.cancelUnregistrar = a.events.cancelUnregistrar
+	child.delegation.reflectionDir = a.delegation.reflectionDir
+	child.delegation.taskBoard = a.delegation.taskBoard
+
+	// Wire shared InteractionChannel.
+	child.interaction = NewSharedInteractionChannel(delegationID, reg.SharedQueue())
+
+	prependContext(child, t.Context)
+
+	if reflections := searchReflections(a.delegation.reflectionDir, t.Task); reflections != "" {
+		child.chat.Append(message.NewText("user", role.User, reflections))
+	}
+
+	child.chat.Append(message.NewText("user", role.User, t.Task))
+
+	return child, nil
 }
 
 // runDelegateTask builds a child agent for the given task, runs it, and returns
@@ -194,8 +374,9 @@ func runChildWithHandoff(ctx context.Context, a *Agent, child *Agent, t delegate
 		}()
 	}
 
-	// Start auto-answer goroutine for the child's InteractionChannel.
-	if child.interaction != nil {
+	// Start auto-answer goroutine for per-child InteractionChannels only.
+	// Shared-queue channels (interactive mode) route questions to the parent.
+	if child.interaction != nil && child.interaction.sharedQueue == nil {
 		autoAnswer(childCtx, child.interaction, t.Context)
 	}
 

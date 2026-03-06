@@ -156,6 +156,8 @@ type AgentOptions struct {
 	MaxDelegationDepth int     `yaml:"max_delegation_depth"`
 	MaxHandoffs        int     `yaml:"max_handoffs"`      // Max peer-to-peer handoff chain length (0 = disabled).
 	ContextThreshold   float64 `yaml:"context_threshold"` // Fraction triggering compaction (0 = disabled).
+	InteractionMode    string  `yaml:"interaction_mode"`  // "" | "auto" | "interactive" | "blocking".
+	QuestionTimeout    string  `yaml:"question_timeout"`  // Duration string (e.g. "5m"). "" = no timeout.
 }
 
 // LoadConfig reads a YAML file and returns a Config.
@@ -248,6 +250,8 @@ func ExpandConfigStrings(cfg *Config) {
 			a.Effects[j].Kind = os.ExpandEnv(a.Effects[j].Kind)
 		}
 		a.EstimatedCost = os.ExpandEnv(a.EstimatedCost)
+		a.Options.InteractionMode = os.ExpandEnv(a.Options.InteractionMode)
+		a.Options.QuestionTimeout = os.ExpandEnv(a.Options.QuestionTimeout)
 		for j := range a.SkillsTags {
 			a.SkillsTags[j] = os.ExpandEnv(a.SkillsTags[j])
 		}
@@ -396,6 +400,22 @@ func validateAgents(agents []AgentConfig, providerNames, mcpNames map[string]str
 
 		if a.Options.MaxHandoffs < 0 {
 			return nil, fmt.Errorf("engine: config: agent %q: max_handoffs must be >= 0", a.Name)
+		}
+
+		if a.Options.InteractionMode != "" &&
+			a.Options.InteractionMode != "auto" &&
+			a.Options.InteractionMode != "interactive" &&
+			a.Options.InteractionMode != "blocking" {
+			return nil, fmt.Errorf(
+				"engine: config: agent %q: interaction_mode must be \"auto\", \"interactive\", or \"blocking\"",
+				a.Name,
+			)
+		}
+
+		if a.Options.QuestionTimeout != "" {
+			if _, err := time.ParseDuration(a.Options.QuestionTimeout); err != nil {
+				return nil, fmt.Errorf("engine: config: agent %q: question_timeout: %w", a.Name, err)
+			}
 		}
 
 		for i, ef := range a.Effects {

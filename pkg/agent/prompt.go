@@ -18,6 +18,7 @@ type promptBuilder struct {
 	CanDelegate                                          bool
 	CanHandoff                                           bool
 	HasInteraction                                       bool
+	HasInteractiveDelegation                             bool
 	RegistryEntries                                      []Entry
 }
 
@@ -75,6 +76,18 @@ func (pb *promptBuilder) build() string {
 			b.WriteString("Do NOT use request_input for information you can find yourself.\n")
 			b.WriteString("</interaction_protocol>\n")
 		}
+	}
+
+	// Interactive delegation protocol.
+	if pb.HasInteractiveDelegation {
+		b.WriteString("\n<interactive_delegation_protocol>\n")
+		b.WriteString("You can delegate tasks with mode \"interactive\" when children may need your input.\n")
+		b.WriteString("Interactive delegation returns immediately with any pending questions from children.\n")
+		b.WriteString("Use answer_delegation_questions to respond to all pending questions in a single call.\n")
+		b.WriteString("Each answer call blocks until every answered child either asks a follow-up or completes.\n")
+		b.WriteString("Use \"interactive\" mode when the task may need clarification you can provide.\n")
+		b.WriteString("Use default mode (no mode field) for self-contained tasks where children have all context.\n")
+		b.WriteString("</interactive_delegation_protocol>\n")
 	}
 
 	// Notes protocol (only when notes tools are available).
