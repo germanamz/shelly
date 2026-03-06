@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/germanamz/shelly/pkg/agentctx"
 )
 
 // taskSlug extracts a short keyword from a task description for use in instance
@@ -61,7 +63,7 @@ func writeReflection(dir string, agentName string, task string, cr *CompletionRe
 	now := time.Now().UTC()
 	timestamp := now.Format(time.RFC3339)
 	// Use a sanitized filename based on agent name and timestamp.
-	safeName := sanitizeFilename(agentName + "-" + now.Format("20060102-150405"))
+	safeName := agentctx.SanitizeFilename(agentName + "-" + now.Format("20060102-150405"))
 	path := filepath.Join(dir, safeName+".md")
 
 	var b strings.Builder
@@ -83,19 +85,6 @@ func writeReflection(dir string, agentName string, task string, cr *CompletionRe
 	os.WriteFile(path, []byte(b.String()), 0o600) //nolint:errcheck,gosec // best-effort reflection
 }
 
-// sanitizeFilename replaces any non-alphanumeric, non-hyphen, non-underscore
-// characters with hyphens.
-func sanitizeFilename(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
-			b.WriteRune(r)
-		} else {
-			b.WriteRune('-')
-		}
-	}
-	return b.String()
-}
 
 // searchReflections searches for relevant reflections before delegating.
 // Returns an empty string if no relevant reflections are found.

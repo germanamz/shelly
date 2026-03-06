@@ -12,6 +12,7 @@ In a multi-agent system, many packages need to know *which* agent is currently e
 agentctx/
 ├── context.go        # WithAgentName / AgentNameFromContext
 ├── context_test.go   # round-trip, empty-context, and overwrite tests
+├── sanitize.go       # SanitizeFilename
 └── README.md
 ```
 
@@ -25,6 +26,7 @@ The package exposes a single unexported context-key type (`agentNameCtxKey`) and
 |---|---|---|
 | `WithAgentName` | `func WithAgentName(ctx context.Context, name string) context.Context` | Returns a child context carrying the given agent name. Calling it again on the same context chain overwrites the previous value. |
 | `AgentNameFromContext` | `func AgentNameFromContext(ctx context.Context) string` | Extracts the agent name from the context. Returns `""` if no agent name has been set. |
+| `SanitizeFilename` | `func SanitizeFilename(s string) string` | Replaces any non-alphanumeric, non-hyphen, non-underscore characters with hyphens for safe use as a filename component. |
 
 ### Usage
 
@@ -45,6 +47,7 @@ agentctx.AgentNameFromContext(ctx) // "child-agent"
 - **`pkg/agent`** -- calls `WithAgentName` at the start of each `run()` call so every tool invocation and effect within that iteration sees the correct agent name.
 - **`pkg/engine`** -- calls `WithAgentName` when starting a session and reads the name via `AgentNameFromContext` for event routing and logging.
 - **`pkg/tasks`** -- reads the agent name with `AgentNameFromContext` to attribute task creation and to determine which agent is claiming a task.
+- **`pkg/agent/effects`** -- uses `SanitizeFilename` to safely convert tool-call IDs into filenames for offloaded results.
 
 ## Dependencies
 

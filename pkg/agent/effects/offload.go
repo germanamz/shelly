@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"unicode/utf8"
 
 	"github.com/germanamz/shelly/pkg/agent"
+	"github.com/germanamz/shelly/pkg/agentctx"
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/chats/role"
@@ -182,7 +182,7 @@ func (e *OffloadEffect) offload(ic agent.IterationContext) error {
 			}
 
 			// Write to disk.
-			filename := sanitizeFilename(tr.ToolCallID) + ".txt"
+			filename := agentctx.SanitizeFilename(tr.ToolCallID) + ".txt"
 			path := filepath.Join(e.cfg.StorageDir, filename)
 			if err := os.WriteFile(path, []byte(tr.Content), 0o600); err != nil {
 				continue // best-effort
@@ -208,18 +208,4 @@ func (e *OffloadEffect) offload(ic agent.IterationContext) error {
 	}
 
 	return nil
-}
-
-// sanitizeFilename replaces non-alphanumeric characters with hyphens so a
-// tool-call ID can be used safely as a filename component.
-func sanitizeFilename(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
-			b.WriteRune(r)
-		} else {
-			b.WriteRune('-')
-		}
-	}
-	return b.String()
 }
