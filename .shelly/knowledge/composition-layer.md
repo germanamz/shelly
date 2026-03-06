@@ -1,396 +1,288 @@
 # Composition Layer: Skills and Engine
 
-The composition layer of Shelly brings together all components into a cohesive, configurable system. This layer consists of two key packages:
+The composition layer brings all Shelly components together into a cohesive, configurable system:
 
-- **`pkg/skill/`** - Folder-based skill loading with YAML frontmatter for procedural knowledge
-- **`pkg/engine/`** - Composition root that wires everything from YAML config with Engine/Session/EventBus API
+- **`pkg/skill/`** — Folder-based skill loading with YAML frontmatter for procedural knowledge
+- **`pkg/engine/`** — Composition root that wires everything from YAML config (Engine/Session/EventBus API)
 
-## Skills System (`pkg/skill/`)
+---
 
-### Overview
-
-The skills system provides a way to define reusable procedural knowledge that agents can access on-demand. Skills are markdown-based instructional content stored in dedicated folders with optional YAML frontmatter for metadata.
+## Skills (`pkg/skill/`)
 
 ### Skill Structure
 
-Each skill consists of:
+Each skill lives in its own directory under a skills folder (e.g. `.shelly/skills/<name>/`). The only required file is `SKILL.md`—the entry point. Additional files (docs, scripts, templates) can be colocated in the folder.
 
-```
-skill_folder/
-├── SKILL.md          # Required entry point with instructions
-├── templates/        # Optional: template files
-├── scripts/         # Optional: helper scripts  
-└── docs/           # Optional: additional documentation
+`SKILL.md` supports an **optional YAML frontmatter** block (delimited by `---`) at the top:
+
+```yaml
+---
+name: my-skill         # overrides directory name
+description: Summary   # shown in skill listings
+available_skills:      # skills this skill can load
+  - other-skill
+---
+
+# Actual markdown content...
 ```
 
-### Skill Data Model
+### Key Types (`skill.go`)
 
 ```go
 type Skill struct {
-    Name        string            // Skill identifier (folder name)
-    Content     string            // Full markdown content from SKILL.md
-    Dir         string            // Absolute path to skill folder
-    Frontmatter map[string]any    // Parsed YAML frontmatter (optional)
+    Name            string   // from frontmatter or directory name
+    Description     string   // from frontmatter
+    Content         string   // full markdown body (after frontmatter stripped)
+    AvailableSkills []string // skill names this skill can reference
 }
 ```
 
-### YAML Frontmatter System
+**Loading:** `Load(dir string) (Skill, error)` reads `<dir>/SKILL.md`, parses optional YAML frontmatter via `parseFrontmatter()`, and populates the struct. If `name` is empty in frontmatter, the directory base name is used. Returns error if SKILL.md is missing.
 
-Skills can include YAML frontmatter for metadata:
+**`LoadAll(dirs ...string) ([]Skill, error)`** scans multiple directories, loading from each subdirectory that contains a SKILL.md. Skips subdirs without SKILL.md silently.
 
-```markdown
----
-description: "Step-by-step guide for project indexing"
-tags: ["documentation", "analysis"]
-estimated_time: "10-15 minutes"
-prerequisites: ["filesystem access", "search tools"]
----
-
-# Project Indexing Skill
-
-This skill teaches agents how to systematically index a codebase...
-```
-
-The frontmatter is parsed into a `map[string]any` and made available to agents, allowing for rich metadata-driven skill selection and usage.
-
-### Skill Loading
-
-**`skill.Load(path string) (Skill, error)`**
-- Loads a single skill from a folder containing `SKILL.md`
-- Parses optional YAML frontmatter if present
-- Returns error if `SKILL.md` is missing or YAML is invalid
-- Sets `Dir` field to absolute path of folder
-
-**`skill.LoadDir(rootPath string) ([]Skill, error)`**  
-- Recursively discovers and loads all skills under a root directory
-- Each immediate subdirectory containing `SKILL.md` becomes a skill
-- Skill name derived from folder name
-- Handles loading errors gracefully (logs warnings, continues)
-
-### Skill Store
-
-The `Store` type manages loaded skills and exposes them via a tool interface:
+### Skill Store (`store.go`)
 
 ```go
 type Store struct {
     skills  map[string]Skill
-    workDir string  // For path sanitization
+    workDir string
 }
 ```
 
-**Key Features:**
-- **Tool Integration**: Exposes `load_skill` tool for on-demand skill retrieval
-- **Path Sanitization**: Converts absolute paths to relative ones to avoid machine-specific leakage
-- **Agent Access**: Agents can dynamically load skills during execution using the `load_skill` tool
+**`NewStore(skills []Skill, workDir string) *Store`** — Creates the store from loaded skills.
 
-**Tool Interface:**
-```json
-{
-    "name": "load_skill",
-    "description": "Load the full content of a skill by name.",
-    "input_schema": {
-        "type": "object", 
-        "properties": {
-            "name": {"type": "string", "description": "Name of the skill to load"}
-        },
-        "required": ["name"]
-    }
-}
-```
+**Tool integration:** `Store.Tool() toolbox.Tool` returns a `load_skill` tool that agents can invoke at runtime to retrieve skill content by name. The tool:
+- Accepts `{"name": "skill-name"}` as JSON input
+- Returns the skill's full markdown content
+- Lists available skills when a requested name is not found
+- Includes an `available_skills` section listing all loaded skill names + descriptions in the tool description
 
-## Engine System (`pkg/engine/`)
+**`Store.SkillsInfo() string`** — Returns a formatted listing of all available skills with names and descriptions.
 
-### Architecture Overview
+**`Store.AvailableSkillNames(allowed []string) []string`** — Filters store skills to just those in the allowed list. Used to constrain which skills a specific agent can see.
 
-The engine serves as the **composition root** - the central place where all Shelly components are wired together from configuration. It provides a frontend-agnostic API that shields clients from implementation details.
+---
 
-**Core Components:**
-- **Engine**: Main orchestrator, manages configuration, providers, toolboxes
-- **Session**: Individual conversation contexts with agents
-- **EventBus**: Observable activity stream for monitoring and debugging
-- **BatchSession**: Parallel task execution for high-throughput scenarios
+## Engine (`pkg/engine/`)
 
-### Configuration System
+The engine is the **composition root** — it wires all lower-level packages (providers, tools, agents, skills, state, tasks, sessions, project context) into a runtime. Frontends (CLI, TUI, web) interact only with `Engine` and `Session` types.
 
-The engine is configured via YAML with comprehensive environment variable expansion:
+### File Layout
 
-```yaml
-# .shelly/config.yaml
-entry_agent: "assistant"
+| File | Purpose |
+|------|---------|
+| `config.go` | Config structs, YAML loading, validation, env expansion |
+| `provider.go` | Provider factory, builtin context windows, batch Completer |
+| `effects.go` | Effect wiring (config → concrete Effect instances) |
+| `engine.go` | Engine struct, New(), Close(), state/task/skill stores |
+| `init.go` | Parallel init (skills, project context, MCP servers) |
+| `session.go` | Interactive Session lifecycle |
+| `batch_session.go` | Batch processing session (JSONL input/output) |
+| `event.go` | EventBus, EventKind constants, typed Event struct |
+| `registration.go` | Agent registration with registry (factory functions) |
+| `toolbox_wiring.go` | Per-agent toolbox assembly from config |
+| `mcp.go` | MCP server connection management |
+| `doc.go` | Package documentation |
 
-providers:
-  - name: "claude"
-    kind: "anthropic" 
-    api_key: "${ANTHROPIC_API_KEY}"
-    model: "claude-3-5-sonnet-20241022"
+### Configuration (`config.go`)
 
-agents:
-  - name: "assistant"
-    description: "General purpose coding assistant"
-    provider: "claude"
-    toolboxes: ["coding", "skills"]
-    skills: []  # Empty means all loaded skills
-    
-mcp_servers:
-  - name: "filesystem"
-    command: "npx"
-    args: ["@modelcontextprotocol/server-filesystem", "/path/to/project"]
-```
-
-### Configuration Structures
-
-**Core Configuration:**
+**Top-level `Config`:**
 ```go
 type Config struct {
-    ShellyDir    string           // Set by CLI
-    Providers    []ProviderConfig // LLM provider configurations  
-    MCPServers   []MCPServerConfig // External tool servers
-    Agents       []AgentConfig    // Agent definitions
-    EntryAgent   string          // Default agent name
-    Filesystem   FilesystemConfig // Built-in tool settings
-    Git         GitConfig        // Git integration settings
-    // ... other settings
+    ShellyDir             string           `yaml:"-"`
+    Providers             []ProviderConfig `yaml:"providers"`
+    MCPServers            []MCPConfig      `yaml:"mcp_servers"`
+    Agents                []AgentConfig    `yaml:"agents"`
+    MaxTurns              int              `yaml:"max_turns"`
+    DefaultSessionTimeout time.Duration    `yaml:"default_session_timeout"`
 }
 ```
 
-**Agent Configuration:**
+**`ProviderConfig`** — Name, type (`anthropic`/`openai`/`grok`/`gemini`), model, API key (env ref), max tokens, context window, temperature, thinking budget, extended thinking, batch options.
+
+**`AgentConfig`** — Name, description, instructions, provider, icon/color display metadata, tools (include/exclude patterns), available skills, max turns, effects configuration, session timeout, MCP servers list.
+
+**`MCPConfig`** — Name, type (`stdio`/`streamable_http`), command/args/env (stdio), URL/headers (HTTP).
+
+**`EffectConfig`** — Name (e.g., `compaction`, `trimming`, `loop_detection`, `observation_masking`, `offloading`), priority, typed config as `map[string]any`.
+
+**Loading:** `LoadConfig(path)` reads YAML and calls `cfg.Validate()`. `Validate()` checks for duplicate names, required fields, valid provider types, timeout parsing, effect config parsing, and sorts effects by priority. Environment variable expansion is done via `expandEnvValue()` (supports `$VAR` / `${VAR}` patterns and `env:VAR` format for provider API keys).
+
+**Agent defaults:** `applyDefaults()` copies top-level `max_turns` and `default_session_timeout` into agents that don't set their own.
+
+### Provider Factory (`provider.go`)
+
+**`BuiltinContextWindows`** — A `map[string]int` mapping well-known model names to context window sizes (e.g., `claude-sonnet-4-20250514` → 200000, `gpt-4.1` → 1047576, `gemini-2.5-flash` → 1048576).
+
+**`buildProviderCompleter(cfg ProviderConfig) (modeladapter.Completer, error)`** — Creates a provider-specific Completer based on `cfg.Type`:
+- `anthropic` → `anthropic.New()` with optional thinking budget/extended thinking
+- `openai` → `openai.New()`
+- `grok` → `grok.New()`  
+- `gemini` → `gemini.New()`
+
+Wraps the Completer with `batch.NewCompleter()` if batch config is present (rate-limited request batching with configurable window/max-batch/max-tokens).
+
+**Context window resolution:** Explicit config → builtin lookup → default 200,000.
+
+**Completer caching:** `providerCompleters` map + `sync.Once` per provider prevents redundant construction. `getOrBuildCompleter(name)` handles thread-safe lazy initialization.
+
+### Effects Wiring (`effects.go`)
+
+**`EffectWiringContext`** — Provides engine resources to effect factories:
 ```go
-type AgentConfig struct {
-    Name         string       // Unique agent identifier
-    Description  string       // Human-readable description
-    Instructions string       // System prompt/instructions
-    Provider     string       // Which LLM provider to use
-    Toolboxes    []ToolboxRef // Available tool collections
-    Skills       []string     // Skill names (empty = all skills)
-    Effects      []EffectConfig // Middleware for message processing
-    Options      AgentOptions  // Behavior settings
-    Prefix       string       // Display prefix (e.g. "🤖")
+type EffectWiringContext struct {
+    ContextWindow int
+    AgentName     string
+    StorageDir    string
+    Completer     modeladapter.Completer
 }
 ```
 
-**Toolbox References:**
+**Registered effect factories** (in `effectFactories` map):
+
+| Effect | Config Keys | Purpose |
+|--------|-------------|---------|
+| `compaction` | `summary_ratio`, `trigger_ratio`, `summary_model` | Summarizes old messages when token usage exceeds threshold |
+| `trimming` | `keep_recent`, `trigger_ratio`, `strategy` (tail/sliding_window) | Drops old messages to stay within context window |
+| `loop_detection` | `window`, `threshold`, `similarity` | Detects repetitive agent behavior |
+| `observation_masking` | `keep_recent`, `mask_after_tokens` | Masks large tool outputs in older messages |
+| `offloading` | `trigger_ratio`, `base_dir` | Offloads messages to disk when context grows too large |
+
+Each factory parses its config from `map[string]any`, applies defaults, and returns an `agent.Effect`. Effect configs are parsed and validated during `Config.Validate()`.
+
+### Engine Struct (`engine.go`)
+
 ```go
-type ToolboxRef struct {
-    Name  string   // Toolbox identifier
-    Tools []string // Optional tool filter (empty = all tools)
+type Engine struct {
+    cfg           Config
+    registry      *agent.Registry
+    completers    map[string]*completerEntry  // provider name → cached Completer
+    skills        *skill.Store
+    state         *state.Store
+    taskBoard     *tasks.Board
+    bus           *EventBus
+    mcpClients    map[string]*mcpclient.Client
+    sessionsStore *sessions.Store
+    projectCtx    string
+    agentConfigs  map[string]AgentConfig
+    // ...sync primitives
 }
 ```
 
-### Engine Initialization
+**`New(ctx, cfg) (*Engine, error)`** — The main constructor:
+1. Creates state store, task board, event bus, sessions store
+2. Calls `parallelInit()` for concurrent initialization
+3. Registers all agents with the registry
+4. Returns wired Engine
 
-The engine follows a structured initialization process:
+**`parallelInit()`** (`init.go`) — Runs three operations concurrently via goroutines + `sync.WaitGroup`:
+1. **Skills loading** — `skill.LoadAll()` from `.shelly/skills/` + configured skill dirs
+2. **Project context** — `projectctx.Load()` from `.shelly/`
+3. **MCP server connections** — Connects to all configured MCP servers in parallel (each with 15s timeout)
 
-1. **Configuration Loading & Validation**
-   - Parse YAML config file
-   - Expand environment variables
-   - Validate required fields and references
+Errors are collected through a `sync.Mutex`-protected slice, joined with semicolons.
 
-2. **Directory Setup** 
-   - Ensure `.shelly/` directory structure exists
-   - Migrate legacy permission files
-   - Create required subdirectories
+**`Close()`** — Shuts down MCP clients with 5-second timeout per client.
 
-3. **Parallel Initialization** (`parallelInit`)
-   - **Skills Loading**: Discover and load skills from `.shelly/skills/` and project-level directories
-   - **Project Context**: Build structural project index for enhanced agent context  
-   - **MCP Servers**: Connect to external tool servers concurrently
-   - All three operations run in parallel to minimize startup latency
+### Agent Registration (`registration.go`)
 
-4. **Provider Initialization**
-   - Create configured LLM provider instances
-   - Set up rate limiting and batch processing capabilities
-   - Build provider registry for agent access
+**`registerAgents(ctx)`** — Iterates over `cfg.Agents`, creating a factory function for each agent that:
+1. Builds the agent's toolbox via `buildToolbox()` (includes coding tools, MCP tools, skills, task board tools)
+2. Gets or builds the provider Completer
+3. Wires effects from config
+4. Constructs `agent.Config` with system prompt (instructions + project context + available skills info)
+5. Returns `agent.New(agentCfg)`
 
-5. **Toolbox Wiring**  
-   - Initialize built-in toolboxes (filesystem, git, http, etc.)
-   - Connect MCP server tools
-   - Wire skill store as `load_skill` tool
-   - Apply tool filtering per agent configuration
+The first agent in config is registered as the **main agent** (`registry.Register` with `agent.IsMain`).
 
-6. **Agent Registry Setup**
-   - Create agent factory functions from configuration
-   - Set up effect middleware chains  
-   - Register agents in global registry
+### Toolbox Wiring (`toolbox_wiring.go`)
 
-### Skills Integration in Engine
+**`buildToolbox(ctx, agentCfg, askCh)`** — Assembles per-agent tool collection:
+1. Starts with built-in coding tools: `filesystem`, `exec`, `search`, `git`, `http`, `notes`, `permissions`, `browser`, `defaults`, `ask` (if askCh provided)
+2. Adds `skill.Store.Tool()` if skills available
+3. Adds task board tools (`shared_tasks_*`) and state tools
+4. Adds tools from configured MCP servers (filtered by agent's `mcp_servers` list)
+5. Applies include/exclude patterns from agent config (glob matching on tool names)
+6. Wraps with permission gating via `permissions.NewGatedToolbox()`
 
-Skills are deeply integrated into the engine's configuration and runtime:
+### Event System (`event.go`)
 
-**Configuration:**
-```yaml
-agents:
-  - name: "indexer"  
-    skills: ["project-indexer", "documentation-writer"]  # Specific skills
-  - name: "assistant"
-    skills: []  # Empty = all available skills
+```go
+type EventKind string  // e.g., "message_added", "tool_call_start", "agent_start"
 ```
 
-**Runtime Integration:**
-1. **Skill Loading**: Engine discovers skills from multiple sources:
-   - `.shelly/skills/` (project-specific skills)
-   - Built-in skill directories
-   - Additional paths from configuration
+**Event kinds:** `EventMessageAdded`, `EventToolCallStart`, `EventToolCallEnd`, `EventAgentStart`, `EventAgentEnd`, `EventUsageUpdate`, `EventStreamDelta`, `EventStreamEnd`, `EventThinking`, `EventPlan`, `EventSummaryLine`, `EventError`.
 
-2. **Skill Store Creation**: All loaded skills are placed in a centralized store
+**`Event` struct** — Contains `Kind`, `AgentName`, `AgentIcon`, `AgentColor`, `ProviderLabel`, `Timestamp`, and a polymorphic `Data` field (message, tool call info, usage, error, etc.).
 
-3. **Tool Exposure**: Skills are exposed to agents via the `load_skill` tool in configured toolboxes
+**`EventBus`** — Thread-safe pub/sub:
+- `Subscribe(ch)` / `Unsubscribe(ch)` — register/remove listener channels
+- `Publish(event)` — non-blocking send to all subscribers (drops events if channel full)
 
-4. **Dynamic Access**: Agents can query available skills and load them on-demand during execution
+### Interactive Session (`session.go`)
 
-### Session Management
-
-**Session Lifecycle:**
 ```go
 type Session struct {
-    ID       string    // Unique session identifier
-    AgentID  string    // Which agent handles this session  
-    Chat     *chat.Chat // Conversation history
-    EventBus *EventBus // Activity monitoring
-    // ... internal state
+    ID          string
+    engine      *Engine
+    agent       *agent.Agent
+    chat        *chat.Chat
+    cancel      context.CancelFunc
+    askCh       chan ask.Request
+    turnCount   int
+    // ...sync primitives
 }
 ```
 
-**Key Operations:**
-- **`SendMessage(content)`**: Send user message, trigger agent processing
-- **`GetMessages()`**: Retrieve conversation history
-- **`Close()`**: Clean up session resources
+**`Engine.NewSession(ctx, opts)`** — Creates session with random 8-byte hex ID. Options: `WithSessionPrompt`, `WithSessionID`, `WithSessionTimeout`, `WithSessionAttachments`. Builds the main agent via registry, subscribes an `EventNotifier` to the event bus, optionally loads persisted session.
 
-**Session Features:**
-- **Context Isolation**: Each session maintains independent conversation state
-- **Event Streaming**: All activity (messages, tool calls, agent spawns) emitted via EventBus
-- **Agent Delegation**: Sessions can spawn child agents for specialized tasks
-- **Error Recovery**: Graceful handling of agent failures and timeouts
+**`Session.Send(ctx, text, attachments)`** — Appends user message to chat, runs `agent.Run()` in a goroutine, returns immediately for async processing. Persists chat after each run.
 
-### Event System
+**`Session.Ask()`** — Returns the ask channel for interactive prompts from agent to user.
 
-The EventBus provides observable streams of engine activity:
+**`Session.Wait()`** — Blocks until agent completes current processing.
 
-**Event Types:**
+**`Session.Close()`** — Cancels context, persists chat state.
+
+**Session persistence:** Uses `sessions.Store` to save/load chat history as JSON. Session file path: `<shellyDir>/local/sessions/<id>.json`.
+
+### Batch Session (`batch_session.go`)
+
+**`DefaultBatchConcurrency`** = 8
+
+**`BatchTask`** — JSONL input format:
 ```go
-const (
-    EventMessageAdded       EventKind = "message_added"
-    EventToolCallStart      EventKind = "tool_call_start" 
-    EventToolCallEnd        EventKind = "tool_call_end"
-    EventAgentStart         EventKind = "agent_start"
-    EventAgentEnd          EventKind = "agent_end"
-    EventSessionStart      EventKind = "session_start"
-    EventSessionEnd        EventKind = "session_end"
-)
-```
-
-**Event Structure:**
-```go
-type Event struct {
-    Kind      EventKind     // Event type
-    Timestamp time.Time     // When event occurred
-    SessionID string        // Which session generated event
-    AgentID   string        // Which agent was involved
-    Data      any          // Event-specific payload
+type BatchTask struct {
+    ID      string   `json:"id"`
+    Prompt  string   `json:"prompt"`
+    Agent   string   `json:"agent"`   // optional, defaults to main
+    Timeout string   `json:"timeout"` // optional, per-task
 }
 ```
 
-**Usage:**
-- **Monitoring**: Track agent activity and performance
-- **Debugging**: Observe tool calls and decision making
-- **Integration**: Stream events to external systems
-- **UI Updates**: Real-time updates in TUI/web interfaces
+**`BatchResult`** — JSONL output format with `id`, `status` (ok/error), `response`/`error`, `usage`, `duration`.
 
-### Batch Processing
+**`Engine.RunBatch(ctx, input, output, concurrency)`** — Reads tasks from JSONL reader, runs them concurrently (bounded by semaphore), writes results as JSONL to output writer. Each task:
+1. Creates a fresh chat + agent via registry
+2. Sends the prompt as a user message
+3. Runs `agent.Run()` synchronously
+4. Extracts the last assistant text as response
+5. Writes `BatchResult` JSON line
 
-For high-throughput scenarios, the engine supports batch processing:
+### MCP Integration (`mcp.go`)
 
-**Batch Task Format:**
-```json
-{"id": "task1", "agent": "assistant", "task": "Review this code", "context": "optional"}
-{"id": "task2", "agent": "indexer", "task": "Document this API", "context": "..."}
-```
+**`connectMCPServers(ctx, configs)`** — Connects to all configured MCP servers in parallel with 15s timeouts. Supports `stdio` and `streamable_http` transport types. Returns a map of connected `mcpclient.Client` instances.
 
-**Batch Features:**
-- **Parallel Execution**: Configurable concurrency (default: 8 concurrent tasks)
-- **Independent Sessions**: Each task gets its own session context
-- **Cost Optimization**: Batch collector can group LLM requests for provider savings  
-- **Result Streaming**: Results written to JSONL as tasks complete
-- **Error Isolation**: Failed tasks don't affect others
+**Permission gating:** MCP tool calls are wrapped in the same permission system as built-in tools.
 
-### Toolbox Integration
+---
 
-The engine manages the complex task of wiring tools from multiple sources:
+## Key Patterns
 
-**Built-in Toolboxes:**
-- `coding`: Filesystem, exec, search, git operations
-- `http`: Web requests and API interactions  
-- `notes`: Persistent note-taking across sessions
-- `permissions`: File access control
-- `skills`: Access to the skill store (`load_skill` tool)
-
-**MCP Integration:**
-- External tool servers connected via Model Context Protocol
-- Both stdio and HTTP transport supported
-- Tools automatically discovered and registered
-- Lifecycle management (connect, disconnect, error recovery)
-
-**Agent Tool Assignment:**
-```yaml
-agents:
-  - name: "developer"
-    toolboxes: 
-      - name: "coding"  # All coding tools
-      - name: "http" 
-        tools: ["fetch", "post"]  # Filtered tool access
-    skills: ["debugging", "testing"]
-```
-
-## Integration Patterns
-
-### Skills ↔ Engine Integration
-
-1. **Configuration-Driven Loading**: Skills specified in agent configs are automatically loaded and made available
-
-2. **Dynamic Discovery**: Engine can discover skills from multiple directory sources
-
-3. **Tool Wrapping**: Skills exposed as callable tools rather than static content
-
-4. **Context-Aware Access**: Skills can include project-specific context and file references
-
-### Engine ↔ Agent Integration  
-
-1. **Factory Pattern**: Engine creates agent instances from configuration
-2. **Dependency Injection**: Agents receive configured providers, toolboxes, and skills
-3. **Registry Management**: Engine maintains agent registry for delegation
-4. **Lifecycle Management**: Engine handles agent startup, cleanup, and error recovery
-
-### Configuration ↔ Runtime Integration
-
-1. **Environment Expansion**: All config strings support `${VAR}` environment variables
-2. **Validation Pipeline**: Comprehensive validation before component initialization  
-3. **Hot Reloading**: Some configuration changes can be applied without restart
-4. **Override Support**: CLI flags and environment can override config file values
-
-## Key Design Principles
-
-### 1. **Composition Over Inheritance**
-- Engine assembles components rather than extending base classes
-- Skills are compositional building blocks rather than rigid templates
-- Toolboxes combine independently developed tools
-
-### 2. **Configuration as Code**
-- Everything configurable via declarative YAML
-- Environment variable expansion for deployment flexibility  
-- Validation ensures configuration correctness
-
-### 3. **Observable by Default**
-- All significant activities emit events
-- Comprehensive logging and monitoring built-in
-- External integration points for custom observability
-
-### 4. **Frontend Agnostic**
-- Engine API doesn't assume specific UI framework
-- Event-driven architecture supports real-time updates
-- Batch processing for non-interactive use cases
-
-### 5. **Extensibility**
-- Plugin architecture for custom tools via MCP
-- Skill system for custom procedural knowledge
-- Effect system for custom agent behaviors
-
-The composition layer represents the culmination of Shelly's architecture - where all the specialized components come together into a coherent, configurable, and extensible system that users can adapt to their specific needs while maintaining clean separation of concerns.
+1. **Lazy initialization** — Provider Completers are built on first use via `sync.Once`, not at engine startup
+2. **Parallel init** — Skills, project context, and MCP connections load concurrently to reduce startup latency
+3. **Factory registration** — Agents are registered as factory functions, not pre-built instances; each session/delegation creates a fresh agent
+4. **Event-driven frontend** — The EventBus decouples engine internals from UI; frontends subscribe and react to typed events
+5. **Config validation** — Comprehensive validation at load time (duplicate names, required fields, effect parsing, env expansion) prevents runtime errors
+6. **Permission gating** — All tools (built-in and MCP) pass through `permissions.NewGatedToolbox()` before being given to agents

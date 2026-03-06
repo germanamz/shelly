@@ -1,6 +1,6 @@
 # Agent System
 
-The `pkg/agent/` package implements a unified agent type running a ReAct (Reason + Act) loop with dynamic delegation, middleware, and an effects system for conversation management.
+The `pkg/agent/` package implements a unified agent type running a ReAct (Reason + Act) loop with dynamic delegation, middleware, an effects system for conversation management, and interactive parent↔child communication.
 
 ## Core Types
 
@@ -11,149 +11,235 @@ type Agent struct {
     name, configName   string                // instance name + template/kind name
     description        string
     instructions       string
-    completer          modeladapter.Completer
     chat               *chat.Chat
-    toolboxes          []*toolbox.ToolBox
-    registry           *Registry             // factory registry for delegation
-    middleware         []Middleware
+    completer          modeladapter.Completer
+    toolbox            *toolbox.ToolBox
     effects            []Effect
-    delegation         delegationConfig       // maxDepth, maxHandoffs, taskBoard, reflectionDir
-    events             eventConfig            // notifier, eventFunc, cancelRegistrar
-    completion         completionHandler      // tracks task_complete calls
-    handoff            handoffHandler         // tracks handoff calls
+    middleware         []Middleware
+    skills             []skill.Skill
+    delegation         delegationConfig       // maxDepth, maxHandoffs, taskBoard, reflectionDir, questionTimeout
     interaction        *InteractionChannel    // parent↔child communication
-    depth              int                    // current delegation depth
-    maxIterations      int
-    warnIterations     int                    // inject wrap-up message at this iteration
+    handoff            handoffHandler         // tracks handoff calls
+    interactiveDelegations *DelegationRegistry // tracks active interactive children
+    inbox              chan message.Message    // receives routed user messages
 }
 ```
 
-Created via `New(name, description, instructions, completer, opts)`.
+Key fields in `Options`: `MaxIterations`, `WarnIterations`, `MaxDelegationDepth`, `MaxHandoffs`, `Skills []skill.Skill`, `Middleware []Middleware`, `Effects []Effect`, `Context string`, `EventNotifier`, `EventFunc`, `TaskBoard`, `ReflectionDir`, `InteractionMode` (""|"auto"|"interactive"|"blocking"), `QuestionTimeout`, `ProviderLabel`, `Prefix`, `DisableBehavioralHints`, `InboxRegistrar`, `InboxUnregistrar`.
 
-### Options
-
-Key fields in `Options`: `MaxIterations`, `WarnIterations`, `MaxDelegationDepth`, `MaxHandoffs`, `Skills []skill.Skill`, `Middleware []Middleware`, `Effects []Effect`, `Context string`, `EventNotifier`, `EventFunc`, `TaskBoard`, `ReflectionDir`, `InteractionMode` (""|"auto"|"interactive"|"blocking"), `QuestionTimeout`, `ProviderLabel`, `Prefix`.
-
-### Sentinel Errors
-
-- `ErrMaxIterations` — loop exceeded MaxIterations without final answer
-- `ErrTokenBudgetExhausted` — cumulative tokens exceeded budget
-- `ErrTimeBudgetExhausted` — cumulative LLM time exceeded budget
-- `ErrStallDetected` — agent not making progress
-
-## ReAct Loop (`Run` / `run`)
-
-`Run(ctx)` wraps the internal `run` method with middleware, then executes:
-
-```
-1. Init() — ensure system prompt exists
-2. Collect all toolboxes (user + orchestration + completion/handoff + effect-provided)
-3. Deduplicate tools → tool declarations + handler map
-4. Reset effects that implement Resetter
-5. Cache toolTokens estimate
-6. LOOP (until maxIterations or final answer):
-   a. Inject wrap-up warning if i >= warnIterations (once)
-   b. Estimate tokens
-   c. Run effects at PhaseBeforeComplete
-   d. Filter tools via ToolFilter effects
-   e. Call completer.Complete(ctx, chat, tools) → reply
-   f. Append reply to chat, emit "message_added"
-   g. Run effects at PhaseAfterComplete
-   h. Extract tool calls from reply
-   i. If no tool calls → return reply (final answer)
-   j. Execute all tool calls concurrently (sync.WaitGroup)
-   k. Emit tool_call_start/tool_call_end events
-   l. Cap tool results at 32K runes, append to chat
-   m. If completion.IsComplete() or handoff.IsHandoff() → return reply
-7. Return ErrMaxIterations
-```
-
-Tool results are capped at `maxToolResultRunes` (32000). Error results are never capped.
-
-## Delegation System
-
-### Registry (`registry.go`)
-
-Factory-based agent creation. Thread-safe via `sync.RWMutex`.
+### Error Sentinels
 
 ```go
-type Factory func() *Agent              // creates fresh agent with clean chat
-type Entry struct {                      // agent directory entry
-    Name, Description string
-    Skills []string
-}
+var ErrMaxIterations     = errors.New("agent: max iterations reached")
+var ErrTokenBudgetExhausted = errors.New("agent: token budget exhausted")
+var ErrTimeBudgetExhausted  = errors.New("agent: time budget exhausted")
+```
 
-type Registry struct {
-    factories map[string]Factory
-    entries   map[string]Entry
+### EventNotifier
+
+```go
+type EventNotifier func(ctx context.Context, kind string, agentName string, data any)
+```
+
+Published event kinds: `"agent_started"`, `"agent_completed"`, `"agent_failed"`, `"delegation_started"`, `"delegation_completed"`, `"delegation_failed"`.
+
+### InboxRegistrar / InboxUnregistrar
+
+```go
+type InboxRegistrar func(name string, inbox chan message.Message)
+type InboxUnregistrar func(name string)
+```
+
+Used to register and unregister inbox channels for child agents, enabling user message routing to specific named agents. The parent wires these during delegation so that external user messages can be forwarded to the appropriate child.
+
+### TaskBoard Interface
+
+```go
+type TaskBoard interface {
+    Create(ctx context.Context, task tasks.Task) (tasks.Task, error)
+    Get(ctx context.Context, id string) (tasks.Task, error)
+    Update(ctx context.Context, id string, updates map[string]any) (tasks.Task, error)
 }
 ```
 
-Key methods: `Register(name, factory, entry)`, `Spawn(name, depth) (*Agent, bool)`, `List() []Entry`, `NextID(name) int` (auto-increment for unique instance names).
+### TaskCancelWatcher Interface
 
-### Delegation Tool (`delegation.go`)
+```go
+type TaskCancelWatcher interface {
+    WatchCancel(ctx context.Context, taskID string) <-chan struct{}
+}
+```
 
-When `canDelegate()` is true (registry set, depth < maxDepth), the agent gets a `delegate` tool. The tool accepts a `DelegateInput` with `Tasks []delegateTask` (each has `agent`, `task`, `context`, optional `mode`, `task_id`).
+Optional interface that TaskBoard implementations can provide to support cancellation propagation. When a task is canceled on the board, the returned channel is closed, allowing the delegation handler to cancel the child agent's context.
 
-**Delegation flow:**
-1. Parse input, resolve agent names from registry
-2. If any task has `mode: "interactive"` → `runInteractiveDelegate`
-3. Otherwise → run all tasks concurrently via `runDelegateTask`
+---
 
-**`runDelegateTask`**: Spawns child via `buildDelegateChild` → `spawnChild`, claims task on TaskBoard, runs with `runChildWithHandoff`.
+## ReAct Loop (`agent.go` — `Run()`)
 
-**`propagateParentConfig`**: Copies registry, event notifier, reflection dir, task board from parent to child. Generates unique instance name: `{configName}-{taskSlug}-{seqID}`.
+The `Run()` method drives the agent's main loop:
 
-**Handoffs**: A child can call `handoff` tool to transfer to a peer agent. `runChildWithHandoff` handles the chain with `maxHandoffDefault=3` limit.
+1. **Reset effects** — calls `Resetter.Reset()` on each effect that implements it
+2. **Build system prompt** — assembles `<identity>`, `<instructions>`, `<project_context>`, `<behavioral_constraints>` (unless `DisableBehavioralHints`), `<available_skills>`, `<available_agents>`, tool formatting hints
+3. **Iteration loop** (up to `MaxIterations`):
+   a. Estimate token count via `TokenEstimator` (if completer implements it)
+   b. **Pre-complete effects** — run `PhaseBeforeComplete` effects in order
+   c. **Filter tools** — apply `ToolFilter` effects to remove/restrict tools
+   d. **Collect provided tools** — gather tools from `ToolProvider` effects
+   e. **LLM completion** — call `completer.Complete(ctx, chat, tools)`
+   f. **Post-complete effects** — run `PhaseAfterComplete` effects
+   g. **Tool dispatch** — if message has tool calls, execute them sequentially; if no tool calls, loop ends
+   h. **Check inbox** — non-blocking check for user messages in the inbox channel; appends them to chat
+4. **Return** final assistant message or error
+
+### Token Estimation
+
+If the completer implements `modeladapter.TokenEstimator`, the agent estimates tokens before each LLM call and passes the count to effects via `IterationContext.EstimatedTokens`.
+
+---
+
+## Delegation System (`delegation.go`)
+
+### Agent Registry
+
+```go
+type RegistryFactory func(opts Options) *Agent
+```
+
+The agent builds `delegate` and `handoff` tools from its `Options.Registry` map. Delegation uses a factory pattern: each registered agent kind has a factory that creates fresh agent instances.
+
+### Delegation Modes
+
+Three delegation modes controlled by `InteractionMode`:
+
+1. **Blocking** (default / `"blocking"`): Parent spawns child, waits for completion, returns result as tool output.
+2. **Auto** (`"auto"`): Uses blocking for single delegations. For concurrent delegations, uses blocking with parallel execution.
+3. **Interactive** (`"interactive"`): Child runs asynchronously. If child calls `request_input`, parent receives a `PendingQuestion` and can answer via `answer_delegation_questions` tool.
+
+### Delegation Flow
+
+1. Create child agent via registry factory with depth-decremented options
+2. Wire `InteractionChannel` for parent↔child communication
+3. Register inbox channel via `InboxRegistrar` (if provided)
+4. Create/update task on `TaskBoard` (if provided)
+5. Set up `TaskCancelWatcher` (if TaskBoard implements it)
+6. Run child agent (`child.Run(ctx)`)
+7. Collect `CompletionResult` and return to parent
+8. Unregister inbox via `InboxUnregistrar` on completion
+
+### AgentEventData
+
+```go
+type AgentEventData struct {
+    Agent       string
+    Task        string
+    Prefix      string
+    DelegateOf  string
+    Provider    string
+}
+```
+
+Published with `delegation_started`/`delegation_completed`/`delegation_failed` events.
 
 ### Delegation Streaming (`delegation_stream.go`)
 
-`DelegationEvent` with kinds: `DelegationStatus`, `DelegationProgress`. The `delegationProgressFunc` wraps a parent's EventFunc to forward child events with rune-count tracking.
-
-### Completion & Handoff
-
-- **`completion.go`**: `CompletionResult{Status, Summary, FilesModified, TestsRun, Caveats}`. Registered as `task_complete` tool for sub-agents (depth > 0).
-- **`handoff.go`**: `HandoffResult{TargetAgent, Reason, Context}`. Registered as `handoff` tool when MaxHandoffs > 0.
-
-### Interaction Channel (`interaction.go`)
-
-Bidirectional parent↔child communication via `InteractionChannel`:
+Real-time streaming of delegation progress to parent:
 
 ```go
-type Question struct { ID, Agent, Content string }
-type InteractionChannel struct {
-    answerCh    chan string          // parent sends answer
-    questionCh  chan PendingQuestion // child sends question  
-    sharedQueue chan PendingQuestion // nil for per-child, set for interactive mode
+type DelegationEventKind string // "status" | "progress"
+
+type DelegationEvent struct {
+    Kind      DelegationEventKind
+    AgentName string
+    Status    string          // for status events
+    Text      string          // for progress events
+    TextDelta string          // incremental text for progress
+}
+
+type DelegationStreamCallback func(event DelegationEvent)
+```
+
+### Handoffs
+
+Peer-to-peer agent handoff via the `handoff` tool. Limited by `MaxHandoffs`. The `HandoffResult` carries the target agent name, reason, and context.
+
+```go
+type HandoffResult struct {
+    Agent   string `json:"agent"`
+    Reason  string `json:"reason"`
+    Context string `json:"context"`
 }
 ```
 
-- **Auto mode**: Parent auto-answers from delegation context
-- **Interactive mode**: Questions routed to shared `DelegationRegistry` queue, parent LLM answers
-- **Blocking mode**: Questions block until external answer
+### DelegationRegistry (`interaction_registry.go`)
 
-`request_input` tool registered for sub-agents with an InteractionChannel.
-
-## Middleware
+Tracks active interactive delegations for a parent agent:
 
 ```go
-type Runner interface { Run(ctx context.Context) (message.Message, error) }
-type RunnerFunc func(ctx context.Context) (message.Message, error)
-type Middleware func(next Runner) Runner
+type PendingDelegation struct {
+    ID         string
+    Agent      string
+    Task       string
+    QuestionCh chan PendingQuestion  // per-delegation question intake
+    AnswerCh   chan string           // route answers back
+    DoneCh     <-chan delegateResult // final result
+    Cancel     context.CancelFunc
+}
 ```
 
-Applied in reverse order so first middleware in the slice is outermost. Wraps `Run()` — can observe/modify before and after the entire ReAct loop.
+Provides `Register()`, `Get()`, `Remove()`, `Close()` methods. The `answer_delegation_questions` tool batches answers to multiple children and waits for follow-up questions or completion.
 
-Usage: logging, metrics, timing, error wrapping.
+---
 
-## Effects System
+## InteractionChannel
 
-Effects are per-iteration hooks that run inside the ReAct loop. **The agent package defines interfaces; implementations live in `pkg/agent/effects/`** (clean separation — agent never imports effects).
-
-### Core Interfaces (`effect.go`)
+Bidirectional parent↔child communication:
 
 ```go
-type IterationPhase int // PhaseBeforeComplete | PhaseAfterComplete
+type InteractionChannel struct {
+    QuestionCh chan<- PendingQuestion // child sends questions
+    AnswerCh   <-chan string          // child receives answers
+}
+
+type Question struct {
+    Question string   `json:"question"`
+    Options  []string `json:"options,omitempty"`
+}
+```
+
+- **Interactive mode**: Questions are routed to parent via `DelegationRegistry`
+- **Blocking mode**: The `request_input` tool auto-answers from delegation context
+- **Timeout**: Configurable via `QuestionTimeout` option
+
+---
+
+## Completion (`completion.go`)
+
+### CompletionResult
+
+```go
+type CompletionResult struct {
+    Status        string   `json:"status"`        // "completed" or "failed"
+    Summary       string   `json:"summary"`
+    KeyDecisions  []string `json:"key_decisions"`
+    FilesModified []string `json:"files_modified"`
+    ErrorMessage  string   `json:"error_message,omitempty"`
+}
+```
+
+Set by the `task_complete` tool, read by delegation tools after `Run()` returns. The `task_complete` tool is injected into every delegated agent.
+
+---
+
+## Effect System (`effect.go`)
+
+### Core Interfaces
+
+```go
+type IterationPhase int
+const (
+    PhaseBeforeComplete IterationPhase = iota  // before LLM call
+    PhaseAfterComplete                         // after LLM reply, before tool dispatch
+)
 
 type IterationContext struct {
     Phase           IterationPhase
@@ -161,103 +247,105 @@ type IterationContext struct {
     Chat            *chat.Chat
     Completer       modeladapter.Completer
     AgentName       string
-    EstimatedTokens int
-    ToolTokens      int
+    EstimatedTokens int  // pre-call estimate (0 = not computed)
+    ToolTokens      int  // token cost of tool definitions (0 = not computed)
 }
 
 type Effect interface {
     Eval(ctx context.Context, ic IterationContext) error
 }
 
-type Resetter interface { Reset() }       // reset per-run state
-type ToolFilter interface {               // filter tools per iteration
+type Resetter interface { Reset() }
+
+type ToolFilter interface {
     FilterTools(ctx context.Context, ic IterationContext, tools []toolbox.Tool) []toolbox.Tool
 }
-type ToolProvider interface {             // inject extra tools
+
+type ToolProvider interface {
     ProvidedTools() *toolbox.ToolBox
 }
+
+type EffectFunc func(ctx context.Context, ic IterationContext) error
 ```
 
-### Effect Implementations (`pkg/agent/effects/`)
+### Built-in Effects (`effects/` subpackage)
 
-#### 1. Compact (`compact.go`)
-**Phase**: BeforeComplete. Summarizes old messages when token count exceeds threshold.
+The `effects/` subpackage provides the concrete implementations. The agent package defines the interfaces; effects never import agent directly.
 
-- Configurable via `CompactConfig{Threshold float64, Model modeladapter.Completer}`
-- Default threshold: 80% of context window
-- Splits chat into kept prefix (system) + summarizable body + recent suffix
-- Calls the LLM with a summarization prompt to compress the body
-- Replaces body with a single summary message
-- Thread-safe via mutex
+| Effect | Phase | Purpose |
+|--------|-------|---------|
+| **Compact** | BeforeComplete | Summarizes old messages when context exceeds threshold. Replaces them with a compact summary. |
+| **LoopDetect** | AfterComplete | Detects repetitive tool-call patterns via fingerprinting. Injects a hint to break the loop. |
+| **ObservationMask** | BeforeComplete | Truncates long tool results in older messages to reduce token usage while preserving recent messages. |
+| **Offload** | BeforeComplete | Writes large tool results to disk and replaces them with file references when context gets large. |
+| **TrimToolResults** | BeforeComplete | Trims tool results exceeding a character limit, keeping head+tail with a truncation marker. |
+| **Progress** | AfterComplete | Injects periodic progress prompts (every N iterations) reminding agent to assess progress and use notes. |
+| **Reflection** | AfterComplete | After consecutive tool failures (≥ threshold), injects a reflection prompt asking the agent to reassess. |
+| **SlidingWindow** | BeforeComplete | Token-aware context management: summarizes old messages in a "far zone" while preserving recent messages in a "recent zone". |
+| **StallDetect** | AfterComplete | Detects stalled agents via message fingerprinting (hash-based similarity). Injects hints to change approach. |
+| **TimeBudget** | AfterComplete | Enforces a maximum cumulative LLM inference time. Warns at threshold, terminates with `ErrTimeBudgetExhausted`. |
+| **TokenBudget** | BeforeComplete | Enforces a maximum token budget. Warns at threshold, terminates with `ErrTokenBudgetExhausted`. |
+| **ToolScope** | (ToolFilter) | Filters which tools the LLM sees by excluding named tools (blacklist). |
+| **Render** | (helper) | Utility for rendering message transcripts in compact text form (used by other effects). |
+| **Threshold** | (helper) | Shared utility for checking if estimated tokens exceed a context window threshold. |
 
-#### 2. Loop Detection (`loopdetect.go`)
-**Phase**: AfterComplete. Detects when the agent is stuck in repetitive patterns.
+---
 
-- `LoopDetectConfig{Threshold int, WindowSize int}` (defaults: 3, 10)
-- Compares recent assistant messages in a sliding window
-- If same tool call pattern repeats `Threshold` times → injects a user message telling the agent to try a different approach
-- Implements `Resetter` to clear state between runs
+## Middleware System (`middleware.go`)
 
-#### 3. Observation Masking (`observation_mask.go`)
-**Phase**: BeforeComplete. Replaces large tool results with placeholders to save tokens.
-
-- `ObservationMaskConfig{RecentWindow int, Threshold float64}` (defaults: 10, 0.6)
-- Keeps recent N messages unmasked
-- Masks older tool results exceeding the threshold fraction of context
-- Uses `obs_masked` metadata key to avoid re-masking
-- Non-destructive: only modifies the Content field of tool results
-
-#### 4. Context Offload (`offload.go`)
-**Phase**: BeforeComplete. Offloads large tool results to disk files and provides a `recall` tool to retrieve them.
-
-- `OffloadConfig{Threshold int, RecentWindow int, BaseDir string}`
-- Default threshold: 4000 runes, recent window: 6 messages
-- Writes offloaded content to `{BaseDir}/{agentName}/{hash}.md`
-- Replaces in-chat content with pointer: `[content offloaded → {path}] Use recall tool to retrieve`
-- Implements `ToolProvider` to register the `recall` tool
-- Thread-safe via mutex, implements `Resetter`
-
-#### 5. Trim Tool Results (`trim_tool_results.go`)
-**Phase**: BeforeComplete. Truncates older tool results to a max character length.
-
-- `TrimToolResultsConfig{MaxResultLength int, PreserveRecent int}` (defaults: 500, 4)
-- Preserves the N most recent messages untouched
-- Truncates older tool results and appends `"… [trimmed]"` suffix
-- Uses `trimmed` metadata key to avoid re-trimming
-
-## Event System
-
-Two levels of event notification:
-
-### EventNotifier (orchestration-level)
 ```go
-type EventNotifier func(ctx context.Context, kind string, agentName string, data any)
+type Runner interface {
+    Run(ctx context.Context) (message.Message, error)
+}
+
+type Middleware func(next Runner) Runner
 ```
-Published by delegation tools for agent lifecycle: `"agent_start"`, `"agent_end"`. Carries `AgentEventData{Prefix, Parent, ProviderLabel, Task}`.
 
-### EventFunc (loop-level)
-```go
-type EventFunc func(ctx context.Context, kind string, data any)
+Middleware wraps the agent's `Run()` call. Applied in registration order (outermost first). Built-in middleware includes:
+
+- **TimeoutMiddleware**: Enforces a maximum wall-clock duration
+- **LoggingMiddleware**: Logs agent start/complete/error with slog
+
+---
+
+## System Prompt Assembly
+
+The system prompt is built from sections (in order):
+1. `<identity>` — Agent name and description
+2. `<instructions>` — Agent instructions text
+3. `<project_context>` — Project context from `Options.Context`
+4. `<behavioral_constraints>` — Static behavioral hints (omitted if `DisableBehavioralHints` is true)
+5. `<available_skills>` — Loaded skills summary
+6. `<available_agents>` — Registry agent descriptions for delegation
+7. Tool formatting hints — JSON examples for tool use
+
+---
+
+## File Layout
+
 ```
-Published by the ReAct loop: `"tool_call_start"`, `"tool_call_end"` (`ToolCallEventData`), `"message_added"` (`MessageAddedEventData`).
-
-### Cancel Registration
-`CancelRegistrar`/`CancelUnregistrar` functions allow the TUI/engine to cancel individual sub-agents by name.
-
-## Prompt Construction (`prompt.go`)
-
-`promptBuilder` assembles the system prompt from: name, description, instructions, project context, skills (with YAML frontmatter), behavioral hints, delegation registry listing, interaction/handoff protocol descriptions. Pure value type, no side effects.
-
-## Reflection (`reflection.go`)
-
-On delegation failure (iteration exhaustion), the agent writes a reflection note to `reflectionDir` containing: task description, summary, and caveats. Filename uses `taskSlug()` for readability. Helps future agents learn from failures.
-
-## Key Patterns
-
-1. **Single unified type** — one `Agent` handles all patterns (root, child, interactive)
-2. **Depth-based behavior** — depth=0 is root (no task_complete tool), depth>0 is sub-agent
-3. **Clean effect separation** — agent defines interfaces, `effects/` implements them
-4. **Concurrent tool execution** — all tool calls in a reply run in parallel via `sync.WaitGroup`
-5. **Factory pattern** — Registry holds factories, Spawn creates fresh instances per delegation
-6. **Config propagation** — `propagateParentConfig` copies registry/events/taskboard to children
-7. **Graceful degradation** — wrap-up warnings, reflection notes, auto-answering of questions
+pkg/agent/
+├── agent.go                  # Agent struct, Options, Run() loop, inbox handling
+├── completion.go             # CompletionResult, task_complete tool
+├── delegation.go             # Delegation tools, registry, spawn logic
+├── delegation_stream.go      # DelegationEvent streaming types
+├── effect.go                 # Effect/Resetter/ToolFilter/ToolProvider interfaces
+├── interaction_registry.go   # DelegationRegistry, interactive Q&A flow
+├── middleware.go              # Runner/Middleware types, TimeoutMiddleware, LoggingMiddleware
+├── effects/                   # Concrete effect implementations
+│   ├── compact.go             # Context compaction via summarization
+│   ├── loopdetect.go          # Repetitive tool-call pattern detection
+│   ├── observation_mask.go    # Old tool result truncation
+│   ├── offload.go             # Large result offloading to disk
+│   ├── progress.go            # Periodic progress prompts
+│   ├── reflection.go          # Failure-triggered reflection prompts
+│   ├── render.go              # Message transcript rendering utility
+│   ├── sliding_window.go      # Token-aware sliding window context management
+│   ├── stall_detect.go        # Stall detection via fingerprinting
+│   ├── threshold.go           # Token threshold checking utility
+│   ├── time_budget.go         # Time budget enforcement
+│   ├── token_budget.go        # Token budget enforcement
+│   ├── tool_scope.go          # Tool filtering by name
+│   └── trim_tool_results.go   # Tool result size trimming
+└── *_test.go                  # Comprehensive test files
+```

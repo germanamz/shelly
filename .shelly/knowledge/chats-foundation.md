@@ -2,213 +2,284 @@
 
 ## Overview
 
-The `pkg/chats` package provides a provider-agnostic data model for LLM chat interactions. It serves as the foundational layer that all other Shelly components build upon, defining core types for roles, content parts, messages, and conversations without coupling to any specific LLM provider or API.
+The `pkg/chats` package provides a provider-agnostic data model for LLM chat interactions. It is the foundational layer that all other Shelly components build upon — provider adapters, the agent system, and the engine all use these types. Zero dependencies on other `pkg/` packages.
 
-## Architecture
-
-The package follows a clean modular structure with four sub-packages:
+## Sub-Package Structure
 
 ```
-chats/
-├── role/      # Conversation roles (system, user, assistant, tool)
-├── content/   # Multi-modal content parts (text, image, tool call/result) 
-├── message/   # Message container with role, parts, and metadata
-└── chat/      # Mutable conversation container with thread-safe operations
+pkg/chats/
+├── doc.go           # Package-level documentation (no code)
+├── role/role.go     # Conversation roles
+├── content/content.go  # Multi-modal content parts
+├── message/message.go  # Message type
+└── chat/chat.go     # Thread-safe conversation container
 ```
 
-## Core Types
+---
 
-### Roles (`pkg/chats/role`)
+## role — Conversation Roles
 
-Defines the four standard conversation roles:
+**Package:** `pkg/chats/role`
 
 ```go
 type Role string
 
 const (
-    System    Role = "system"    // System instructions/context
-    User      Role = "user"      // Human input
-    Assistant Role = "assistant" // LLM response
-    Tool      Role = "tool"      // Tool execution results
+    System    Role = "system"
+    User      Role = "user"
+    Assistant Role = "assistant"
+    Tool      Role = "tool"
 )
 ```
 
-**Key Methods:**
-- `Valid() bool` - Validates role is one of the four known types
-- `String() string` - Returns string representation
+- `(r Role) Valid() bool` — returns true if `r` is one of the four known roles.
 
-### Content Parts (`pkg/chats/content`)
+---
 
-Multi-modal content system supporting text, images, and tool interactions:
+## content — Multi-Modal Content Parts
+
+**Package:** `pkg/chats/content`
+
+### Part Interface
 
 ```go
 type Part interface {
     PartKind() string
 }
-
-// Core implementations:
-type Text struct { Text string }
-type Image struct { URL string }
-type ToolCall struct { ID, Name string; Args json.RawMessage }
-type ToolResult struct { CallID, Result string }
 ```
 
-**Design Patterns:**
-- Extensible interface allows custom content types
-- Each part declares its kind for serialization/routing
-- Tool calls and results are linked via CallID
-- JSON raw messages preserve argument structure
+All content types implement `Part`. External packages can add custom types. `PartKind()` returns a string tag used for type-routing and serialization.
 
-### Messages (`pkg/chats/message`)
+### Text
 
-Container for a single conversation message:
+```go
+type Text struct {
+    Text string
+}
+func (t Text) PartKind() string { return "text" }
+```
+
+### Image
+
+```go
+type Image struct {
+    Data      []byte
+    MediaType string
+}
+func (i Image) PartKind() string { return "image" }
+```
+
+Binary image data with a MIME type (e.g. `"image/png"`). NOT a URL — raw bytes.
+
+### Document
+
+```go
+type Document struct {
+    Data      []byte
+    MediaType string
+}
+func (d Document) PartKind() string { return "document" }
+```
+
+Binary document data (e.g. PDFs) with MIME type. Same shape as `Image`.
+
+### ToolCall
+
+```go
+type ToolCall struct {
+    ID        string
+    Name      string
+    Arguments string
+    Metadata  map[string]string
+}
+func (tc ToolCall) PartKind() string { return "tool_call" }
+```
+
+- `ID` — unique call identifier (set by the LLM provider).
+- `Name` — tool name being invoked.
+- `Arguments` — **raw JSON string** of arguments.
+- `Metadata` — provider-specific key-value pairs.
+
+### ToolResult
+
+```go
+type ToolResult struct {
+    CallID  string
+    Content string
+    IsError bool
+}
+func (tr ToolResult) PartKind() string { return "tool_result" }
+```
+
+- `CallID` — references the `ToolCall.ID` this result answers.
+- `Content` — string output from the tool.
+- `IsError` — true if the tool execution failed.
+
+---
+
+## message — Conversation Messages
+
+**Package:** `pkg/chats/message`
+
+### Message Type
 
 ```go
 type Message struct {
-    Sender   string           // Agent identifier (optional)
-    Role     role.Role        // Message role
-    Parts    []content.Part   // Content parts (text, images, tools)
-    Metadata map[string]any   // Extensible metadata
+    Sender   string
+    Role     role.Role
+    Parts    []content.Part
+    Metadata map[string]any
 }
 ```
 
-**Key Features:**
-- Value type that copies cheaply
-- Multi-modal content support via Parts slice
-- Flexible metadata for provider-specific data
-- Helper methods for common operations:
-  - `TextParts() []string` - Extract all text content
-  - `String() string` - Human-readable representation
-  - `ToolCalls() []*content.ToolCall` - Extract tool calls
-  - `Clone() Message` - Deep copy with new metadata map
+Value type (copies cheaply). `Sender` identifies the originator (e.g. agent name). `Metadata` carries arbitrary provider/agent data.
 
-### Conversations (`pkg/chats/chat`)
+### Constructors & Helpers
 
-Thread-safe mutable conversation container:
+```go
+func New(sender string, r role.Role, parts ...content.Part) Message
+```
+
+Creates a message with the given sender, role, and optional parts.
+
+```go
+func SetMeta(m Message, key string, value any) Message
+```
+
+**Free function** (not a method). Returns a copy of `m` with `Metadata[key] = value`. Initializes the map if nil.
+
+### Content Extraction
+
+```go
+func (m Message) TextContent() string
+```
+
+Joins all `content.Text` parts with newlines and returns the combined string. Skips non-text parts.
+
+```go
+func (m Message) ToolCalls() []content.ToolCall
+```
+
+Returns all `content.ToolCall` parts in the message.
+
+```go
+func (m Message) ToolResults() []content.ToolResult
+```
+
+Returns all `content.ToolResult` parts in the message.
+
+### Metadata Access
+
+```go
+func (m Message) Meta(key string) any
+```
+
+Returns `Metadata[key]` or `nil` if the map is nil or key is absent.
+
+---
+
+## chat — Conversation Container
+
+**Package:** `pkg/chats/chat`
+
+### Chat Type
 
 ```go
 type Chat struct {
-    // Unexported fields with RWMutex for concurrency
+    // unexported fields: mu sync.Mutex, msgs []message.Message, meta map[string]any, etc.
 }
 ```
 
-**Core Operations:**
-- `Add(msg message.Message)` - Append message
-- `Messages() []message.Message` - Get all messages (copy)
-- `Clear()` - Remove all messages
-- `Len() int` - Message count
-- `Clone() *Chat` - Deep copy of conversation
+Mutable, **thread-safe** conversation container. The zero value (`&Chat{}`) is ready to use.
 
-**Convenience Methods:**
-- `System(text string)` - Add system message
-- `User(text string)` - Add user message  
-- `Assistant(text string)` - Add assistant message
-- `Tool(callID, result string)` - Add tool result
+### Adding Messages
 
-**Advanced Features:**
-- `Compact(keepLast int)` - Remove old messages, keep recent ones
-- `Filter(predicate func(message.Message) bool)` - Remove messages not matching predicate
-- Thread-safe for concurrent access
-
-## Design Principles
-
-### Zero Dependencies
-- No imports from other `pkg/` packages
-- Only standard library dependencies
-- Foundation layer that others build upon
-
-### Provider Agnostic
-- No coupling to specific LLM APIs (OpenAI, Anthropic, etc.)
-- Generic enough to support all major providers
-- Extensible content system accommodates provider differences
-
-### Multi-Modal Support
-- Text, images, and tool interactions as first-class citizens
-- Extensible Part interface for future content types
-- Proper linking between tool calls and results
-
-### Thread Safety
-- Chat operations are safe for concurrent use
-- RWMutex provides efficient read/write access
-- Value types (Message, Role) copy safely
-
-### Clean Architecture
-- Separation of concerns across sub-packages
-- Interface-based extensibility
-- Value objects where appropriate
-
-## Usage Patterns
-
-### Creating Messages
 ```go
-// Simple text message
-msg := message.New(role.User, content.Text{Text: "Hello"})
+func (c *Chat) Append(msgs ...message.Message)
+```
 
-// Multi-modal message
-msg := message.Message{
-    Role: role.User,
-    Parts: []content.Part{
-        content.Text{Text: "Analyze this image:"},
-        content.Image{URL: "data:image/jpeg;base64,..."},
-    },
+Appends one or more messages. Signals any goroutine blocked in `Wait`.
+
+### Reading Messages
+
+```go
+func (c *Chat) Messages() []message.Message
+```
+
+Returns a **copy** of all messages (safe to iterate without holding the lock).
+
+```go
+func (c *Chat) Len() int
+```
+
+Returns the number of messages.
+
+```go
+func (c *Chat) At(i int) message.Message
+```
+
+Returns the message at index `i`.
+
+```go
+func (c *Chat) Last() (message.Message, bool)
+```
+
+Returns the last message and `true`, or zero value and `false` if empty.
+
+```go
+func (c *Chat) BySender(sender string) []message.Message
+```
+
+Returns all messages from the given sender.
+
+```go
+func (c *Chat) Since(offset int) []message.Message
+```
+
+Returns deep-copied messages from `offset` onward.
+
+### Modification
+
+```go
+func (c *Chat) Replace(msgs ...message.Message)
+```
+
+Replaces the entire message list. Also signals waiters.
+
+### System Prompt
+
+```go
+func (c *Chat) SystemPrompt() string
+```
+
+Returns the text of the first system message, or empty string if none.
+
+### Synchronization — Wait
+
+```go
+func (c *Chat) Wait(ctx context.Context, n int) (int, error)
+```
+
+Blocks until the chat contains **more than `n` messages** or the context is cancelled. Returns the current message count. There is no separate `Signal()` method — `Append` and `Replace` signal implicitly by closing an internal channel.
+
+Typical cursor-based usage:
+```go
+cursor := 0
+for {
+    cursor, err = chat.Wait(ctx, cursor)
+    if err != nil { break }
+    msgs := chat.Since(cursor)
+    // process msgs
+    cursor += len(msgs)
 }
 ```
 
-### Building Conversations
-```go
-chat := &chat.Chat{}
-chat.System("You are a helpful assistant")
-chat.User("What's the weather like?")
-chat.Assistant("I need to check the weather for you.")
+---
 
-// Add tool call
-chat.Add(message.Message{
-    Role: role.Assistant,
-    Parts: []content.Part{
-        content.ToolCall{
-            ID: "call_123",
-            Name: "get_weather", 
-            Args: json.RawMessage(`{"location": "San Francisco"}`),
-        },
-    },
-})
+## Key Patterns
 
-// Add tool result
-chat.Tool("call_123", "Sunny, 72°F")
-```
-
-### Conversation Management
-```go
-// Keep only last 10 messages
-chat.Compact(10)
-
-// Remove system messages
-chat.Filter(func(msg message.Message) bool {
-    return msg.Role != role.System
-})
-
-// Clone for branching conversations
-branch := chat.Clone()
-```
-
-## Integration Points
-
-The chats package serves as the data interchange format between:
-
-- **Model Adapters**: Convert to/from provider-specific formats
-- **Agent System**: Maintain conversation history and context
-- **Tool System**: Embed tool calls/results in content
-- **Engine Layer**: Persist and restore conversations
-
-## Key Abstractions
-
-### Content Extensibility
-The `Part` interface allows providers and tools to inject custom content types while maintaining type safety and serialization capabilities.
-
-### Metadata Flexibility  
-The `map[string]any` metadata field provides escape hatches for provider-specific data (model settings, usage tracking, etc.) without polluting the core model.
-
-### Immutable Messages, Mutable Containers
-Messages are value types that can be safely shared, while Chat provides controlled mutation with proper synchronization.
-
-This foundation enables Shelly to work uniformly across different LLM providers while supporting the full spectrum of modern LLM capabilities including multi-modal inputs and tool use.
+- **Value types for messages**: `Message` is a struct, not a pointer. Copy-safe.
+- **Interface-based content**: The `Part` interface allows extending content types without modifying existing code.
+- **Thread-safe chat**: All `Chat` methods lock internally, enabling concurrent reads/writes from agent loops and tool executors.
+- **Wait/Append signaling**: `Wait(ctx, n)` blocks until `len > n`; `Append`/`Replace` close an internal channel to wake waiters — no explicit `Signal()` needed.
+- **Free-function SetMeta**: `message.SetMeta(m, k, v)` returns a new message instead of mutating, preserving value semantics.

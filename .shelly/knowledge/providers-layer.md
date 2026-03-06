@@ -1,223 +1,198 @@
-# Providers Layer
+# LLM Providers Layer
 
-> `pkg/providers/` — Namespace package grouping LLM provider adapters.  
-> No Go source files of its own. Each sub-package implements `modeladapter.Completer`.
+> `pkg/providers/` — Concrete LLM adapters that implement `modeladapter.Completer`, `UsageReporter`, and `RateLimitInfoReporter`.
 
-## Architecture Overview
+## Architecture
 
 ```
 pkg/providers/
-├── README.md                   # Detailed provider docs
-├── anthropic/                  # Claude (native API)
-│   ├── anthropic.go            # Adapter, Complete(), wire types, conversion
-│   └── batch.go                # BatchSubmitter (native Anthropic batches)
-├── openai/                     # OpenAI GPT models
-│   ├── openai.go               # Thin wrapper around openaicompat
-│   └── batch.go                # BatchSubmitter via openaicompat.BatchHelper
-├── grok/                       # xAI Grok (OpenAI-compatible API)
-│   ├── grok.go                 # Thin wrapper + custom HTTP transport
-│   └── batch.go                # BatchSubmitter via openaicompat.BatchHelper
-├── gemini/                     # Google Gemini (native API)
-│   ├── gemini.go               # Adapter, Complete(), wire types, conversion
-│   └── batch.go                # BatchSubmitter (synchronous inline batch)
-└── internal/
-    └── openaicompat/           # Shared code for OpenAI-compatible providers
-        ├── types.go            # Wire types (Request, Response, Message, ToolCall, etc.)
-        ├── convert.go          # BuildRequest, ConvertMessages, ParseMessage, ParseUsage
-        └── batch.go            # BatchHelper (file upload, JSONL, polling)
+├── anthropic/              Anthropic Messages API (custom wire format)
+├── openai/                 OpenAI Chat Completions API (delegates to openaicompat)
+├── grok/                   xAI Grok API (delegates to openaicompat)
+├── gemini/                 Google Gemini API (custom wire format, Vertex AI support)
+└── internal/openaicompat/  Shared types, conversion, and batch logic for OpenAI-compatible APIs
 ```
 
-## The Completer Contract
+**Namespace package** — `pkg/providers/` has no Go source files of its own; it groups sub-packages.
 
-Every provider implements this interface from `pkg/modeladapter`:
+## Interfaces Implemented
 
+Every provider adapter satisfies three interfaces from `modeladapter`:
+
+| Interface | Method | Purpose |
+|-----------|--------|---------|
+| `Completer` | `Complete(ctx, *chat.Chat, []toolbox.Tool) (message.Message, error)` | Send conversation → get assistant reply |
+| `UsageReporter` | `UsageTracker() *usage.Tracker` / `ModelMaxTokens() int` | Token usage tracking |
+| `RateLimitInfoReporter` | `LastRateLimitInfo() *RateLimitInfo` | Rate limit info from response headers |
+
+All adapters compose a `modeladapter.Client` (HTTP/WebSocket transport with auth, custom headers, rate limit header parsing). The adapter does **not** inherit `Complete` from `Client` — it implements `Complete` itself using the client for HTTP calls.
+
+## Shared Internal Package: `internal/openaicompat`
+
+Providers with OpenAI-compatible APIs (OpenAI, Grok) share conversion and batch logic.
+
+### Files
+
+| File | Contents |
+|------|----------|
+| `types.go` | Wire types: `Request`, `Response`, `Message`, `ToolCall`, `ToolDef`, `Usage`, `ContentPart`, batch types (`BatchFileRequest`, `BatchFileResponse`, `BatchStatus`, `FileObject`) |
+| `convert.go` | `BuildRequest()` — builds an OpenAI `Request` from `chat.Chat` + tools + config. `ConvertMessages()` — translates `[]message.Message` → OpenAI `[]Message`. `ConvertTools()` — translates `[]toolbox.Tool` → `[]ToolDef`. `ToMessage()` — converts OpenAI `Response` → `message.Message` + `usage.TokenCount` |
+| `batch.go` | `BatchHelper` struct with `SubmitBatch`, `PollBatch`, `CancelBatch` — shared batch API implementation using JSONL file upload + batch creation + polling |
+
+### Key Constants
+
+- `CompletionsPath = "/v1/chat/completions"`
+- `FilesPath = "/v1/files"`, `BatchesPath = "/v1/batches"`
+
+### Conversion Details
+
+- **System messages** → extracted as the first user-role system block (OpenAI format with `role: "system"`)
+- **Tool calls** → mapped to `tool_calls` array with `type: "function"`, JSON-stringified arguments
+- **Tool results** → `role: "tool"` with `tool_call_id`
+- **Image content** → `image_url` content parts with base64 data URIs
+- **Thinking blocks** → content parts with `type: "thinking"` (provider-specific)
+- **Token usage** → parsed from `response.Usage` into `usage.TokenCount{Input, Output, CacheRead, CacheCreation}`
+
+## Provider Details
+
+### Anthropic (`providers/anthropic`)
+
+**Native implementation** — does NOT use `openaicompat` (Anthropic has its own wire format).
+
+**Adapter struct:**
 ```go
-type Completer interface {
-    Complete(ctx context.Context, c *chat.Chat, tools []toolbox.Tool) (message.Message, error)
-    ModelMaxTokens() int
+type Adapter struct {
+    Config modeladapter.ModelConfig
+    client *modeladapter.Client  // base URL: https://api.anthropic.com
+    usage  usage.Tracker
 }
 ```
 
-Additionally, all providers implement `UsageReporter`:
+**Constructor:** `New(apiKey string, config modeladapter.ModelConfig, opts ...modeladapter.ClientOption) *Adapter`
+- Default headers: `anthropic-version: 2023-06-01`, `anthropic-beta: interleaved-thinking-2025-05-14`
+- Uses `modeladapter.ParseAnthropicRateLimitHeaders` for rate limit parsing
+- Auth type: `XAPIKey` (sends `x-api-key` header)
 
+**Complete flow:**
+1. Builds native Anthropic request with `model`, `max_tokens`, `temperature`, `system` (content blocks), `messages`, `tools`
+2. System prompt → array of `{"type":"text","text":...}` blocks with optional cache control
+3. Messages → translates roles, content blocks (text, images, tool_use, tool_result, thinking, redacted_thinking)
+4. Images → base64 `source` blocks with `media_type`
+5. Thinking content → `{"type":"thinking","thinking":...}` with budget_tokens (`max(1024, maxTokens-1)`)
+6. Tool definitions → `{"name","description","input_schema"}` with optional cache control
+7. POSTs to `/v1/messages`
+8. Parses response content blocks back to `message.Message`
+
+**Batch:** `BatchSubmitter` — native Anthropic batches API (`/v1/messages/batches`).
+- `SubmitBatch` → POST JSONL body with array of `{custom_id, params}` requests
+- `PollBatch` → GET `batchesPath/<id>`, checks for `ended` status, fetches results from `results_url` streaming JSONL
+- `CancelBatch` → POST `batchesPath/<id>/cancel`
+- Response parsing handles `succeeded`/`errored`/`expired`/`canceled` per-item results
+
+### OpenAI (`providers/openai`)
+
+**Thin wrapper** around `openaicompat`.
+
+**Adapter struct:**
 ```go
-type UsageReporter interface {
-    UsageTracker() *usage.Tracker
+type Adapter struct {
+    Config modeladapter.ModelConfig
+    client *modeladapter.Client  // base URL: https://api.openai.com
+    usage  usage.Tracker
 }
 ```
 
-Each adapter embeds a `modeladapter.Client` for HTTP transport (with auth, rate-limit handling, 429 retry with backoff) and a `modeladapter.ModelConfig` for model name, temperature, and max tokens.
+**Constructor:** `New(apiKey string, config modeladapter.ModelConfig, opts ...modeladapter.ClientOption) *Adapter`
+- Auth type: `BearerToken`
+- Uses `modeladapter.ParseOpenAIRateLimitHeaders`
 
-## Factory Pattern — `New()` Constructors
+**Complete flow:**
+1. Calls `openaicompat.BuildRequest(chat, tools, adapter.Config)` to build the request
+2. POSTs to `openaicompat.CompletionsPath` via `client.PostJSON`
+3. Calls `openaicompat.ToMessage(response)` to convert back
 
-Each provider exports a `New()` function returning the concrete `*Adapter` (which satisfies `Completer`):
+**Batch:** `BatchSubmitter` — delegates entirely to `openaicompat.BatchHelper`.
 
-| Provider | Constructor | Base URL |
-|----------|------------|----------|
-| **Anthropic** | `New(baseURL, apiKey, model string) *Adapter` | `https://api.anthropic.com` |
-| **OpenAI** | `New(baseURL, apiKey, model string) *Adapter` | `https://api.openai.com` |
-| **Grok** | `New(baseURL, apiKey, model string) *Adapter` | `https://api.x.ai` |
-| **Gemini** | `New(baseURL, apiKey, model string) *Adapter` | `https://generativelanguage.googleapis.com` |
+### Grok (`providers/grok`)
 
-The engine (`pkg/engine`) wires providers by matching model names from `config.yaml` to the appropriate constructor.
+**Thin wrapper** around `openaicompat` — nearly identical to OpenAI.
 
-## Two Provider Families
-
-### 1. OpenAI-Compatible (OpenAI, Grok)
-
-These are **thin wrappers** around `internal/openaicompat`. Their `Complete()` method is essentially:
-
+**Adapter struct:**
 ```go
-func (a *Adapter) Complete(ctx context.Context, c *chat.Chat, tools []toolbox.Tool) (message.Message, error) {
-    req := openaicompat.BuildRequest(a.config, c, tools)
-    var resp openaicompat.Response
-    err := a.client.PostJSON(ctx, openaicompat.CompletionsPath, req, &resp)
-    // ... error handling, usage tracking ...
-    return openaicompat.ParseMessage(resp.Choices[0].Message), nil
+type Adapter struct {
+    Config modeladapter.ModelConfig
+    client *modeladapter.Client  // base URL: https://api.x.ai
+    usage  usage.Tracker
 }
 ```
 
-**Grok specifics:** Uses a custom `http.Transport` for request/response body capture (logging/debugging). Otherwise identical in wire format to OpenAI.
+**Constructor:** `New(apiKey string, config modeladapter.ModelConfig, opts ...modeladapter.ClientOption) *Adapter`
+- Auth type: `BearerToken`
+- Uses `modeladapter.ParseOpenAIRateLimitHeaders`
 
-### 2. Native API (Anthropic, Gemini)
+**Complete flow:** Same as OpenAI — `BuildRequest` → POST → `ToMessage`.
 
-These define their own wire types and conversion logic inline, as their APIs differ substantially from OpenAI's format.
+**Batch:** `BatchSubmitter` — delegates entirely to `openaicompat.BatchHelper`.
 
-## Message & Content Translation
+### Gemini (`providers/gemini`)
 
-### OpenAI-Compatible (via `openaicompat`)
+**Native implementation** — Gemini has its own wire format (`generateContent` API).
 
-| `chats` type | OpenAI wire format |
-|---|---|
-| `role.System` / `role.User` | `{"role": "system"/"user", "content": "..."}` |
-| `role.Assistant` | `{"role": "assistant", "content": "...", "tool_calls": [...]}` |
-| `role.Tool` | `{"role": "tool", "content": "...", "tool_call_id": "..."}` — one message per `ToolResult` |
-| `content.Image` | Multi-modal `content` array with `image_url` part (data URI) |
-| `content.Document` | Multi-modal `content` array with `file` part (data URI) |
-| `content.ToolCall` | `tool_calls[].function.{name, arguments}` |
-| `content.ToolResult` | Separate `role: "tool"` message with `tool_call_id` |
-
-Key functions: `ConvertMessages()`, `ParseMessage()`, `ConvertTools()`, `MarshalToolDef()`.
-
-### Anthropic
-
-| `chats` type | Anthropic wire format |
-|---|---|
-| `role.System` | Extracted to top-level `system` field (not in messages array) |
-| `role.User` | `{"role": "user", "content": [{"type": "text", ...}]}` |
-| `role.Assistant` | `{"role": "assistant", "content": [{"type": "text"}, {"type": "tool_use"}]}` |
-| `role.Tool` | Mapped to `role: "user"` with `{"type": "tool_result", "tool_use_id": "..."}` |
-| `content.Image` | `{"type": "image", "source": {"type": "base64", ...}}` |
-| `content.Document` | `{"type": "document", "source": {"type": "base64", ...}}` |
-| `content.ToolCall` | `{"type": "tool_use", "id": "...", "name": "...", "input": {...}}` |
-| `content.ToolResult` | `{"type": "tool_result", "tool_use_id": "...", "content": "..."}` |
-
-Notable: Anthropic requires `tool_result` blocks within `user` role messages (not a separate `tool` role). The adapter merges adjacent same-role messages when needed.
-
-### Gemini
-
-| `chats` type | Gemini wire format |
-|---|---|
-| `role.System` | Extracted to top-level `systemInstruction` field |
-| `role.User` / `role.Tool` | `{"role": "user", "parts": [...]}` |
-| `role.Assistant` | `{"role": "model", "parts": [...]}` |
-| `content.Image` / `content.Document` | `{"inlineData": {"mimeType": "...", "data": "..."}}` |
-| `content.ToolCall` | `{"functionCall": {"name": "...", "args": {...}}}` |
-| `content.ToolResult` | `{"functionResponse": {"name": "...", "response": {...}}}` |
-
-**Gemini-specific challenges:**
-- **Role alternation required:** Gemini requires strict user/model alternation. The adapter merges consecutive same-role messages.
-- **No tool call IDs:** Gemini doesn't return call IDs, so the adapter synthesizes them via `generateCallID()` using random bytes.
-- **ToolResult → functionResponse mapping:** `ToolResult` only carries `ToolCallID`, but Gemini needs the function name. The adapter builds a `callNameMap` by scanning history for `ToolCall` parts.
-- **Schema sanitization:** `sanitizeSchema()` recursively strips `$schema` and `additionalProperties` keys that Gemini rejects.
-- **thoughtSignature:** Preserved in `ToolCall.Metadata` for Gemini's thinking feature.
-
-## Tool Call Mapping
-
-All providers translate `toolbox.Tool` definitions to their native format:
-
+**Adapter struct:**
 ```go
-// toolbox.Tool fields used:
-type Tool struct {
-    Name        string
-    Description string
-    InputSchema json.RawMessage  // JSON Schema for parameters
+type Adapter struct {
+    Config    modeladapter.ModelConfig
+    ProjectID string  // Vertex AI project
+    Location  string  // Vertex AI region
+    client    *modeladapter.Client  // base URL varies (googleapis.com)
+    usage     usage.Tracker
 }
 ```
 
-- **OpenAI/Grok:** `{"type": "function", "function": {"name": "...", "description": "...", "parameters": <schema>}}`
-- **Anthropic:** `{"name": "...", "description": "...", "input_schema": <schema>}`
-- **Gemini:** `{"functionDeclarations": [{"name": "...", "description": "...", "parameters": <sanitized-schema>}]}`
+**Constructor:** `New(apiKey string, config modeladapter.ModelConfig, opts ...modeladapter.ClientOption) *Adapter`
+- Supports both **API key** auth (`key=` query param) and **Vertex AI** (`NewVertexAI` constructor with `ProjectID`, `Location`, bearer token)
+- Default base URL: `https://generativelanguage.googleapis.com`
+- Vertex AI URL: `https://{location}-aiplatform.googleapis.com`
 
-## Usage & Token Tracking
+**Complete flow:**
+1. Builds Gemini-native request: `contents` (conversation), `tools`, `systemInstruction`, `generationConfig`
+2. System prompt → `systemInstruction` with `parts` array
+3. Messages → role mapping: `user`→`user`, `assistant`→`model`; content blocks include text, function calls, function responses, inline images
+4. Tool calls → `functionCall` parts with parsed JSON `args`
+5. Tool results → `functionResponse` parts with `response.result` wrapping
+6. Thinking → `thought: true` field on text parts; thinking budget via `thinkingConfig.thinkingBudget`
+7. POSTs to `/v1beta/models/{model}:generateContent` (or Vertex AI path)
+8. Parses `candidates[0].content.parts` back to message
 
-Each adapter embeds a `usage.Tracker` (thread-safe atomic counter) and calls `tracker.Add()` after each successful completion:
+**Batch:** `BatchSubmitter` — Gemini's `batchGenerateContent` is **synchronous** (inline, not async polling).
+- `SubmitBatch` → sends all requests at once, returns synthetic batch ID, stores results in memory
+- `PollBatch` → immediately returns stored results (always done)
+- `CancelBatch` → no-op (already complete)
+- Uses `sync.Map` for result storage, `atomic.Int64` for ID generation
 
-| Provider | Input tokens field | Output tokens field | Cache tokens field |
-|---|---|---|---|
-| **Anthropic** | `usage.input_tokens` | `usage.output_tokens` | `usage.cache_read_input_tokens` |
-| **OpenAI/Grok** | `usage.prompt_tokens` | `usage.completion_tokens` | `usage.prompt_tokens_details.cached_tokens` |
-| **Gemini** | `usageMetadata.promptTokenCount` | `usageMetadata.candidatesTokenCount` | `usageMetadata.cachedContentTokenCount` |
+## Common Patterns
 
-All map to the unified `usage.TokenCount{InputTokens, OutputTokens, CacheReadInputTokens}`.
+1. **All adapters** store `Config modeladapter.ModelConfig` and `usage usage.Tracker` as fields
+2. **All adapters** have `UsageTracker() *usage.Tracker` and `ModelMaxTokens() int` methods
+3. **All adapters** get `LastRateLimitInfo()` via the embedded `*modeladapter.Client`
+4. **Constructor pattern:** `New(apiKey, config, ...ClientOption)` — client options allow custom HTTP clients, base URLs, headers
+5. **Error handling:** Providers check `response.StatusCode` and return descriptive errors with response body
+6. **Cache control:** Anthropic supports `ephemeral` cache control on system prompt and last tool definition to enable prompt caching
+7. **Thinking/reasoning:** Anthropic, Gemini, and OpenAI-compat all handle extended thinking content blocks
 
-## Batch Processing
+## Batch API Summary
 
-All four providers implement `batch.Submitter` for asynchronous batch completions:
+| Provider | Approach | Submit | Poll | Cancel |
+|----------|----------|--------|------|--------|
+| Anthropic | Async (native JSONL) | POST requests array | GET status + stream results | POST cancel |
+| OpenAI | Async (JSONL file upload) | Upload file → create batch | GET batch → download output file | POST cancel |
+| Grok | Async (JSONL file upload) | Same as OpenAI (via `openaicompat`) | Same as OpenAI | Same as OpenAI |
+| Gemini | **Synchronous** (inline) | Send all at once, store results in-memory | Return stored results immediately | No-op |
 
-```go
-type Submitter interface {
-    SubmitBatch(ctx context.Context, reqs []Request) (batchID string, err error)
-    PollBatch(ctx context.Context, batchID string) (results map[string]Result, done bool, err error)
-    CancelBatch(ctx context.Context, batchID string) error
-}
-```
+## Dependencies
 
-| Provider | Batch strategy | Implementation |
-|---|---|---|
-| **OpenAI** | Async JSONL file upload → poll | `openaicompat.BatchHelper` (shared) |
-| **Grok** | Async JSONL file upload → poll | `openaicompat.BatchHelper` (shared) |
-| **Anthropic** | Native `/v1/messages/batches` API | Custom SSE streaming for results |
-| **Gemini** | Synchronous inline `batchGenerateContent` | Processes all requests in one call, returns immediately |
-
-The `openaicompat.BatchHelper` handles: JSONL encoding, multipart file upload, batch creation, status polling, result download and parsing — shared between OpenAI and Grok.
-
-## Streaming
-
-Anthropic uses SSE (Server-Sent Events) for batch result streaming — the `batch.go` reads `event: result` lines from an SSE stream. Standard `Complete()` calls across all providers use synchronous request/response (no streaming for regular completions at this layer).
-
-## Provider-Specific Auth
-
-| Provider | Auth header | Auth scheme |
-|---|---|---|
-| **Anthropic** | `x-api-key` | No scheme (raw key) |
-| **OpenAI** | `Authorization` | `Bearer <key>` |
-| **Grok** | `Authorization` | `Bearer <key>` |
-| **Gemini** | `x-goog-api-key` | No scheme (raw key) |
-
-Anthropic also sends additional headers: `anthropic-version: 2023-06-01` and optional `anthropic-beta` for features like prompt caching and extended output.
-
-## The `internal/openaicompat` Package
-
-This internal package eliminates duplication between OpenAI and Grok (and any future OpenAI-compatible provider). It provides:
-
-- **Wire types** (`types.go`): Full request/response structs with custom JSON marshaling for the polymorphic `content` field (string or array).
-- **Conversion** (`convert.go`): `BuildRequest()`, `ConvertMessages()`, `ConvertTools()`, `ParseMessage()`, `ParseUsage()`.
-- **Batch infra** (`batch.go`): `BatchHelper` with `SubmitBatch()`, `PollBatch()`, `CancelBatch()`, file upload/download, JSONL parsing.
-
-## Adding a New Provider
-
-1. Create `pkg/providers/<name>/` with `<name>.go` and `batch.go`
-2. Define `Adapter` struct embedding `*modeladapter.Client`, `modeladapter.ModelConfig`, `usage.Tracker`
-3. Implement `Complete()`, `ModelMaxTokens()`, `UsageTracker()`
-4. Export `New(baseURL, apiKey, model string) *Adapter`
-5. If OpenAI-compatible, delegate to `internal/openaicompat`; otherwise define custom wire types
-6. Add `README.md` per project conventions
-7. Register in `pkg/engine/` config wiring
-
-## Key Patterns
-
-- **Interface compliance guards:** All adapters use `var _ modeladapter.Completer = (*Adapter)(nil)` to catch breakage at compile time.
-- **Error wrapping:** All errors are prefixed with the provider name (e.g., `fmt.Errorf("anthropic: %w", err)`).
-- **Nil schema fallback:** All providers default to `{"type":"object"}` when a tool has no input schema.
-- **Graceful degradation:** Anthropic's `parseResponse` and Gemini's `appendContent` skip unrecognized content types rather than failing.
+- `pkg/chats/{chat,content,message,role}` — data model
+- `pkg/modeladapter` — `Client`, `ModelConfig`, `Completer`, rate limit parsing
+- `pkg/modeladapter/usage` — `Tracker`, `TokenCount`
+- `pkg/modeladapter/batch` — `Submitter`, `Request`, `Result` interfaces
+- `pkg/tools/toolbox` — `Tool` type for tool definitions

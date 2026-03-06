@@ -10,154 +10,207 @@ Thread-safe blackboard-pattern KV store. The zero value (`&state.Store{}`) is re
 
 ### Data Model
 
-All values are stored as `json.RawMessage`. Every Get/Set/Snapshot returns **deep copies** (`slices.Clone`) to prevent data races.
+- **Keys** are arbitrary strings; **values** are `json.RawMessage`.
+- All operations are protected by `sync.RWMutex`.
+- Supports **blocking watch**: `Watch(ctx, key)` blocks until the key is set or context cancels.
 
-### Core API
+### API
 
-| Method | Description |
-|--------|-------------|
-| `Get(key) (json.RawMessage, bool)` | Read a key (deep copy) |
-| `Set(key, json.RawMessage)` | Write a key, notify watchers |
-| `Delete(key)` | Remove a key, notify watchers |
-| `Keys() []string` | Sorted list of all keys |
-| `Snapshot() map[string]json.RawMessage` | Deep copy of entire store |
-| `Watch(ctx, key) (json.RawMessage, error)` | Block until key exists or ctx canceled |
+```go
+s := &state.Store{}
+s.Set(ctx, "key", jsonValue)               // Write a key
+val, err := s.Get(ctx, "key")              // Read a key (ErrNotFound if missing)
+val, err := s.Watch(ctx, "key")            // Block until key exists, then return value
+keys, err := s.List(ctx)                   // List all keys sorted alphabetically
+err := s.Delete(ctx, "key")               // Remove a key
+tools := s.Tools()                         // Returns []toolbox.Tool for agent use
+```
 
 ### Watch Mechanism
 
-Uses a signal channel (`chan struct{}`). On every `Set` or `Delete`, the current channel is closed and a new one is created. Watchers select on `<-sig` and re-check the store.
+`Watch` checks if the key exists; if so, returns immediately. Otherwise, it creates a notification channel per key (stored in `s.waiters[key]`) and blocks on it. When `Set` is called, it closes all waiter channels for that key, waking all blocked watchers.
 
-### Tool Integration
+### Tool Exposure
 
-`Store.Tools(namespace)` returns a `*toolbox.ToolBox` with three tools:
-- `{namespace}_state_get` — get by key
-- `{namespace}_state_set` — set key/value
-- `{namespace}_state_list` — list all keys
-
-Agents interact with shared state through their normal tool-calling loop.
+`Tools()` returns 5 tools for agent integration:
+- `shared_state_get` — read a key
+- `shared_state_set` — write a key (value is `json.RawMessage`)
+- `shared_state_delete` — remove a key
+- `shared_state_list` — list all keys
+- `shared_state_watch` — block until key is available
 
 ---
 
 ## pkg/tasks — Shared Task Board
 
-**File:** `store.go` | **Deps:** `agentctx`, `tools/toolbox`, `google/uuid`
+**File:** `store.go` | **Deps:** `agentctx`, `tools/toolbox`
 
-Multi-agent task coordination. Same lazy-init pattern as state store.
+Thread-safe task board for multi-agent coordination. Agents create, discover, claim, and complete tasks through normal tool-calling.
 
-### Task Lifecycle
-
-```
-pending → in_progress → completed
-                      → failed
-                      → canceled
-```
-
-Terminal states: `completed`, `failed`, `canceled` — no further transitions allowed.
-
-### Task Struct
+### Data Model
 
 ```go
 type Task struct {
-    ID          string         // "task-<uuid>", auto-assigned
+    ID          string            // UUID
     Title       string
     Description string
-    Status      Status
-    Assignee    string         // agent name, set by Claim/Reassign
-    BlockedBy   []string       // IDs of blocking tasks
-    Metadata    map[string]any // arbitrary KV pairs
-    CreatedBy   string         // from agentctx
+    Status      string            // pending | in_progress | completed | failed | canceled
+    Assignee    string            // Agent name that claimed the task
+    BlockedBy   []string          // Task IDs this task depends on
+    Metadata    map[string]string // Arbitrary KV metadata
+    CreatedAt   time.Time
+    UpdatedAt   time.Time
 }
 ```
 
-### Core API
+**Status transitions:** `pending` → `in_progress` (via `Claim`) → `completed`|`failed` (via `Update`). `pending`|`in_progress` → `canceled` (via `Cancel`). `Claim` sets `Assignee` from `agentctx.Name(ctx)`.
 
-| Method | Description |
-|--------|-------------|
-| `Create(task) (id, error)` | Add task as pending. ID & status forced. Validates BlockedBy refs. |
-| `Get(id) (Task, bool)` | Copy of task |
-| `List(filter) []Task` | Filter by status, assignee, blocked state. Sorted by ID. |
-| `Update(id, Update) error` | Partial update: status, description, blocked_by, metadata |
-| `Claim(id, agent) error` | Atomic assign + set in_progress. Rejects if blocked/terminal/other-assigned. |
-| `Reassign(id, agent) error` | Like Claim but overrides existing assignee (for delegation transfer). |
-| `Cancel(id) error` | Set canceled if pending/in_progress |
-| `IsBlocked(id) bool` | True if any BlockedBy dep is not completed |
+### Blocking Dependencies
 
-### Blocking Watchers
+A task is **blocked** if any of its `BlockedBy` task IDs are in a non-terminal status (`pending` or `in_progress`). The `List` method can filter by `blocked: true/false`.
 
-- **`WatchCompleted(ctx, id)`** — blocks until completed/failed/canceled. Has a 15s unclaimed timeout: if no agent claims the task within 15s, returns an error.
-- **`WatchCanceled(ctx, id)`** — returns a channel closed when the task is canceled. Used to propagate cancellation to child work.
-- **`Changes()`** — returns a channel closed on any store mutation. Call again after receive for next signal.
+### API
 
-### Dual Signal Channels
+```go
+store := tasks.NewStore()
+task, err := store.Create(ctx, CreateParams{Title, Description, BlockedBy, Metadata})
+task, err := store.Get(ctx, id)
+tasks, err := store.List(ctx, ListParams{Status, Assignee, Blocked})
+task, err := store.Claim(ctx, id)            // Sets status=in_progress, assignee=caller
+task, err := store.Update(ctx, id, UpdateParams{Status, Description, BlockedBy, Metadata})
+task, err := store.Cancel(ctx, id)           // Sets status=canceled
+task, err := store.Watch(ctx, id)            // Block until task reaches terminal status
+tools := store.Tools()                        // Returns []toolbox.Tool for agent use
+```
 
-The store maintains two channels:
-- `signal` — wakes `WatchCompleted` / `WatchCanceled` (task-level signals)
-- `changeCh` — wakes `Changes()` listeners (store-level change feed)
+### Watch Mechanism
 
-### Tool Integration
+`Watch` registers a waiter channel for a task ID. When any `Update` or `Cancel` brings a task to a terminal status (`completed`, `failed`, `canceled`), all waiters for that task are woken. Returns `ErrNotFound` if the task ID doesn't exist.
 
-`Store.Tools(namespace)` exposes 7 tools: `create`, `list`, `get`, `claim`, `update`, `watch`, `cancel` — all prefixed with `{namespace}_tasks_`. The `claim` and `create` handlers use `agentctx.AgentNameFromContext(ctx)` to identify the calling agent.
+### Tool Exposure
 
-### Key Design Decisions
-
-- **Create rejects non-zero Status/Assignee** — prevents caller bugs from being silently discarded.
-- **BlockedBy validated at creation** — self-references and missing IDs are errors.
-- **Deep copies everywhere** — `copyTask` clones BlockedBy and Metadata.
+`Tools()` returns 7 tools:
+- `shared_tasks_create` — create a task with title, description, blocked_by, metadata
+- `shared_tasks_list` — list tasks with optional status/assignee/blocked filters
+- `shared_tasks_get` — get a single task by ID
+- `shared_tasks_claim` — claim a pending task (sets assignee from agent context)
+- `shared_tasks_update` — update status, description, blocked_by, metadata
+- `shared_tasks_watch` — block until task reaches terminal status
+- `shared_tasks_cancel` — cancel a pending or in-progress task
 
 ---
 
-## pkg/projectctx — Project Context Assembly
+## pkg/sessions — Session Persistence
+
+**Files:** `store.go`, `serialize.go`, `attachments.go` | **Deps:** `chats/message`, `chats/content`, `chats/role`
+
+File-based session persistence using JSON serialization. Stores conversation history and binary attachments.
+
+### Store
+
+```go
+type Store struct {
+    dir string // Base directory for session files
+}
+
+func NewStore(dir string) *Store
+```
+
+### Session Lifecycle
+
+| Method | Purpose |
+|--------|---------|
+| `Save(id, messages, meta)` | Serialize messages to `<dir>/<id>.json` with provider metadata |
+| `Load(id)` | Deserialize messages from JSON file |
+| `List()` | Return `[]SessionInfo` sorted by modification time (newest first) |
+| `Delete(id)` | Remove session file and its attachment directory |
+
+### SessionInfo & ProviderMeta
+
+```go
+type ProviderMeta struct {
+    Kind  string `json:"kind"`   // Provider name (e.g., "anthropic")
+    Model string `json:"model"`  // Model identifier
+}
+
+type SessionInfo struct {
+    ID        string
+    Title     string       // First 100 chars of first user message
+    CreatedAt time.Time
+    UpdatedAt time.Time
+    Provider  ProviderMeta
+}
+```
+
+### JSON Serialization (`serialize.go`)
+
+Messages are serialized to a custom JSON format that preserves all content part types:
+
+- **Content parts** are serialized with a `kind` discriminator: `text`, `tool_use`, `tool_result`, `image`, `document`, `thinking`, `redacted_thinking`, `server_tool_use`, `url`
+- **Binary data** (images, documents) is offloaded to attachments via `AttachmentWriter`; the JSON stores a `ref` key pointing to the attachment
+- **Deserialization** uses the `kind` field to reconstruct the correct `content.Part` type, loading binary data back through `AttachmentReader`
+
+### Attachments (`attachments.go`)
+
+Content-addressable storage for binary data (images, documents):
+
+```go
+type AttachmentWriter interface {
+    WriteAttachment(data []byte, mediaType string) (ref string, err error)
+}
+
+type AttachmentReader interface {
+    ReadAttachment(ref string) (data []byte, mediaType string, err error)
+}
+```
+
+The `Store` implements both interfaces. Storage path: `<dir>/<sessionID>_attachments/<sha256hex>.<ext>`. The SHA-256 hash ensures deduplication. Media type is inferred from the file extension on read (the extension is derived from the media type on write).
+
+---
+
+## pkg/projectctx — Project Context Loading
 
 **Files:** `projectctx.go`, `external.go`, `staleness.go` | **Deps:** `shellydir`
 
-Assembles project context for injection into agent system prompts.
+Loads curated context files and checks knowledge graph staleness. Combined context is injected into agent system prompts.
 
 ### Context Struct
 
 ```go
 type Context struct {
-    External string // From CLAUDE.md, .cursorrules, .cursor/rules/*.mdc
-    Curated  string // From .shelly/*.md files
-    MaxRunes int    // Override for truncation limit (default: 32000 ≈ 8k tokens)
+    External string // Content from external AI tool context files
+    Curated  string // Content from curated *.md files in .shelly/
+    MaxRunes int    // Override for MaxContextRunes (default: 32000 ≈ 8000 tokens)
 }
 ```
 
-`Context.String()` concatenates External + Curated (curated last = higher precedence). Truncates at rune limit with `[truncated]` marker.
+`Context.String()` concatenates External + Curated (external first, curated last so project-specific Shelly context takes precedence). Truncates at `MaxRunes` with a `[truncated]` marker.
 
-### Load Pipeline
+### Loading
 
 ```go
-Load(dir, projectRoot, maxExternalFileSize) → Context{
-    External: LoadExternal(projectRoot, maxSize),
-    Curated:  LoadCurated(dir),
-}
+ctx := projectctx.Load(dir, projectRoot, maxExternalFileSize)
 ```
 
-### External Context Sources (`external.go`)
+1. **`LoadExternal(projectRoot, maxFileSize)`** — reads context files from other AI tools:
+   - `CLAUDE.md` at project root
+   - `.cursorrules` at project root (Cursor legacy)
+   - `.cursor/rules/*.mdc` sorted alphabetically (Cursor modern, frontmatter stripped)
+   - Each file capped at `DefaultMaxExternalFileSize` (512 KB)
 
-Reads context files from other AI coding tools:
+2. **`LoadCurated(dir)`** — reads all `*.md` files from `.shelly/` root via `Dir.ContextFiles()` glob
 
-| Source | Path |
-|--------|------|
-| Claude Code | `{root}/CLAUDE.md` |
-| Cursor legacy | `{root}/.cursorrules` |
-| Cursor modern | `{root}/.cursor/rules/*.mdc` (sorted, frontmatter stripped) |
+### Staleness Detection
 
-- Max file size: 512KB default (`DefaultMaxExternalFileSize`)
-- Uses `io.LimitReader` for bounded reads
-- `stripFrontmatter()` removes YAML `---` delimiters from `.mdc` files
+```go
+stale := projectctx.IsKnowledgeStale(projectRoot, dir)
+```
 
-### Curated Context (`projectctx.go`)
+Compares `context.md` modification time against the latest git commit timestamp. Returns `true` if:
+- `context.md` is missing
+- Latest git commit is newer than `context.md`
 
-`LoadCurated(dir)` reads all `*.md` files from the `.shelly/` root (via `Dir.ContextFiles()`) and joins them with double newlines.
-
-### Staleness Detection (`staleness.go`)
-
-`IsKnowledgeStale(projectRoot, dir) bool` — compares `.shelly/context.md` mtime against the latest git commit timestamp (`git log -1 --format=%ct`).
-
-- Missing context.md → stale (true)
-- No git / not a repo → fail open (false)
-- Commit newer than context.md → stale (true)
+Returns `false` (fail-open) if git is unavailable or the project isn't a git repo.
 
 ---
 
@@ -165,115 +218,22 @@ Reads context files from other AI coding tools:
 
 **File:** `mcproots.go` | **Deps:** none (zero-dependency)
 
-Shared utilities for MCP Roots protocol — context plumbing and path-checking for both client-side and server-side MCP code.
+Shared utilities for MCP Roots protocol support. Used by both client side (sending approved directories) and server side (constraining filesystem access).
 
-### API
-
-| Function | Description |
-|----------|-------------|
-| `WithRoots(ctx, roots) context.Context` | Store root paths in context |
-| `FromContext(ctx) []string` | Extract roots from context (`nil` = unconstrained) |
-| `IsPathAllowed(absPath, roots) bool` | Check if path falls under any root |
-
-### Semantics
-
-| `roots` | Meaning |
-|---------|---------|
-| `nil` | Unconstrained — all paths allowed |
-| `[]string{}` | Empty set — nothing allowed |
-| `[]string{"/a"}` | Only paths equal to or under `/a` |
-
-Path matching uses `filepath.Clean` and ensures the parent ends with a separator to prevent `/tmp` matching `/tmpfoo`.
-
-### Why Zero-Dependency
-
-Imported by `mcpclient`, `mcpserver`, and filesystem tools. Keeping it free of MCP SDK imports avoids circular dependencies. SDK-specific conversions (`DirToRoot`, `RootPaths`) live in their respective packages.
-
----
-
-## pkg/sessions — Session Persistence
-
-**Files:** `serialize.go`, `store.go`, `attachments.go` | **Deps:** `chats/content`, `chats/message`, `chats/role`
-
-File-based session persistence using a directory-per-session (v2) layout.
-
-### On-Disk Layout (v2)
-
-```
-{store_dir}/
-  {session_id}/
-    meta.json           # SessionInfo (ID, agent, provider, timestamps, preview)
-    messages.json       # Serialized message array
-    attachments/        # Content-addressable binary files
-      {sha256}.png
-      {sha256}.pdf
-```
-
-### SessionInfo
+### Context Plumbing
 
 ```go
-type SessionInfo struct {
-    ID        string       // session identifier
-    Agent     string       // agent name
-    Provider  ProviderMeta // {Kind, Model}
-    CreatedAt time.Time
-    UpdatedAt time.Time
-    Preview   string       // first message preview
-    MsgCount  int
-}
+type contextKey struct{}
+WithContext(ctx, roots []string) context.Context  // Store root paths in context
+FromContext(ctx) []string                          // Retrieve root paths from context
 ```
 
-### Store API
+### Path Checking
 
-| Method | Description |
-|--------|-------------|
-| `New(dir, ...StoreOption)` | Create store. Options: `WithMaxAttachmentSize(n)` |
-| `Save(info, msgs) error` | Atomic write via temp-file + rename. Cleans orphan attachments. |
-| `Load(id) (info, msgs, error)` | Read session from directory |
-| `List(opts) ([]SessionInfo, error)` | List all sessions, sorted by UpdatedAt desc. Supports Limit/Offset. |
-| `Delete(id) error` | Remove session directory |
-| `CleanAttachments(id) error` | Remove unreferenced attachment files |
-| `MigrateV1() (int, error)` | Migrate legacy single-file `{id}.json` sessions to v2 layout |
+```go
+IsPathAllowed(absPath string, roots []string) bool
+```
 
-### Serialization (`serialize.go`)
+Returns `true` if `absPath` equals or is under any of the provided root directories. Uses `filepath.Rel` to check containment — relative paths starting with `..` are rejected. Also returns `false` for empty roots list.
 
-Uses a discriminated-union envelope (`jsonPart.Kind`):
-
-| Kind | Content Type | Fields |
-|------|-------------|--------|
-| `text` | `content.Text` | text |
-| `image` | `content.Image` | url, data/attachment_ref, media_type |
-| `document` | `content.Document` | url (path), data/attachment_ref, media_type |
-| `tool_call` | `content.ToolCall` | id, name, arguments, metadata |
-| `tool_result` | `content.ToolResult` | tool_call_id, content, is_error |
-
-Two serialization paths:
-- `MarshalMessages` / `UnmarshalMessages` — inline binary data
-- `MarshalMessagesWithAttachments` / `UnmarshalMessagesWithAttachments` — extract binaries to `AttachmentWriter`/`AttachmentReader`
-
-### Attachment System (`attachments.go`)
-
-**`FileAttachmentStore`** — content-addressable storage:
-- **Write:** SHA-256 hash of data → `{hash}.{ext}`. Deduplicates (skips if file exists). Uses `atomicWrite`.
-- **Read:** Infers media type from file extension.
-- **Size limiting:** `sizeLimitedWriter` wraps a writer and rejects attachments over a configured limit.
-
-### Atomic Writes
-
-All file writes use `atomicWrite(tmpDir, target, data)`: create temp file in same directory → write → close → `os.Rename`. Rename is atomic on POSIX, ensuring no partial reads.
-
----
-
-## Cross-Package Patterns
-
-### Signal Channel Pattern (state + tasks)
-Both `state.Store` and `tasks.Store` use the same notification pattern: close a `chan struct{}` to wake all waiters, then allocate a new channel. This provides efficient broadcast without goroutine leaks.
-
-### Tool Integration Pattern
-Both `state` and `tasks` expose a `Tools(namespace)` method returning a `*toolbox.ToolBox`. Tools are namespaced as `{namespace}_{store}_{operation}`. This lets agents interact with coordination primitives through their standard tool-calling loop.
-
-### Zero-Value Ready
-Both `state.Store` and `tasks.Store` use `sync.Once` for lazy initialization, making the zero value safe to use directly.
-
-### Deep Copy Safety
-Both stores clone all data on read/write boundaries to prevent callers from causing data races through shared references.
+This is the mechanism used by `codingtoolbox/filesystem` and other tools to enforce root-based access control.
