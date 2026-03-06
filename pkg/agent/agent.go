@@ -83,6 +83,7 @@ type TaskCancelWatcher interface {
 // Options configures an Agent.
 type Options struct {
 	MaxIterations          int               // ReAct loop limit (0 = unlimited).
+	WarnIterations         int               // Inject wrap-up message at this iteration (0 = no warning).
 	MaxDelegationDepth     int               // Max tree depth for delegation (0 = cannot delegate).
 	MaxHandoffs            int               // Max peer-to-peer handoff chain length (0 = disabled).
 	Skills                 []skill.Skill     // Procedures the agent knows.
@@ -141,6 +142,7 @@ type Agent struct {
 	prefix                 string
 	providerLabel          string
 	maxIterations          int
+	warnIterations         int
 	middleware             []Middleware
 	effects                []Effect
 	delegation             delegationConfig
@@ -164,8 +166,9 @@ func New(name, description, instructions string, completer modeladapter.Complete
 		chat:          chat.New(),
 		prefix:        opts.Prefix,
 		providerLabel: opts.ProviderLabel,
-		maxIterations: opts.MaxIterations,
-		middleware:    opts.Middleware,
+		maxIterations:  opts.MaxIterations,
+		warnIterations: opts.WarnIterations,
+		middleware:     opts.Middleware,
 		effects:       opts.Effects,
 		delegation: delegationConfig{
 			maxDepth:        opts.MaxDelegationDepth,
@@ -334,7 +337,17 @@ func (a *Agent) run(ctx context.Context) (message.Message, error) {
 	var estimator modeladapter.TokenEstimator
 	toolTokens := estimator.EstimateTools(tools)
 
+	warnInjected := false
+
 	for i := 0; a.maxIterations == 0 || i < a.maxIterations; i++ {
+		// Inject a wrap-up warning once when approaching the iteration limit.
+		if !warnInjected && a.warnIterations > 0 && i >= a.warnIterations {
+			warnInjected = true
+			warnMsg := message.NewText(a.name, role.User,
+				"You are approaching your iteration limit. Complete your current task and call task_complete.")
+			a.chat.Append(warnMsg)
+		}
+
 		estimatedTokens := estimator.EstimateTotal(a.chat, tools)
 
 		ic := IterationContext{

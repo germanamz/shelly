@@ -153,6 +153,7 @@ type AgentConfig struct {
 // AgentOptions holds optional agent behaviour settings.
 type AgentOptions struct {
 	MaxIterations      int     `yaml:"max_iterations"`
+	WarnIterations     int     `yaml:"warn_iterations"`
 	MaxDelegationDepth int     `yaml:"max_delegation_depth"`
 	MaxHandoffs        int     `yaml:"max_handoffs"`      // Max peer-to-peer handoff chain length (0 = disabled).
 	ContextThreshold   float64 `yaml:"context_threshold"` // Fraction triggering compaction (0 = disabled).

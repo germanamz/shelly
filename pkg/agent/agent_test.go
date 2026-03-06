@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/germanamz/shelly/pkg/chats/chat"
@@ -59,6 +60,27 @@ func (c *capturingCompleter) Complete(_ context.Context, ch *chat.Chat, _ []tool
 		c.captured = true
 	}
 	return c.reply, nil
+}
+
+// snapshotCompleter captures the chat state at each Complete call.
+type snapshotCompleter struct {
+	snapshots *[][]message.Message
+	replies   []message.Message
+	index     int
+}
+
+func (s *snapshotCompleter) Complete(_ context.Context, ch *chat.Chat, _ []toolbox.Tool) (message.Message, error) {
+	msgs := ch.Messages()
+	copied := make([]message.Message, len(msgs))
+	copy(copied, msgs)
+	*s.snapshots = append(*s.snapshots, copied)
+
+	if s.index >= len(s.replies) {
+		return message.Message{}, errors.New("no more replies")
+	}
+	reply := s.replies[s.index]
+	s.index++
+	return reply, nil
 }
 
 func newEchoToolBox() *toolbox.ToolBox {
@@ -166,6 +188,62 @@ func TestRunMaxIterations(t *testing.T) {
 
 	require.ErrorIs(t, err, ErrMaxIterations)
 	assert.Equal(t, 2, p.index)
+}
+
+func TestRunWarnIterations(t *testing.T) {
+	// Track chat state at each Complete call to verify warning injection.
+	var chatSnapshots [][]message.Message
+	completer := &snapshotCompleter{
+		snapshots: &chatSnapshots,
+		replies: []message.Message{
+			message.New("", role.Assistant,
+				content.ToolCall{ID: "c1", Name: "echo", Arguments: `{}`},
+			),
+			message.New("", role.Assistant,
+				content.ToolCall{ID: "c2", Name: "echo", Arguments: `{}`},
+			),
+			message.New("", role.Assistant,
+				content.ToolCall{ID: "c3", Name: "echo", Arguments: `{}`},
+			),
+			message.New("", role.Assistant,
+				content.ToolCall{ID: "c4", Name: "echo", Arguments: `{}`},
+			),
+		},
+	}
+	a := New("bot", "", "", completer, Options{MaxIterations: 4, WarnIterations: 2})
+	a.AddToolBoxes(newEchoToolBox())
+
+	_, err := a.Run(context.Background())
+	require.ErrorIs(t, err, ErrMaxIterations)
+
+	// Iteration 0 (no warning), iteration 1 (no warning),
+	// iteration 2 (warning injected before Complete), iteration 3 (already warned).
+	// Verify no warning text in snapshots for iterations 0 and 1.
+	for i := 0; i < 2; i++ {
+		for _, m := range chatSnapshots[i] {
+			assert.NotContains(t, m.TextContent(), "You are approaching your iteration limit. Complete your current task",
+				"unexpected warning at iteration %d", i)
+		}
+	}
+	// Verify warning text present in snapshot for iteration 2.
+	found := false
+	for _, m := range chatSnapshots[2] {
+		if m.Role == role.User && strings.Contains(m.TextContent(), "You are approaching your iteration limit. Complete your current task") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected wrap-up warning at iteration 2")
+
+	// Warning should only be injected once — snapshot 3 should have the same
+	// single warning message, not a second one.
+	count := 0
+	for _, m := range chatSnapshots[3] {
+		if m.Role == role.User && strings.Contains(m.TextContent(), "You are approaching your iteration limit. Complete your current task") {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count, "warning should be injected exactly once")
 }
 
 func TestRunProviderError(t *testing.T) {
