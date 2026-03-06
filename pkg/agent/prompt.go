@@ -169,7 +169,7 @@ func (pb *promptBuilder) build() string {
 	if pb.CanDelegate {
 		var others []Entry
 		for _, e := range pb.RegistryEntries {
-			if e.Name != pb.ConfigName {
+			if !strings.EqualFold(e.Name, pb.ConfigName) {
 				others = append(others, e)
 			}
 		}
