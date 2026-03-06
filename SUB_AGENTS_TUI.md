@@ -535,7 +535,7 @@ Engine EventBus
 
 **Polish & Validation (Phases 12–13):** Integration tests and edge case handling. Run after enhancements are complete.
 
-### Phase 1: Sub-Agent Data API
+### Phase 1: Sub-Agent Data API ✅
 Build the data layer first — everything else depends on being able to query sub-agent state.
 
 1. Add `SubAgentInfo` struct and `SubAgents()` method to `ChatViewModel`

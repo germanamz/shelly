@@ -220,6 +220,99 @@ func TestChatViewAppendMsg(t *testing.T) {
 	assert.Contains(t, cv.View(), "hello from append")
 }
 
+// --- Phase 1: Sub-Agent Data API tests ---
+
+func TestSubAgents_Empty(t *testing.T) {
+	cv := newTestChatView()
+	assert.Nil(t, cv.SubAgents())
+}
+
+func TestSubAgents_FlatList(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child-a", Prefix: "🦾", Parent: "root", ProviderLabel: "anthropic/claude-sonnet-4"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child-b", Prefix: "🦾", Parent: "root", ProviderLabel: "openai/gpt-4o"})
+
+	infos := cv.SubAgents()
+	assert.Len(t, infos, 2)
+
+	// Sorted by ID.
+	assert.Equal(t, "child-a", infos[0].ID)
+	assert.Equal(t, "child-a", infos[0].Label)
+	assert.Equal(t, "anthropic/claude-sonnet-4", infos[0].Provider)
+	assert.Equal(t, "running", infos[0].Status)
+	assert.Equal(t, "root", infos[0].ParentID)
+	assert.Equal(t, 0, infos[0].Depth)
+	assert.NotEmpty(t, infos[0].Color)
+
+	assert.Equal(t, "child-b", infos[1].ID)
+	assert.Equal(t, 0, infos[1].Depth)
+}
+
+func TestSubAgents_NestedDepth(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "grandchild", Prefix: "🦾", Parent: "child"})
+
+	infos := cv.SubAgents()
+	assert.Len(t, infos, 2)
+
+	// child: direct child of root → depth 0
+	childInfo := findInfoByID(infos, "child")
+	assert.Equal(t, 0, childInfo.Depth)
+	assert.Equal(t, "root", childInfo.ParentID)
+
+	// grandchild: child of child → depth 1
+	gcInfo := findInfoByID(infos, "grandchild")
+	assert.Equal(t, 1, gcInfo.Depth)
+	assert.Equal(t, "child", gcInfo.ParentID)
+}
+
+func TestSubAgents_ExcludesCompleted(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child-a", Prefix: "🦾", Parent: "root"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child-b", Prefix: "🦾", Parent: "root"})
+
+	// End child-a.
+	cv, _ = cv.Update(msgs.AgentEndMsg{Agent: "child-a", Parent: "root"})
+
+	infos := cv.SubAgents()
+	assert.Len(t, infos, 1)
+	assert.Equal(t, "child-b", infos[0].ID)
+}
+
+func TestFindContainer_Exists(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+
+	// Top-level agent.
+	rootAC := cv.FindContainer("root")
+	assert.NotNil(t, rootAC)
+	assert.Equal(t, "root", rootAC.Agent)
+
+	// Sub-agent.
+	childAC := cv.FindContainer("child")
+	assert.NotNil(t, childAC)
+	assert.Equal(t, "child", childAC.Agent)
+}
+
+func TestFindContainer_NotFound(t *testing.T) {
+	cv := newTestChatView()
+	assert.Nil(t, cv.FindContainer("nonexistent"))
+}
+
+func findInfoByID(infos []SubAgentInfo, id string) SubAgentInfo {
+	for _, info := range infos {
+		if info.ID == id {
+			return info
+		}
+	}
+	return SubAgentInfo{}
+}
+
 func TestChatViewFlushAll(t *testing.T) {
 	cv := newTestChatView()
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "a1", Prefix: "🤖"})

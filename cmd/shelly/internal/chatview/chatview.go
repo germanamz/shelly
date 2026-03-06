@@ -2,6 +2,7 @@ package chatview
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -35,11 +36,12 @@ type ChatViewModel struct {
 	viewport  viewport.Model
 	committed []string // committed content lines (user msgs, summaries, etc.)
 
-	agents        map[string]*AgentContainer
-	subAgents     map[string]*AgentContainer // nested sub-agent containers keyed by agent name
-	agentOrder    []string                   // agent names in arrival order
-	colorRegistry map[string]string          // agent name → hex color string
-	nextColorSlot int
+	agents         map[string]*AgentContainer
+	subAgents      map[string]*AgentContainer // nested sub-agent containers keyed by agent name
+	subAgentParent map[string]string          // child agent name → parent agent name
+	agentOrder     []string                   // agent names in arrival order
+	colorRegistry  map[string]string          // agent name → hex color string
+	nextColorSlot  int
 
 	HasMessages   bool
 	Processing    bool
@@ -68,10 +70,11 @@ func New() ChatViewModel {
 	}
 
 	return ChatViewModel{
-		viewport:      vp,
-		agents:        make(map[string]*AgentContainer),
-		subAgents:     make(map[string]*AgentContainer),
-		colorRegistry: make(map[string]string),
+		viewport:       vp,
+		agents:         make(map[string]*AgentContainer),
+		subAgents:      make(map[string]*AgentContainer),
+		subAgentParent: make(map[string]string),
+		colorRegistry:  make(map[string]string),
 	}
 }
 
@@ -148,6 +151,80 @@ func (m *ChatViewModel) HandleScrollKey(msg tea.KeyPressMsg) bool {
 // View renders the viewport containing all committed + live content.
 func (m ChatViewModel) View() string {
 	return m.viewport.View()
+}
+
+// SubAgentInfo describes a currently running sub-agent for the sub-agent browser.
+type SubAgentInfo struct {
+	ID       string // agent instance name
+	Label    string // agent instance name (display)
+	Provider string // provider label (e.g. "anthropic/claude-sonnet-4")
+	Status   string // "running" or "done"
+	Color    string // hex color from colorRegistry
+	ParentID string // parent agent name ("" for top-level sub-agents)
+	Depth    int    // nesting depth (0 = direct child of root)
+}
+
+// SubAgents returns info about all currently running sub-agents.
+// Only called from the bubbletea Update goroutine — no mutex needed.
+func (m ChatViewModel) SubAgents() []SubAgentInfo {
+	if len(m.subAgents) == 0 {
+		return nil
+	}
+
+	infos := make([]SubAgentInfo, 0, len(m.subAgents))
+	for name, ac := range m.subAgents {
+		status := "running"
+		if ac.Done {
+			status = "done"
+		}
+
+		parentID := m.subAgentParent[name]
+		depth := m.subAgentDepth(name)
+
+		infos = append(infos, SubAgentInfo{
+			ID:       name,
+			Label:    name,
+			Provider: ac.ProviderLabel,
+			Status:   status,
+			Color:    m.colorRegistry[name],
+			ParentID: parentID,
+			Depth:    depth,
+		})
+	}
+	sort.Slice(infos, func(i, j int) bool { return infos[i].ID < infos[j].ID })
+	return infos
+}
+
+// subAgentDepth computes the nesting depth of a sub-agent by walking the parent chain.
+// Depth 0 = direct child of a top-level agent.
+func (m ChatViewModel) subAgentDepth(name string) int {
+	depth := 0
+	current := name
+	for {
+		parent, ok := m.subAgentParent[current]
+		if !ok {
+			break
+		}
+		// If the parent is a top-level agent (not in subAgentParent), stop.
+		if _, isSub := m.subAgentParent[parent]; !isSub {
+			break
+		}
+		depth++
+		current = parent
+	}
+	return depth
+}
+
+// FindContainer resolves an agent ID to its AgentContainer pointer.
+// Checks top-level agents first, then sub-agents.
+func (m ChatViewModel) FindContainer(agentID string) *AgentContainer {
+	if ac, ok := m.agents[agentID]; ok {
+		return ac
+	}
+	if ac, ok := m.subAgents[agentID]; ok {
+		return ac
+	}
+	return nil
 }
 
 // HasActiveChains returns true if any agent container is still in progress.
@@ -417,6 +494,7 @@ func (m *ChatViewModel) startAgent(agentName, prefix, parent, providerLabel, tas
 		}
 		parentAC.Items = append(parentAC.Items, childAC)
 		m.subAgents[agentName] = childAC
+		m.subAgentParent[agentName] = parent
 		return
 	}
 
@@ -442,6 +520,7 @@ func (m *ChatViewModel) endAgent(agentName, completionSummary string) {
 			sa.FinalAnswer = completionSummary
 		}
 		delete(m.subAgents, agentName)
+		delete(m.subAgentParent, agentName)
 		return
 	}
 
@@ -481,6 +560,7 @@ func (m *ChatViewModel) flushAll() {
 			sa.EndTime = time.Now()
 		}
 		delete(m.subAgents, name)
+		delete(m.subAgentParent, name)
 	}
 
 	// End all top-level agents and commit summaries.
@@ -523,6 +603,7 @@ func (m *ChatViewModel) advanceSpinners() {
 func (m *ChatViewModel) clear() {
 	m.agents = make(map[string]*AgentContainer)
 	m.subAgents = make(map[string]*AgentContainer)
+	m.subAgentParent = make(map[string]string)
 	m.agentOrder = nil
 	m.committed = nil
 	m.Processing = false
