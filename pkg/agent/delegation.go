@@ -11,16 +11,20 @@ import (
 
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/chats/role"
+	"github.com/germanamz/shelly/pkg/modeladapter"
+	"github.com/germanamz/shelly/pkg/modeladapter/usage"
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
 // AgentEventData carries metadata about an agent lifecycle event.
 type AgentEventData struct {
-	Prefix        string // Display prefix (e.g. "🤖", "📝").
-	Parent        string // Name of the parent agent (empty for top-level).
-	Summary       string // Completion summary (populated on agent_end events).
-	ProviderLabel string // Provider display label (e.g. "anthropic/claude-sonnet-4").
-	Task          string // Delegation task description (populated on agent_start events).
+	Prefix        string            // Display prefix (e.g. "🤖", "📝").
+	Parent        string            // Name of the parent agent (empty for top-level).
+	Summary       string            // Completion summary (populated on agent_end events).
+	ProviderLabel string            // Provider display label (e.g. "anthropic/claude-sonnet-4").
+	Task          string            // Delegation task description (populated on agent_start events).
+	UsageTracker  *usage.Tracker    // Per-agent usage tracker (populated on agent_start for bridge tracking).
+	FinalUsage    *usage.TokenCount // Final usage snapshot (populated on agent_end).
 }
 
 // orchestrationToolBox builds a ToolBox containing the built-in orchestration
@@ -315,7 +319,11 @@ func runChildWithHandoff(ctx context.Context, a *Agent, child *Agent, t delegate
 	}
 
 	if notifier != nil {
-		notifier(childCtx, "agent_start", child.name, AgentEventData{Prefix: child.Prefix(), Parent: a.name, ProviderLabel: child.ProviderLabel(), Task: t.Task})
+		startData := AgentEventData{Prefix: child.Prefix(), Parent: a.name, ProviderLabel: child.ProviderLabel(), Task: t.Task}
+		if ur, ok := child.Completer().(modeladapter.UsageReporter); ok {
+			startData.UsageTracker = ur.UsageTracker()
+		}
+		notifier(childCtx, "agent_start", child.name, startData)
 	}
 
 	reply, runErr := child.Run(childCtx)
@@ -326,6 +334,10 @@ func runChildWithHandoff(ctx context.Context, a *Agent, child *Agent, t delegate
 			endData.Summary = cr.Summary
 		} else {
 			endData.Summary = reply.TextContent()
+		}
+		if ur, ok := child.Completer().(modeladapter.UsageReporter); ok {
+			total := ur.UsageTracker().Total()
+			endData.FinalUsage = &total
 		}
 		notifier(ctx, "agent_end", child.name, endData)
 	}
@@ -556,7 +568,7 @@ type childConfig struct {
 
 // spawnChild creates a configured child agent from the registry. It handles
 // unique naming, parent config propagation, interaction wiring, context/
-// reflection prepending, and task message appending.
+// reflection prepending, task message appending, and per-agent usage wrapping.
 func spawnChild(parent *Agent, cfg childConfig) (*Agent, error) {
 	child, ok := parent.registry.Spawn(cfg.agentName, parent.depth+1)
 	if !ok {
@@ -564,6 +576,11 @@ func spawnChild(parent *Agent, cfg childConfig) (*Agent, error) {
 	}
 
 	propagateParentConfig(parent, child, cfg.agentName, cfg.task)
+
+	// Wrap the child's completer for independent per-agent usage tracking.
+	if child.usageDiffLock != nil {
+		child.completer = modeladapter.NewAgentUsageCompleter(child.completer, child.usageDiffLock)
+	}
 
 	if cfg.interaction != nil {
 		child.interaction = cfg.interaction

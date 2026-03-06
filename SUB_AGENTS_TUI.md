@@ -668,7 +668,7 @@ Separated from agent-scoped view to isolate the data lifecycle change. Depends o
    - `TestAgentDisposal_BadgeUpdates` — menu bar badge decrements on agent end
 3. **Golden tests:** Verify parent view with summary lines matches expected output
 
-### Phase 8: Agent-Level Usage Tracking (engine change)
+### Phase 8: Agent-Level Usage Tracking (engine change) ✅
 **High-risk phase** — this touches the core engine (`pkg/engine/`) and agent (`pkg/agent/`) packages.
 
 1. Create `AgentUsageCompleter` decorator in `pkg/modeladapter/` — wraps a shared completer, intercepts responses, records usage in an agent-scoped `UsageTracker`

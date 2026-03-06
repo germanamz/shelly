@@ -79,11 +79,18 @@ type AppModel struct {
 	shellyDir      string
 	configWizard   *configwizard.WizardModel
 	sessionPicker  input.SessionPickerModel
+	agentUsage     map[string]AgentUsageInfo // per-agent usage data
 	width          int
 	height         int
 
 	// InitialMessage, when set, is auto-submitted once the TUI is ready.
 	InitialMessage string
+}
+
+// AgentUsageInfo holds per-agent usage data for the status bar.
+type AgentUsageInfo struct {
+	Usage usage.TokenCount
+	Ended bool // true if agent has completed
 }
 
 // NewAppModel creates a new AppModel.
@@ -173,6 +180,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.chatView, cmd = m.chatView.Update(msg)
 		m.onAgentEnd(msg)
 		return m, cmd
+
+	case msgs.AgentUsageUpdateMsg:
+		m.recordAgentUsage(msg.AgentID, msg.Usage, false)
+		return m, nil
 
 	// --- Session completion ---
 	case msgs.SendCompleteMsg:
@@ -751,11 +762,24 @@ func (m *AppModel) onAgentStart(msg msgs.AgentStartMsg) {
 	}
 }
 
+// recordAgentUsage stores a per-agent usage snapshot.
+func (m *AppModel) recordAgentUsage(agentID string, u usage.TokenCount, ended bool) {
+	if m.agentUsage == nil {
+		m.agentUsage = make(map[string]AgentUsageInfo)
+	}
+	m.agentUsage[agentID] = AgentUsageInfo{Usage: u, Ended: ended}
+}
+
 // onAgentEnd handles menu bar badge updates when a sub-agent ends.
 func (m *AppModel) onAgentEnd(msg msgs.AgentEndMsg) {
 	if msg.Parent == "" {
 		return
 	}
+
+	if msg.Usage != nil {
+		m.recordAgentUsage(msg.Agent, *msg.Usage, true)
+	}
+
 	agents := m.chatView.SubAgents()
 	badge := len(agents)
 

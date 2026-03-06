@@ -101,6 +101,7 @@ type Options struct {
 	ProviderLabel          string            // Display label for the provider (e.g. "anthropic/claude-sonnet-4").
 	InteractionMode        string            // "" | "auto" | "interactive" | "blocking". Controls child question handling.
 	QuestionTimeout        time.Duration     // Timeout for child questions in interactive mode (0 = no timeout).
+	UsageDiffLock          *sync.Mutex       // Shared lock for per-agent usage tracking via AgentUsageCompleter. All agents sharing the same provider completer must share the same lock.
 }
 
 // delegationConfig groups fields used by the delegation handler.
@@ -153,6 +154,7 @@ type Agent struct {
 	handoff                handoffHandler
 	interaction            *InteractionChannel
 	interactiveDelegations *DelegationRegistry // nil when interaction_mode != "interactive"
+	usageDiffLock          *sync.Mutex         // shared lock for AgentUsageCompleter wrapping
 }
 
 // New creates an Agent with the given configuration.
@@ -189,6 +191,7 @@ func New(name, description, instructions string, completer modeladapter.Complete
 			cancelRegistrar:   opts.CancelRegistrar,
 			cancelUnregistrar: opts.CancelUnregistrar,
 		},
+		usageDiffLock: opts.UsageDiffLock,
 	}
 
 	if opts.InteractionMode == "interactive" {

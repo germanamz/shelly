@@ -35,6 +35,7 @@ type Engine struct {
 	responder      *ask.Responder
 	registry       *agent.Registry
 	completers     map[string]modeladapter.Completer
+	usageDiffLocks map[string]*sync.Mutex // per-provider lock for AgentUsageCompleter diff safety
 	toolboxes      map[string]*toolbox.ToolBox
 	mcpClients     []*mcpclient.Client
 	dir            shellydir.Dir
@@ -81,15 +82,16 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	e := &Engine{
-		cfg:          cfg,
-		cancel:       cancel,
-		events:       NewEventBus(),
-		registry:     agent.NewRegistry(),
-		completers:   make(map[string]modeladapter.Completer, len(cfg.Providers)),
-		toolboxes:    make(map[string]*toolbox.ToolBox),
-		sessions:     make(map[string]*Session),
-		dir:          dir,
-		agentCancels: make(map[string]context.CancelFunc),
+		cfg:            cfg,
+		cancel:         cancel,
+		events:         NewEventBus(),
+		registry:       agent.NewRegistry(),
+		completers:     make(map[string]modeladapter.Completer, len(cfg.Providers)),
+		usageDiffLocks: make(map[string]*sync.Mutex, len(cfg.Providers)),
+		toolboxes:      make(map[string]*toolbox.ToolBox),
+		sessions:       make(map[string]*Session),
+		dir:            dir,
+		agentCancels:   make(map[string]context.CancelFunc),
 	}
 
 	e.sessionStore = sessions.New(dir.SessionsDir())
@@ -145,6 +147,17 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 	status("Ready")
 
 	return e, nil
+}
+
+// resolveUsageDiffLock returns the shared mutex for per-agent usage tracking
+// for the given provider. Creates one on first access.
+func (e *Engine) resolveUsageDiffLock(providerName string) *sync.Mutex {
+	if mu, ok := e.usageDiffLocks[providerName]; ok {
+		return mu
+	}
+	mu := &sync.Mutex{}
+	e.usageDiffLocks[providerName] = mu
+	return mu
 }
 
 // Events returns the engine's event bus.

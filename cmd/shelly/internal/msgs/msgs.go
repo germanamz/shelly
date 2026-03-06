@@ -7,6 +7,7 @@ import (
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/ask"
+	"github.com/germanamz/shelly/pkg/modeladapter/usage"
 	"github.com/germanamz/shelly/pkg/sessions"
 	"github.com/germanamz/shelly/pkg/tasks"
 )
@@ -30,8 +31,16 @@ type AgentStartMsg struct {
 // AgentEndMsg signals that the named agent finished its ReAct loop.
 type AgentEndMsg struct {
 	Agent   string
-	Parent  string // parent agent name (empty for top-level)
-	Summary string // completion summary (from CompletionResult or final text)
+	Parent  string            // parent agent name (empty for top-level)
+	Summary string            // completion summary (from CompletionResult or final text)
+	Usage   *usage.TokenCount // final per-agent usage snapshot (nil when unavailable)
+}
+
+// AgentUsageUpdateMsg delivers a per-agent usage snapshot for a running agent.
+// Emitted periodically by the bridge for live agents.
+type AgentUsageUpdateMsg struct {
+	AgentID string
+	Usage   usage.TokenCount
 }
 
 // AskUserMsg delivers a pending question from the ask responder.

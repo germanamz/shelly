@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"sync"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/germanamz/shelly/cmd/shelly/internal/msgs"
@@ -10,6 +11,7 @@ import (
 	"github.com/germanamz/shelly/pkg/chats/chat"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/ask"
 	"github.com/germanamz/shelly/pkg/engine"
+	"github.com/germanamz/shelly/pkg/modeladapter/usage"
 	"github.com/germanamz/shelly/pkg/tasks"
 )
 
@@ -24,6 +26,10 @@ func Start(ctx context.Context, p *tea.Program, c *chat.Chat, events *engine.Eve
 
 	var wg sync.WaitGroup
 	sub := events.Subscribe(64)
+
+	// Active agent usage trackers for tick-based updates.
+	var agentsMu sync.RWMutex
+	activeAgents := make(map[string]*usage.Tracker)
 
 	// Event watcher: converts engine events to bubbletea messages.
 	wg.Go(func() {
@@ -51,16 +57,26 @@ func Start(ctx context.Context, p *tea.Program, c *chat.Chat, events *engine.Eve
 						parent = d.Parent
 						providerLabel = d.ProviderLabel
 						task = d.Task
+						if d.UsageTracker != nil && parent != "" {
+							agentsMu.Lock()
+							activeAgents[ev.Agent] = d.UsageTracker
+							agentsMu.Unlock()
+						}
 					}
 					p.Send(msgs.AgentStartMsg{Agent: ev.Agent, Prefix: prefix, Parent: parent, ProviderLabel: providerLabel, Task: task})
 
 				case engine.EventAgentEnd:
 					var parent, summary string
+					var finalUsage *usage.TokenCount
 					if d, ok := ev.Data.(agent.AgentEventData); ok {
 						parent = d.Parent
 						summary = d.Summary
+						finalUsage = d.FinalUsage
 					}
-					p.Send(msgs.AgentEndMsg{Agent: ev.Agent, Parent: parent, Summary: summary})
+					agentsMu.Lock()
+					delete(activeAgents, ev.Agent)
+					agentsMu.Unlock()
+					p.Send(msgs.AgentEndMsg{Agent: ev.Agent, Parent: parent, Summary: summary, Usage: finalUsage})
 
 				case engine.EventMessageAdded:
 					// Forward sub-agent messages via events. Top-level agent
@@ -71,6 +87,25 @@ func Start(ctx context.Context, p *tea.Program, c *chat.Chat, events *engine.Eve
 						}
 					}
 				}
+			}
+		}
+	})
+
+	// Usage ticker: emits per-agent usage snapshots periodically.
+	wg.Go(func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-bridgeCtx.Done():
+				return
+			case <-ticker.C:
+				agentsMu.RLock()
+				for agentID, tracker := range activeAgents {
+					total := tracker.Total()
+					p.Send(msgs.AgentUsageUpdateMsg{AgentID: agentID, Usage: total})
+				}
+				agentsMu.RUnlock()
 			}
 		}
 	})

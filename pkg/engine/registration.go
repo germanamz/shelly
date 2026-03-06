@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/germanamz/shelly/pkg/agent"
@@ -50,6 +51,7 @@ type agentEvents struct {
 type registrationContext struct {
 	identity        agentIdentity
 	completer       modeladapter.Completer
+	usageDiffLock   *sync.Mutex // shared lock for per-agent usage tracking
 	tooling         agentTooling
 	effects         effectSetup
 	events          agentEvents
@@ -149,6 +151,8 @@ func (e *Engine) buildRegistrationContext(ac AgentConfig) (registrationContext, 
 		questionTimeout, _ = time.ParseDuration(ac.Options.QuestionTimeout) // already validated
 	}
 
+	providerName := e.agentProviderName(ac.Provider)
+
 	return registrationContext{
 		identity: agentIdentity{
 			name:          ac.Name,
@@ -157,7 +161,8 @@ func (e *Engine) buildRegistrationContext(ac AgentConfig) (registrationContext, 
 			prefix:        ac.Prefix,
 			providerLabel: providerLabel,
 		},
-		completer: completer,
+		completer:     completer,
+		usageDiffLock: e.resolveUsageDiffLock(providerName),
 		tooling: agentTooling{
 			toolboxes: tbs,
 			skills:    skills,
@@ -363,6 +368,7 @@ func (e *Engine) registerFactory(rc registrationContext) error {
 			TaskBoard:          rc.tooling.taskBoard,
 			InteractionMode:    rc.interactionMode,
 			QuestionTimeout:    rc.questionTimeout,
+			UsageDiffLock:      rc.usageDiffLock,
 		}
 
 		a := agent.New(rc.identity.name, rc.identity.desc, rc.identity.instr, rc.completer, opts)
