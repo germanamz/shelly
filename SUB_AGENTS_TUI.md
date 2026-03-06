@@ -688,7 +688,7 @@ Separated from agent-scoped view to isolate the data lifecycle change. Depends o
    - `TestSessionUsage_IncludesDisposedAgents` — disposed agent usage is preserved in session total
    - `TestAgentUsageUpdateMsg_PushBased` — bridge emits usage snapshots on tick, TUI receives them
 
-### Phase 9: Context-Aware Status Bar
+### Phase 9: Context-Aware Status Bar ✅
 1. Extend `AgentEndMsg` with `Usage *usage.Total` — final snapshot captured by bridge at agent_end
 2. Add `agentUsage map[string]AgentUsageInfo` to `AppModel`
 3. Update usage map from `AgentUsageUpdateMsg` (for live agents, push-based) and from `AgentEndMsg.Usage` (for completed agents)

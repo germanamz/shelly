@@ -89,8 +89,11 @@ type AppModel struct {
 
 // AgentUsageInfo holds per-agent usage data for the status bar.
 type AgentUsageInfo struct {
-	Usage usage.TokenCount
-	Ended bool // true if agent has completed
+	Usage         usage.TokenCount
+	ProviderLabel string // display label (e.g. "anthropic/claude-sonnet-4")
+	ProviderKind  string // provider type for pricing lookup (e.g. "anthropic")
+	Model         string // model identifier for pricing lookup (e.g. "claude-sonnet-4")
+	Ended         bool   // true if agent has completed
 }
 
 // NewAppModel creates a new AppModel.
@@ -663,10 +666,32 @@ func (m *AppModel) updateTokenCounter() {
 
 // statusBar renders the token counter and keyboard hints below the input.
 func (m AppModel) statusBar() string {
-	var parts []string
 	var segments []string
-	if label := m.sess.ProviderInfo().Label(); label != "" {
-		segments = append(segments, label)
+
+	if va := m.chatView.ViewedAgent(); va != "" {
+		segments = m.agentStatusSegments(va)
+	} else {
+		segments = m.sessionStatusSegments()
+	}
+
+	// Keyboard hints.
+	if hint := m.keyboardHint(); hint != "" {
+		segments = append(segments, hint)
+	}
+	if len(segments) == 0 {
+		return ""
+	}
+	status := " " + strings.Join(segments, " | ")
+	return styles.StatusStyle.Render(status)
+}
+
+// sessionStatusSegments returns status bar segments for the root/session view.
+func (m AppModel) sessionStatusSegments() []string {
+	var segments []string
+	if m.sess != nil {
+		if label := m.sess.ProviderInfo().Label(); label != "" {
+			segments = append(segments, label)
+		}
 	}
 	if m.tokenCount != "" {
 		segments = append(segments, m.tokenCount+" tokens")
@@ -677,18 +702,42 @@ func (m AppModel) statusBar() string {
 	if m.cacheInfo != "" {
 		segments = append(segments, m.cacheInfo)
 	}
-	// Keyboard hints.
-	if hint := m.keyboardHint(); hint != "" {
-		segments = append(segments, hint)
+	return segments
+}
+
+// agentStatusSegments returns status bar segments for a viewed sub-agent.
+func (m AppModel) agentStatusSegments(agentID string) []string {
+	info, ok := m.agentUsage[agentID]
+	if !ok {
+		return []string{agentID}
 	}
-	if len(segments) > 0 {
-		status := " " + strings.Join(segments, " | ")
-		parts = append(parts, styles.StatusStyle.Render(status))
+
+	var segments []string
+	segments = append(segments, agentID)
+
+	if info.ProviderLabel != "" {
+		segments = append(segments, info.ProviderLabel)
 	}
-	if len(parts) == 0 {
-		return ""
+
+	totalTok := info.Usage.Total()
+	if totalTok > 0 {
+		segments = append(segments, format.FmtTokens(totalTok)+" tokens")
 	}
-	return strings.Join(parts, "\n")
+
+	if info.ProviderKind != "" && info.Model != "" {
+		if pricing, ok := usage.LookupPricing(info.ProviderKind, info.Model); ok {
+			cost := usage.CalculateCost(info.Usage, pricing)
+			if cost > 0 {
+				segments = append(segments, format.FmtCost(cost))
+			}
+		}
+	}
+
+	if ratio := info.Usage.CacheSavings(); ratio > 0 {
+		segments = append(segments, fmt.Sprintf("cache %.0f%%", ratio*100))
+	}
+
+	return segments
 }
 
 // keyboardHint returns context-sensitive keyboard hints for the status bar.
@@ -736,6 +785,7 @@ func (m *AppModel) onAgentStart(msg msgs.AgentStartMsg) {
 	if msg.Parent == "" {
 		return // top-level agent, not a sub-agent
 	}
+	m.initAgentUsage(msg.Agent, msg.ProviderLabel)
 	agents := m.chatView.SubAgents()
 	badge := len(agents)
 
@@ -762,12 +812,61 @@ func (m *AppModel) onAgentStart(msg msgs.AgentStartMsg) {
 	}
 }
 
-// recordAgentUsage stores a per-agent usage snapshot.
+// recordAgentUsage stores a per-agent usage snapshot, preserving provider info.
 func (m *AppModel) recordAgentUsage(agentID string, u usage.TokenCount, ended bool) {
 	if m.agentUsage == nil {
 		m.agentUsage = make(map[string]AgentUsageInfo)
 	}
-	m.agentUsage[agentID] = AgentUsageInfo{Usage: u, Ended: ended}
+	info := m.agentUsage[agentID]
+	info.Usage = u
+	info.Ended = ended
+	m.agentUsage[agentID] = info
+}
+
+// initAgentUsage creates a usage entry with provider metadata from AgentStartMsg.
+func (m *AppModel) initAgentUsage(agentID, providerLabel string) {
+	if m.agentUsage == nil {
+		m.agentUsage = make(map[string]AgentUsageInfo)
+	}
+	if _, exists := m.agentUsage[agentID]; exists {
+		return // already initialized
+	}
+	kind, model := parseProviderLabel(providerLabel)
+	m.agentUsage[agentID] = AgentUsageInfo{
+		ProviderLabel: providerLabel,
+		ProviderKind:  kind,
+		Model:         model,
+	}
+}
+
+// parseProviderLabel splits "kind/model" into its components.
+func parseProviderLabel(label string) (kind, model string) {
+	kind, model, ok := strings.Cut(label, "/")
+	if !ok {
+		return label, ""
+	}
+	return kind, model
+}
+
+// cleanupAgentUsage removes completed agent usage entries that are no longer
+// referenced by the view stack.
+func (m *AppModel) cleanupAgentUsage() {
+	if len(m.agentUsage) == 0 {
+		return
+	}
+	// Build set of agent IDs referenced by the view stack.
+	referenced := make(map[string]bool, len(m.chatView.ViewStack()))
+	for _, entry := range m.chatView.ViewStack() {
+		referenced[entry.AgentID] = true
+	}
+	if va := m.chatView.ViewedAgent(); va != "" {
+		referenced[va] = true
+	}
+	for id, info := range m.agentUsage {
+		if info.Ended && !referenced[id] {
+			delete(m.agentUsage, id)
+		}
+	}
 }
 
 // onAgentEnd handles menu bar badge updates when a sub-agent ends.
@@ -793,6 +892,9 @@ func (m *AppModel) onAgentEnd(msg msgs.AgentEndMsg) {
 	if m.activePanel == PanelSubAgents {
 		m.subAgentPanel.Refresh(m.chatView)
 	}
+
+	// Clean up usage entries for completed agents no longer on the view stack.
+	m.cleanupAgentUsage()
 }
 
 // resizeSubAgentPanel computes and sets the panel size based on current items.

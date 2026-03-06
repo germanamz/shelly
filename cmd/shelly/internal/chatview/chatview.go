@@ -256,6 +256,20 @@ func (m ChatViewModel) HasActiveChains() bool {
 // ViewedAgent returns the currently viewed agent ID ("" for root view).
 func (m ChatViewModel) ViewedAgent() string { return m.viewedAgent }
 
+// ViewStackEntry exposes the agent ID for a view stack level.
+type ViewStackEntry struct {
+	AgentID string
+}
+
+// ViewStack returns the current view stack entries (for cleanup purposes).
+func (m ChatViewModel) ViewStack() []ViewStackEntry {
+	entries := make([]ViewStackEntry, len(m.viewStack))
+	for i, e := range m.viewStack {
+		entries[i] = ViewStackEntry{AgentID: e.AgentID}
+	}
+	return entries
+}
+
 // HeaderHeight returns the number of extra lines needed above the input for
 // the breadcrumb (0 when at root, 1 when viewing a sub-agent).
 func (m ChatViewModel) HeaderHeight() int {
