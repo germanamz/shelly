@@ -396,6 +396,11 @@ func (m InputModel) cursorOnLastLine() bool {
 	return m.textarea.TA.Line() == m.textarea.TA.LineCount()-1 && li.RowOffset == li.Height-1
 }
 
+// IsEmpty returns true if the textarea has no text.
+func (m InputModel) IsEmpty() bool {
+	return strings.TrimSpace(m.textarea.Value()) == ""
+}
+
 // ViewHeight returns the height of the input box area.
 func (m InputModel) ViewHeight() int {
 	// Border (2) + textarea lines.

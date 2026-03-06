@@ -28,6 +28,16 @@ const LogoArt = `
                  /___/
 `
 
+// maxViewStackDepth is the maximum navigation depth for the view stack.
+const maxViewStackDepth = 32
+
+// viewStackEntry holds state for one level of agent navigation.
+type viewStackEntry struct {
+	AgentID      string
+	Container    *AgentContainer // pinned reference — survives map deletion on agent end
+	ScrollOffset int             // preserved viewport scroll position for this level
+}
+
 // ChatViewModel renders all chat content (committed history + live agent
 // activity) inside a viewport. Content that was previously emitted via
 // tea.Println is now appended to an internal committed buffer and rendered
@@ -42,6 +52,9 @@ type ChatViewModel struct {
 	agentOrder     []string                   // agent names in arrival order
 	colorRegistry  map[string]string          // agent name → hex color string
 	nextColorSlot  int
+
+	viewedAgent string           // "" = root view, or agent instance name
+	viewStack   []viewStackEntry // navigation stack for back functionality
 
 	HasMessages   bool
 	Processing    bool
@@ -120,6 +133,14 @@ func (m ChatViewModel) Update(msg tea.Msg) (ChatViewModel, tea.Cmd) {
 		return m, nil
 	case msgs.ChatViewCommitUserMsg:
 		m.commitUserMessage(msg.Text, msg.Parts)
+		m.rebuildContent()
+		return m, nil
+	case msgs.ChatViewFocusAgentMsg:
+		m.focusAgent(msg.AgentID)
+		m.rebuildContent()
+		return m, nil
+	case msgs.ChatViewNavigateBackMsg:
+		m.navigateBack()
 		m.rebuildContent()
 		return m, nil
 	case msgs.ChatViewAppendMsg:
@@ -232,6 +253,124 @@ func (m ChatViewModel) HasActiveChains() bool {
 	return len(m.agents) > 0
 }
 
+// ViewedAgent returns the currently viewed agent ID ("" for root view).
+func (m ChatViewModel) ViewedAgent() string { return m.viewedAgent }
+
+// HeaderHeight returns the number of extra lines needed above the input for
+// the breadcrumb (0 when at root, 1 when viewing a sub-agent).
+func (m ChatViewModel) HeaderHeight() int {
+	if m.viewedAgent == "" {
+		return 0
+	}
+	return 1
+}
+
+// focusAgent switches the view to display the given agent's history.
+func (m *ChatViewModel) focusAgent(agentID string) {
+	ac := m.FindContainer(agentID)
+	if ac == nil {
+		return
+	}
+	if len(m.viewStack) >= maxViewStackDepth {
+		return
+	}
+
+	// Save current scroll position on the current stack top (or root).
+	scrollPos := m.viewport.ScrollPercent()
+	scrollOffset := int(scrollPos * float64(m.viewport.TotalLineCount()))
+	if len(m.viewStack) > 0 {
+		m.viewStack[len(m.viewStack)-1].ScrollOffset = scrollOffset
+	}
+
+	m.viewStack = append(m.viewStack, viewStackEntry{
+		AgentID:   agentID,
+		Container: ac,
+	})
+	m.viewedAgent = agentID
+
+	// New entries start scrolled to bottom (handled by rebuildContent auto-scroll).
+}
+
+// navigateBack pops the view stack and returns to the previous view.
+func (m *ChatViewModel) navigateBack() {
+	if len(m.viewStack) == 0 {
+		return
+	}
+
+	m.viewStack = m.viewStack[:len(m.viewStack)-1]
+
+	if len(m.viewStack) == 0 {
+		m.viewedAgent = ""
+	} else {
+		top := m.viewStack[len(m.viewStack)-1]
+		m.viewedAgent = top.AgentID
+	}
+}
+
+// RenderBreadcrumb returns the breadcrumb line showing the navigation path.
+// Only renders when viewing a sub-agent. Composed by AppModel in the layout.
+func (m ChatViewModel) RenderBreadcrumb() string {
+	if m.viewedAgent == "" {
+		return ""
+	}
+
+	backStyle := lipgloss.NewStyle().Foreground(styles.ColorAccent)
+	sepStyle := styles.DimStyle
+	var parts []string
+	parts = append(parts, backStyle.Render("<- root"))
+
+	for i, entry := range m.viewStack {
+		parts = append(parts, sepStyle.Render(" > "))
+		agentStyle := colorStyle(m.colorRegistry[entry.AgentID])
+		if i == len(m.viewStack)-1 {
+			agentStyle = agentStyle.Bold(true)
+		}
+		// Strikethrough for completed agents.
+		ac := entry.Container
+		if ac != nil && ac.Done {
+			agentStyle = agentStyle.Strikethrough(true)
+		}
+		parts = append(parts, agentStyle.Render(entry.AgentID))
+	}
+
+	line := strings.Join(parts, "")
+
+	// Truncate if exceeds width.
+	if m.Width > 0 && lipgloss.Width(line) > m.Width {
+		// Simple truncation: keep first and last segment, collapse middle.
+		if len(m.viewStack) > 1 {
+			var truncParts []string
+			truncParts = append(truncParts, backStyle.Render("<- root"))
+			truncParts = append(truncParts, sepStyle.Render(" > "))
+			truncParts = append(truncParts, sepStyle.Render("..."))
+			truncParts = append(truncParts, sepStyle.Render(" > "))
+			last := m.viewStack[len(m.viewStack)-1]
+			lastStyle := colorStyle(m.colorRegistry[last.AgentID]).Bold(true)
+			if last.Container != nil && last.Container.Done {
+				lastStyle = lastStyle.Strikethrough(true)
+			}
+			truncParts = append(truncParts, lastStyle.Render(last.AgentID))
+			line = strings.Join(truncParts, "")
+		}
+	}
+
+	return line
+}
+
+// cleanViewStackEntry removes the view stack entry for the given agent,
+// unless it's the currently viewed agent (pinned pointer keeps it alive).
+func (m *ChatViewModel) cleanViewStackEntry(agentID string) {
+	if m.viewedAgent == agentID {
+		return // keep pinned — will be removed on navigate-away
+	}
+	for i, entry := range m.viewStack {
+		if entry.AgentID == agentID {
+			m.viewStack = append(m.viewStack[:i], m.viewStack[i+1:]...)
+			return
+		}
+	}
+}
+
 // appendContent adds text to the committed buffer.
 func (m *ChatViewModel) appendContent(text string) {
 	m.committed = append(m.committed, text)
@@ -287,6 +426,20 @@ func (m *ChatViewModel) rebuildContent() {
 
 // liveContent renders the current live agent activity (spinners, tool calls).
 func (m *ChatViewModel) liveContent() string {
+	// Agent-scoped view: render only the viewed agent's container.
+	if m.viewedAgent != "" {
+		ac := m.viewedAgentContainer()
+		if ac == nil {
+			return ""
+		}
+		// Temporarily set MaxShow=0 to show full history.
+		origMaxShow := ac.MaxShow
+		ac.MaxShow = 0
+		view := ac.View(m.Width)
+		ac.MaxShow = origMaxShow
+		return view
+	}
+
 	var live strings.Builder
 
 	for i, name := range m.agentOrder {
@@ -312,6 +465,18 @@ func (m *ChatViewModel) liveContent() string {
 	}
 
 	return live.String()
+}
+
+// viewedAgentContainer returns the container for the currently viewed agent,
+// using the pinned pointer from the view stack if available.
+func (m *ChatViewModel) viewedAgentContainer() *AgentContainer {
+	if len(m.viewStack) > 0 {
+		top := m.viewStack[len(m.viewStack)-1]
+		if top.Container != nil {
+			return top.Container
+		}
+	}
+	return m.FindContainer(m.viewedAgent)
 }
 
 // renderAttachmentLabel returns a display label for an attachment part, or "" if not applicable.
@@ -521,6 +686,8 @@ func (m *ChatViewModel) endAgent(agentName, completionSummary string) {
 		}
 		delete(m.subAgents, agentName)
 		delete(m.subAgentParent, agentName)
+		// Clean up view stack entry if not currently viewed.
+		m.cleanViewStackEntry(agentName)
 		return
 	}
 
@@ -606,6 +773,8 @@ func (m *ChatViewModel) clear() {
 	m.subAgentParent = make(map[string]string)
 	m.agentOrder = nil
 	m.committed = nil
+	m.viewedAgent = ""
+	m.viewStack = nil
 	m.Processing = false
 	m.SpinnerIdx = 0
 	m.ProcessingMsg = ""

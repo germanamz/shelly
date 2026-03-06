@@ -271,7 +271,12 @@ func (m AppModel) View() tea.View {
 		}
 	}
 
-	// Menu bar (between panel and input).
+	// Breadcrumb (between panel and menu bar, only when viewing sub-agent).
+	if bc := m.chatView.RenderBreadcrumb(); bc != "" {
+		parts = append(parts, bc)
+	}
+
+	// Menu bar (between breadcrumb and input).
 	if menuView := m.menuBar.View(); menuView != "" {
 		parts = append(parts, menuView)
 	}
@@ -390,12 +395,18 @@ func (m *AppModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Escape priority: picker → panel → menu → agent interrupt → no-op.
+	// Escape priority: picker → panel → menu → agent view back → agent interrupt → no-op.
 	if k.Code == tea.KeyEsc {
 		if m.inputBox.PickerActive() {
 			var cmd tea.Cmd
 			m.inputBox, cmd = m.inputBox.Update(msg)
 			return m, cmd
+		}
+		// Navigate back in agent view stack (only when input is empty).
+		if m.chatView.ViewedAgent() != "" && m.inputBox.IsEmpty() {
+			m.chatView, _ = m.chatView.Update(msgs.ChatViewNavigateBackMsg{})
+			m.recalcViewportHeight()
+			return m, nil
 		}
 		if m.state == StateProcessing && m.cancelSend != nil {
 			m.cancelSend()
@@ -447,8 +458,10 @@ func (m *AppModel) handlePanelKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.subAgentPanel.MoveDown()
 		case tea.KeyEnter:
 			if sel := m.subAgentPanel.Select(); sel != nil {
+				agentID := sel.AgentID
 				m.closePanel()
-				return m, nil // Phase 6 will handle SubAgentSelectedMsg + ChatViewFocusAgentMsg
+				m.chatView, _ = m.chatView.Update(msgs.ChatViewFocusAgentMsg{AgentID: agentID})
+				m.recalcViewportHeight()
 			}
 		case tea.KeyEsc:
 			m.closePanel()
@@ -676,6 +689,8 @@ func (m AppModel) keyboardHint() string {
 		return styles.DimStyle.Render("↑↓ navigate  ⏎ select  esc close")
 	case m.menuFocused:
 		return styles.DimStyle.Render("←→ navigate  ⏎ select  esc back")
+	case m.chatView.ViewedAgent() != "":
+		return styles.DimStyle.Render("esc back to parent")
 	case m.menuHintActive:
 		return styles.DimStyle.Render("ctrl+b to browse sub-agents")
 	}
@@ -687,8 +702,8 @@ func (m AppModel) keyboardHint() string {
 func (m *AppModel) recalcViewportHeight() {
 	// Status bar: 1 line for token counter (always reserve).
 	statusLines := 1
-	// Menu bar, sub-agent panel, and task panel heights.
-	extraLines := m.menuBar.Height() + m.subAgentPanel.Height() + m.taskPanel.Height()
+	// Menu bar, sub-agent panel, task panel, and breadcrumb heights.
+	extraLines := m.menuBar.Height() + m.subAgentPanel.Height() + m.taskPanel.Height() + m.chatView.HeaderHeight()
 	vpHeight := max(m.height-m.inputBox.ViewHeight()-statusLines-extraLines, 3)
 	m.chatView, _ = m.chatView.Update(msgs.ChatViewSetHeightMsg{Height: vpHeight})
 }

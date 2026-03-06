@@ -621,7 +621,7 @@ Now that panel + list components are validated via the sub-agent browser, apply 
 7. Preserve the current sort order (pending > in-progress > completed)
 8. Move summary counts to menu bar badge; detailed view in the read-only list panel
 
-### Phase 6: Agent-Scoped Chat View
+### Phase 6: Agent-Scoped Chat View ✅
 **Golden tests first:** Snapshot the current chat view rendered output (root view with sub-agent containers) as golden files before modifying rendering logic. These serve as the baseline for verifying that agent-scoped rendering doesn't break root view output.
 
 1. Add `viewedAgent` and `viewStack []viewStackEntry` to `ChatViewModel`

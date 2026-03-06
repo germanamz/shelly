@@ -196,6 +196,14 @@ type ChatViewSetHeightMsg struct {
 	Height int
 }
 
+// ChatViewFocusAgentMsg switches the chat view to display a specific agent's history.
+type ChatViewFocusAgentMsg struct {
+	AgentID string
+}
+
+// ChatViewNavigateBackMsg pops the view stack and returns to the previous view.
+type ChatViewNavigateBackMsg struct{}
+
 // --- TaskPanel messages ---
 
 // TaskPanelSetWidthMsg sets the task panel render width.

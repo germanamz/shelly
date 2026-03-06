@@ -1,6 +1,7 @@
 package chatview
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -311,6 +312,193 @@ func findInfoByID(infos []SubAgentInfo, id string) SubAgentInfo {
 		}
 	}
 	return SubAgentInfo{}
+}
+
+// --- Phase 6: Agent-Scoped Chat View tests ---
+
+func TestFocusAgent_PushesStack(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child"})
+
+	assert.Equal(t, "child", cv.ViewedAgent())
+	assert.Len(t, cv.viewStack, 1)
+	assert.Equal(t, "child", cv.viewStack[0].AgentID)
+	assert.NotNil(t, cv.viewStack[0].Container)
+}
+
+func TestFocusAgent_NonexistentAgent(t *testing.T) {
+	cv := newTestChatView()
+
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "ghost"})
+
+	assert.Empty(t, cv.ViewedAgent())
+	assert.Empty(t, cv.viewStack)
+}
+
+func TestFocusAgent_DepthCapReached(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+
+	// Create enough sub-agents and push them to fill the stack.
+	for i := range maxViewStackDepth {
+		name := fmt.Sprintf("agent-%d", i)
+		parent := "root"
+		if i > 0 {
+			parent = fmt.Sprintf("agent-%d", i-1)
+		}
+		cv, _ = cv.Update(msgs.AgentStartMsg{Agent: name, Prefix: "🦾", Parent: parent})
+		cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: name})
+	}
+	assert.Len(t, cv.viewStack, maxViewStackDepth)
+
+	// One more should be rejected.
+	extraName := "agent-overflow"
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: extraName, Prefix: "🦾", Parent: "root"})
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: extraName})
+	assert.Len(t, cv.viewStack, maxViewStackDepth) // unchanged
+}
+
+func TestNavigateBack_PopsStack(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child"})
+
+	cv, _ = cv.Update(msgs.ChatViewNavigateBackMsg{})
+
+	assert.Empty(t, cv.ViewedAgent())
+	assert.Empty(t, cv.viewStack)
+}
+
+func TestNavigateBack_AtRoot_Noop(t *testing.T) {
+	cv := newTestChatView()
+
+	cv, _ = cv.Update(msgs.ChatViewNavigateBackMsg{})
+
+	assert.Empty(t, cv.ViewedAgent())
+	assert.Empty(t, cv.viewStack)
+}
+
+func TestNavigateBack_MultiLevel(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "grandchild", Prefix: "🦾", Parent: "child"})
+
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child"})
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "grandchild"})
+	assert.Equal(t, "grandchild", cv.ViewedAgent())
+	assert.Len(t, cv.viewStack, 2)
+
+	cv, _ = cv.Update(msgs.ChatViewNavigateBackMsg{})
+	assert.Equal(t, "child", cv.ViewedAgent())
+	assert.Len(t, cv.viewStack, 1)
+
+	cv, _ = cv.Update(msgs.ChatViewNavigateBackMsg{})
+	assert.Empty(t, cv.ViewedAgent())
+	assert.Empty(t, cv.viewStack)
+}
+
+func TestViewStack_CleanupOnAgentEnd(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child-a", Prefix: "🦾", Parent: "root"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child-b", Prefix: "🦾", Parent: "root"})
+
+	// Focus child-a, then go back, then focus child-b.
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child-a"})
+	cv, _ = cv.Update(msgs.ChatViewNavigateBackMsg{})
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child-b"})
+
+	// child-a ends while viewing child-b.
+	cv, _ = cv.Update(msgs.AgentEndMsg{Agent: "child-a", Parent: "root"})
+
+	// child-a should be cleaned from the stack (it's not currently viewed).
+	for _, entry := range cv.viewStack {
+		assert.NotEqual(t, "child-a", entry.AgentID)
+	}
+}
+
+func TestViewStack_AgentEndsWhileViewing(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child"})
+
+	// Get a reference to the container before it's removed.
+	container := cv.viewStack[0].Container
+	assert.NotNil(t, container)
+
+	// Agent ends while we're viewing it.
+	cv, _ = cv.Update(msgs.AgentEndMsg{Agent: "child", Parent: "root"})
+
+	// View stack should still have the entry (pinned pointer).
+	assert.Equal(t, "child", cv.ViewedAgent())
+	assert.Len(t, cv.viewStack, 1)
+	assert.NotNil(t, cv.viewStack[0].Container)
+	assert.True(t, cv.viewStack[0].Container.Done)
+}
+
+func TestBreadcrumb_Rendering(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child"})
+
+	bc := cv.RenderBreadcrumb()
+	assert.Contains(t, bc, "root")
+	assert.Contains(t, bc, "child")
+}
+
+func TestBreadcrumb_EmptyAtRoot(t *testing.T) {
+	cv := newTestChatView()
+	assert.Empty(t, cv.RenderBreadcrumb())
+}
+
+func TestBreadcrumb_ReducesViewportHeight(t *testing.T) {
+	cv := newTestChatView()
+	assert.Equal(t, 0, cv.HeaderHeight())
+
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child"})
+
+	assert.Equal(t, 1, cv.HeaderHeight())
+}
+
+func TestClear_ResetsViewStack(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child"})
+
+	cv, _ = cv.Update(msgs.ChatViewClearMsg{})
+
+	assert.Empty(t, cv.ViewedAgent())
+	assert.Empty(t, cv.viewStack)
+}
+
+func TestAgentScoped_MaxShowZero(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+
+	// Add several items to the child container.
+	childAC := cv.FindContainer("child")
+	for i := range 10 {
+		childAC.AddToolCall(fmt.Sprintf("tc-%d", i), "test_tool", `{"arg":"val"}`)
+	}
+	// Sub-agents default MaxShow=4; viewing should show all.
+	assert.Equal(t, 4, childAC.MaxShow)
+
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child"})
+	view := cv.View()
+
+	// All 10 tool calls should be visible (no "... more items" truncation).
+	assert.NotContains(t, view, "more items")
 }
 
 func TestChatViewFlushAll(t *testing.T) {
