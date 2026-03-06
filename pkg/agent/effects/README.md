@@ -48,6 +48,8 @@ type Resetter interface {
 | `ProgressEffect` | `progress` | BeforeComplete | No | Periodically prompts the agent to write a progress note |
 | `ToolScopeEffect` | `tool_scope` | -- | No | Filters tools sent to the LLM by excluding named tools (implements `ToolFilter`) |
 | `OffloadEffect` | `offload` | AfterComplete | Yes | Offloads large tool results to disk and provides a `recall` tool to reload them (implements `ToolProvider`) |
+| `TokenBudgetEffect` | `token_budget` | AfterComplete | Yes | Tracks cumulative token usage and enforces a hard budget with early warning |
+| `TimeBudgetEffect` | `time_budget` | Before+AfterComplete | Yes | Tracks cumulative LLM inference time and enforces a time budget with early warning |
 
 ### CompactEffect -- Full Summarisation
 
@@ -349,6 +351,69 @@ type OffloadConfig struct {
     recent_window: 6
 ```
 
+### TokenBudgetEffect -- Token Budget
+
+Runs at `PhaseAfterComplete`. Tracks cumulative actual token usage via the
+`modeladapter.UsageReporter` interface on the completer. At the warn threshold
+it injects a wrap-up message (once); at 100% it returns `ErrTokenBudgetExhausted`.
+
+Implements `agent.Resetter` to clear the warned flag between runs.
+
+**Config:**
+
+```go
+type TokenBudgetConfig struct {
+    MaxTokens     int     // Hard cap on total tokens (input + output).
+    WarnThreshold float64 // Fraction at which to inject a wrap-up message (default: 0.8).
+}
+```
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `max_tokens` | int | -- | Hard cap on total tokens (input + output) |
+| `warn_threshold` | float | 0.8 | Fraction at which to inject a wrap-up message |
+
+```yaml
+- kind: token_budget
+  params:
+    max_tokens: 500000
+    warn_threshold: 0.8
+```
+
+### TimeBudgetEffect -- Time Budget
+
+Runs at both phases to measure LLM call duration. `PhaseBeforeComplete` records
+the call start time; `PhaseAfterComplete` accumulates elapsed time and checks
+thresholds. Only LLM inference time is measured -- tool execution, user response
+time, and network delays are excluded because they occur between `PhaseAfterComplete`
+and the next `PhaseBeforeComplete`.
+
+At the warn threshold it injects a wrap-up message (once); at 100% it returns
+`ErrTimeBudgetExhausted`.
+
+Implements `agent.Resetter` to clear accumulated time and warned flag between runs.
+
+**Config:**
+
+```go
+type TimeBudgetConfig struct {
+    MaxDuration   time.Duration // Hard cap on cumulative LLM inference time.
+    WarnThreshold float64       // Fraction at which to inject a wrap-up message (default: 0.8).
+}
+```
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `max_duration` | duration | -- | Hard cap on cumulative LLM inference time (e.g. "15m") |
+| `warn_threshold` | float | 0.8 | Fraction at which to inject a wrap-up message |
+
+```yaml
+- kind: time_budget
+  params:
+    max_duration: "15m"
+    warn_threshold: 0.8
+```
+
 ## Shared Helpers
 
 The package includes internal helpers used by multiple effects:
@@ -457,5 +522,15 @@ offloadEff := effects.NewOffloadEffect(effects.OffloadConfig{
     MinResultLen:  2000,
     RecentWindow:  6,
     StorageDir:    "/tmp/offload",
+})
+
+tokenBudgetEff := effects.NewTokenBudgetEffect(effects.TokenBudgetConfig{
+    MaxTokens:     500000,
+    WarnThreshold: 0.8,
+})
+
+timeBudgetEff := effects.NewTimeBudgetEffect(effects.TimeBudgetConfig{
+    MaxDuration:   15 * time.Minute,
+    WarnThreshold: 0.8,
 })
 ```

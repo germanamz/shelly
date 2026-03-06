@@ -30,6 +30,10 @@ var ErrMaxIterations = errors.New("agent: max iterations reached")
 // the configured token budget.
 var ErrTokenBudgetExhausted = errors.New("agent: token budget exhausted")
 
+// ErrTimeBudgetExhausted is returned when cumulative LLM inference time
+// exceeds the configured time budget.
+var ErrTimeBudgetExhausted = errors.New("agent: time budget exhausted")
+
 // EventNotifier is called by orchestration tools to publish sub-agent
 // lifecycle events (e.g. "agent_start", "agent_end") to the engine's EventBus.
 type EventNotifier func(ctx context.Context, kind string, agentName string, data any)

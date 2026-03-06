@@ -211,6 +211,22 @@ Sentinel error returned when the ReAct loop exceeds `MaxIterations` without prod
 var ErrMaxIterations = errors.New("agent: max iterations reached")
 ```
 
+### ErrTokenBudgetExhausted
+
+Sentinel error returned when the cumulative token usage exceeds the configured token budget (from the `token_budget` effect).
+
+```go
+var ErrTokenBudgetExhausted = errors.New("agent: token budget exhausted")
+```
+
+### ErrTimeBudgetExhausted
+
+Sentinel error returned when the cumulative LLM inference time exceeds the configured time budget (from the `time_budget` effect).
+
+```go
+var ErrTimeBudgetExhausted = errors.New("agent: time budget exhausted")
+```
+
 ## Effects System
 
 Effects are pluggable, per-iteration hooks that run inside the ReAct loop at two phases: **before** the LLM call (`PhaseBeforeComplete`) and **after** the LLM reply (`PhaseAfterComplete`). They enable configuration-driven behaviours without modifying the core loop.
@@ -392,7 +408,7 @@ When `Options.TaskBoard` is set, the `delegate` tool supports an optional `task_
 
 1. **Before `child.Run()`**: `TaskBoard.ClaimTask(taskID, childName)` is called. Claim errors cause the task to fail immediately.
 2. **After `child.Run()`**: if the child produced a `CompletionResult`, `TaskBoard.UpdateTaskStatus(taskID, cr.Status)` is called automatically. If the child exhausts iterations, a synthetic `CompletionResult` with status "failed" is created and the task is updated accordingly.
-3. **On child error**: if `child.Run()` returns a non-`ErrMaxIterations` error (e.g. completer failure), the task is rolled back to `"failed"` so it doesn't stay stuck in `in_progress`. If the error is `context.Canceled` due to task cancellation (child context canceled but parent context still active), the task is updated to `"canceled"` instead.
+3. **On child error**: if `child.Run()` returns a non-budget/iteration error (e.g. completer failure), the task is rolled back to `"failed"` so it doesn't stay stuck in `in_progress`. Budget errors (`ErrMaxIterations`, `ErrTokenBudgetExhausted`, `ErrTimeBudgetExhausted`) produce a synthetic `CompletionResult` with status "failed". If the error is `context.Canceled` due to task cancellation (child context canceled but parent context still active), the task is updated to `"canceled"` instead.
 4. **No completion fallback**: if the child finishes without error but never called `task_complete`, the task is automatically updated to `"completed"` since the child ran to natural conclusion.
 
 ### Structured Completion Protocol
