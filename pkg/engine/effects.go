@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/germanamz/shelly/pkg/agent"
 	"github.com/germanamz/shelly/pkg/agent/effects"
@@ -35,6 +36,8 @@ var effectFactories = map[string]EffectFactory{
 	"tool_scope":        buildToolScopeEffect,
 	"offload":           buildOffloadEffect,
 	"token_budget":      buildTokenBudgetEffect,
+	"time_budget":       buildTimeBudgetEffect,
+	"stall_detect":      buildStallDetectEffect,
 }
 
 // KnownEffectKinds returns the sorted list of recognised effect kind strings,
@@ -314,4 +317,54 @@ func buildOffloadEffect(params map[string]any, wctx EffectWiringContext) (agent.
 		MinResultLen:  minResultLen,
 		RecentWindow:  recentWindow,
 	}), nil
+}
+
+// buildTimeBudgetEffect creates a TimeBudgetEffect from YAML params.
+func buildTimeBudgetEffect(params map[string]any, _ EffectWiringContext) (agent.Effect, error) {
+	maxDuration, err := paramDuration(params, "max_duration", 0)
+	if err != nil {
+		return nil, err
+	}
+	warnThreshold, err := paramFloat(params, "warn_threshold", 0.8)
+	if err != nil {
+		return nil, err
+	}
+	return effects.NewTimeBudgetEffect(effects.TimeBudgetConfig{
+		MaxDuration:   maxDuration,
+		WarnThreshold: warnThreshold,
+	}), nil
+}
+
+// buildStallDetectEffect creates a StallDetectEffect from YAML params.
+func buildStallDetectEffect(params map[string]any, _ EffectWiringContext) (agent.Effect, error) {
+	window, err := paramInt(params, "window", 0)
+	if err != nil {
+		return nil, err
+	}
+	similarityThreshold, err := paramFloat(params, "similarity_threshold", 0)
+	if err != nil {
+		return nil, err
+	}
+	return effects.NewStallDetectEffect(effects.StallDetectConfig{
+		Window:              window,
+		SimilarityThreshold: similarityThreshold,
+	}), nil
+}
+
+// paramDuration extracts a time.Duration from a params map with a default value.
+// Accepts Go duration strings (e.g. "5m", "1h30m").
+func paramDuration(params map[string]any, key string, def time.Duration) (time.Duration, error) {
+	v, ok := params[key]
+	if !ok {
+		return def, nil
+	}
+	s, ok := v.(string)
+	if !ok {
+		return 0, fmt.Errorf("%s must be a duration string, got %T", key, v)
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", key, err)
+	}
+	return d, nil
 }

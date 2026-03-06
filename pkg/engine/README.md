@@ -281,6 +281,9 @@ Available effect kinds:
 | `progress` | Periodic progress checkpoint. | `interval` |
 | `tool_scope` | Excludes tools from the tool list sent to the LLM. | `exclude` (list of tool names) |
 | `offload` | Offloads large tool results to disk beyond a context threshold. | `threshold`, `min_result_len`, `recent_window` |
+| `token_budget` | Enforces a cumulative token budget with a wrap-up warning. | `max_tokens`, `warn_threshold` (default 0.8) |
+| `time_budget` | Enforces a cumulative LLM inference time budget. | `max_duration` (duration string, e.g. `"5m"`), `warn_threshold` (default 0.8) |
+| `stall_detect` | Detects semantic stalls (active but no progress). | `window`, `similarity_threshold` |
 
 See `pkg/agent/effects/` for implementation details.
 
