@@ -568,7 +568,7 @@ Build the reusable components in isolation. No wiring to AppModel yet.
    - `README.md` per project conventions
    - Unit tests for scroll, dynamic item updates, spinner animation, empty state, RenderLine, cursor navigation, selection, cursor preservation on item update
 
-### Phase 3: Menu Bar Component
+### Phase 3: Menu Bar Component ✅
 Build the menu bar in isolation.
 
 1. Create `cmd/shelly/internal/menubar/` package
