@@ -360,6 +360,13 @@ func (s *Store) WatchCompleted(ctx context.Context, id string) (Task, error) {
 
 	unclaimedSince := time.Now()
 
+	remaining := unclaimedTimeout - time.Since(unclaimedSince)
+	if remaining <= 0 {
+		remaining = time.Millisecond
+	}
+	timer := time.NewTimer(remaining)
+	defer timer.Stop()
+
 	for {
 		s.mu.RLock()
 		t, ok := s.tasks[id]
@@ -390,16 +397,24 @@ func (s *Store) WatchCompleted(ctx context.Context, id string) (Task, error) {
 		s.mu.RUnlock()
 
 		// Compute remaining time until unclaimed deadline for the poll timer.
-		remaining := unclaimedTimeout - time.Since(unclaimedSince)
+		remaining = unclaimedTimeout - time.Since(unclaimedSince)
 		if remaining <= 0 {
 			remaining = time.Millisecond
 		}
+
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer.Reset(remaining)
 
 		select {
 		case <-ctx.Done():
 			return Task{}, ctx.Err()
 		case <-sig:
-		case <-time.After(remaining):
+		case <-timer.C:
 			// Wake up to re-check the unclaimed timeout even when no store
 			// mutations produce a signal.
 		}
