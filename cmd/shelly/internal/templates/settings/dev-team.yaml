@@ -63,6 +63,10 @@ config:
         - kind: compact
           params:
             threshold: 0.75
+        - kind: stall_detect
+        - kind: time_budget
+          params:
+            max_duration: "10m"
       options:
         max_iterations: 20
         max_delegation_depth: 2
@@ -97,6 +101,10 @@ config:
         - kind: compact
           params:
             threshold: 0.8
+        - kind: stall_detect
+        - kind: time_budget
+          params:
+            max_duration: "5m"
       options:
         max_iterations: 10
 
@@ -132,6 +140,10 @@ config:
         - kind: compact
           params:
             threshold: 0.8
+        - kind: stall_detect
+        - kind: time_budget
+          params:
+            max_duration: "5m"
       options:
         max_iterations: 10
 
@@ -169,6 +181,10 @@ config:
         - kind: compact
           params:
             threshold: 0.75
+        - kind: stall_detect
+        - kind: time_budget
+          params:
+            max_duration: "10m"
       options:
         max_iterations: 20
 
@@ -197,6 +213,10 @@ config:
         - kind: compact
           params:
             threshold: 0.8
+        - kind: stall_detect
+        - kind: time_budget
+          params:
+            max_duration: "5m"
       options:
         max_iterations: 10
 

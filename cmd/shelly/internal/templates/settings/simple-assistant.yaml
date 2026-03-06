@@ -42,6 +42,10 @@ config:
         - kind: compact
           params:
             threshold: 0.75
+        - kind: stall_detect
+        - kind: time_budget
+          params:
+            max_duration: "5m"
       options:
         max_iterations: 10
         max_delegation_depth: 2
