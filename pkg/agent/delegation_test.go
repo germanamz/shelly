@@ -2026,3 +2026,80 @@ func TestDelegateToolHandoffPeerGetsInteraction(t *testing.T) {
 	require.Len(t, results, 1)
 	assert.Equal(t, "edited file", results[0].Result)
 }
+
+func TestDelegateToolHandoffPeerAutoAnswerUsesHandoffContext(t *testing.T) {
+	// Planner hands off to coder with a specific handoff context.
+	// Coder calls request_input and the auto-answer should contain the
+	// handoff context ("use Go and tests"), NOT the original delegation
+	// context ("original parent context").
+	plannerCompleter := &sequenceCompleter{
+		replies: []message.Message{
+			message.New("", role.Assistant,
+				content.ToolCall{
+					ID:        "h1",
+					Name:      "handoff",
+					Arguments: `{"target_agent":"coder","reason":"need coding","context":"use Go and tests"}`,
+				},
+			),
+		},
+	}
+
+	var coderSnapshots [][]message.Message
+	coderCompleter := &snapshotCompleter{
+		snapshots: &coderSnapshots,
+		replies: []message.Message{
+			message.New("", role.Assistant,
+				content.ToolCall{
+					ID:        "ri1",
+					Name:      "request_input",
+					Arguments: `{"question":"Which file?"}`,
+				},
+			),
+			message.NewText("", role.Assistant, "done"),
+		},
+	}
+
+	reg := NewRegistry()
+	reg.Register("planner", "Planner", func() *Agent {
+		return New("planner", "", "", plannerCompleter, Options{MaxHandoffs: 3})
+	})
+	reg.Register("coder", "Coder", func() *Agent {
+		return New("coder", "", "", coderCompleter, Options{MaxHandoffs: 3})
+	})
+
+	a := &Agent{
+		name:       "orch",
+		configName: "orch",
+		registry:   reg,
+		chat:       chat.New(),
+		delegation: delegationConfig{maxDepth: 1, maxHandoffs: 3},
+	}
+	tool := delegateTool(a)
+
+	result, err := tool.Handler(context.Background(), json.RawMessage(
+		`{"tasks":[{"agent":"planner","task":"build feature","context":"original parent context"}]}`,
+	))
+
+	require.NoError(t, err)
+
+	var results []delegateResult
+	require.NoError(t, json.Unmarshal([]byte(result), &results))
+	require.Len(t, results, 1)
+	assert.Equal(t, "done", results[0].Result)
+
+	// The second snapshot (after request_input tool result) should contain
+	// the handoff context in the auto-answer, not the original context.
+	require.GreaterOrEqual(t, len(coderSnapshots), 2, "expected at least 2 snapshots from coder")
+	secondSnapshot := coderSnapshots[1]
+
+	var autoAnswerContent string
+	for _, msg := range secondSnapshot {
+		for _, p := range msg.Parts {
+			if tr, ok := p.(content.ToolResult); ok {
+				autoAnswerContent += tr.Content
+			}
+		}
+	}
+	assert.Contains(t, autoAnswerContent, "use Go and tests", "auto-answer should contain handoff context")
+	assert.NotContains(t, autoAnswerContent, "original parent context", "auto-answer should NOT contain original delegation context")
+}

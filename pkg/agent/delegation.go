@@ -535,7 +535,11 @@ func handleHandoff(ctx context.Context, a *Agent, child *Agent, t delegateTask, 
 	}
 
 	// Run the peer, continuing the handoff chain.
-	return runChildWithHandoff(ctx, a, peer, t, handoffCount+1)
+	// Use the handoff context for auto-answer so request_input gets the
+	// peer's context instead of the original parent delegation context.
+	peerTask := t
+	peerTask.Context = hr.Context
+	return runChildWithHandoff(ctx, a, peer, peerTask, handoffCount+1)
 }
 
 // buildDelegateChild spawns a child agent from the registry and configures it
