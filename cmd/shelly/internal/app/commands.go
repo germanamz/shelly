@@ -9,8 +9,10 @@ import (
 	"github.com/germanamz/shelly/cmd/shelly/internal/chatview"
 	"github.com/germanamz/shelly/cmd/shelly/internal/configwizard"
 	"github.com/germanamz/shelly/cmd/shelly/internal/format"
+	"github.com/germanamz/shelly/cmd/shelly/internal/menubar"
 	"github.com/germanamz/shelly/cmd/shelly/internal/msgs"
 	"github.com/germanamz/shelly/cmd/shelly/internal/styles"
+	"github.com/germanamz/shelly/cmd/shelly/internal/subagentpanel"
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/chats/role"
 	"github.com/germanamz/shelly/pkg/engine"
@@ -38,6 +40,9 @@ func (m *AppModel) dispatchCommand(text string) commandResult {
 		return commandResult{cmd: m.executeSessions(), handled: true}
 	case "/settings":
 		m.executeSettings()
+		return commandResult{handled: true}
+	case "/subagents":
+		m.executeSubagents()
 		return commandResult{handled: true}
 	}
 	return commandResult{}
@@ -81,6 +86,13 @@ func (m *AppModel) executeClear() tea.Cmd {
 	m.tokenCount = ""
 	m.cacheInfo = ""
 	m.sessionCost = ""
+	// Reset menu bar and panel state.
+	m.menuBar = menubar.New()
+	m.subAgentPanel = subagentpanel.New()
+	m.activePanel = PanelNone
+	m.menuFocused = false
+	m.menuHintShown = false
+	m.menuHintActive = false
 	m.cancelBridge = bridge.Start(m.ctx, m.program, m.sess.Chat(), m.eng.Events(), m.eng.Tasks(), m.sess.AgentName())
 	m.state = StateIdle
 	return nil
@@ -202,6 +214,26 @@ func (m *AppModel) executeSettings() {
 	m.configWizard = &wiz
 }
 
+func (m *AppModel) executeSubagents() {
+	if !m.menuBar.Visible() {
+		note := styles.DimStyle.Render("No sub-agents are running.")
+		m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: "\n" + note + "\n"})
+		return
+	}
+	// Toggle sub-agent panel open.
+	if m.activePanel == PanelSubAgents {
+		m.closePanel()
+		return
+	}
+	m.activePanel = PanelSubAgents
+	m.subAgentPanel.SetActive(true)
+	m.subAgentPanel.Refresh(m.chatView)
+	m.resizeSubAgentPanel()
+	m.menuFocused = false
+	m.menuBar.SetActive(false)
+	m.recalcViewportHeight()
+}
+
 func helpText() string {
 	return lipgloss.NewStyle().Foreground(styles.ColorMuted).Render(
 		fmt.Sprintf("Commands:\n" +
@@ -209,12 +241,14 @@ func helpText() string {
 			"  /clear         Clear the chat and start a new session\n" +
 			"  /compact       Compact conversation to reclaim context\n" +
 			"  /sessions      Browse and resume previous sessions\n" +
+			"  /subagents     Browse running sub-agents\n" +
 			"  /settings      Open the configuration wizard\n" +
 			"  /quit          Exit the chat\n\n" +
 			"Shortcuts:\n" +
 			"  Enter          Submit message\n" +
 			"  Shift+Enter    New line\n" +
 			"  Alt+Enter      New line\n" +
+			"  Ctrl+B         Browse sub-agents menu\n" +
 			"  Escape         Interrupt agent / dismiss picker\n" +
 			"  Ctrl+C         Exit\n" +
 			"  @              File picker\n" +

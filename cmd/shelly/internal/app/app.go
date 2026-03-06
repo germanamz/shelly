@@ -14,8 +14,10 @@ import (
 	"github.com/germanamz/shelly/cmd/shelly/internal/configwizard"
 	"github.com/germanamz/shelly/cmd/shelly/internal/format"
 	"github.com/germanamz/shelly/cmd/shelly/internal/input"
+	"github.com/germanamz/shelly/cmd/shelly/internal/menubar"
 	"github.com/germanamz/shelly/cmd/shelly/internal/msgs"
 	"github.com/germanamz/shelly/cmd/shelly/internal/styles"
+	"github.com/germanamz/shelly/cmd/shelly/internal/subagentpanel"
 	"github.com/germanamz/shelly/cmd/shelly/internal/taskpanel"
 	"github.com/germanamz/shelly/pkg/chats/content"
 	"github.com/germanamz/shelly/pkg/engine"
@@ -30,6 +32,15 @@ const (
 	StateIdle State = iota
 	StateProcessing
 	StateAskUser
+)
+
+// ActivePanel tracks which list panel is currently open.
+type ActivePanel int
+
+const (
+	PanelNone ActivePanel = iota
+	PanelSubAgents
+	PanelTasks
 )
 
 // askSet groups questions from a single agent for sequential presentation.
@@ -58,6 +69,12 @@ type AppModel struct {
 	tokenCount     string // formatted total session tokens for status bar
 	cacheInfo      string // formatted cache hit ratio for status bar
 	sessionCost    string // formatted cumulative USD cost for status bar
+	menuBar        menubar.Model
+	subAgentPanel  subagentpanel.Model
+	activePanel    ActivePanel
+	menuFocused    bool
+	menuHintShown  bool // whether the transient ctrl+b hint has been shown
+	menuHintActive bool // whether the transient hint is currently visible
 	configPath     string
 	shellyDir      string
 	configWizard   *configwizard.WizardModel
@@ -81,6 +98,8 @@ func NewAppModel(ctx context.Context, sess *engine.Session, eng *engine.Engine, 
 		chatView:      cv,
 		inputBox:      input.New(historyPath),
 		taskPanel:     taskpanel.New(),
+		menuBar:       menubar.New(),
+		subAgentPanel: subagentpanel.New(),
 		sessionPicker: input.NewSessionPicker(),
 		state:         StateIdle,
 		configPath:    configPath,
@@ -138,9 +157,21 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleSubmit(msg)
 
 	// --- Chat view (agent activity) ---
-	case msgs.ChatMessageMsg, msgs.AgentStartMsg, msgs.AgentEndMsg:
+	case msgs.ChatMessageMsg:
 		var cmd tea.Cmd
 		m.chatView, cmd = m.chatView.Update(msg)
+		return m, cmd
+
+	case msgs.AgentStartMsg:
+		var cmd tea.Cmd
+		m.chatView, cmd = m.chatView.Update(msg)
+		m.onAgentStart(msg)
+		return m, cmd
+
+	case msgs.AgentEndMsg:
+		var cmd tea.Cmd
+		m.chatView, cmd = m.chatView.Update(msg)
+		m.onAgentEnd(msg)
 		return m, cmd
 
 	// --- Session completion ---
@@ -191,6 +222,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state == StateProcessing || m.chatView.HasActiveChains() || m.taskPanel.HasActiveTasks() {
 			m.chatView, _ = m.chatView.Update(msgs.ChatViewAdvanceSpinnersMsg{})
 			m.taskPanel, _ = m.taskPanel.Update(msg)
+			if m.subAgentPanel.Active() {
+				m.subAgentPanel.AdvanceSpinner()
+			}
 			m.updateTokenCounter()
 			return m, tickCmd()
 		}
@@ -227,6 +261,18 @@ func (m AppModel) View() tea.View {
 
 	parts := []string{
 		m.chatView.View(),
+	}
+
+	// List panel (between viewport and menu bar).
+	if m.activePanel != PanelNone {
+		if panelView := m.activePanelView(); panelView != "" {
+			parts = append(parts, panelView)
+		}
+	}
+
+	// Menu bar (between panel and input).
+	if menuView := m.menuBar.View(); menuView != "" {
+		parts = append(parts, menuView)
 	}
 
 	switch {
@@ -280,6 +326,10 @@ func (m *AppModel) handleResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	format.InitMarkdownRenderer(m.width - 4)
 	m.inputBox, _ = m.inputBox.Update(msgs.InputSetWidthMsg{Width: m.width})
 	m.chatView, _ = m.chatView.Update(msgs.ChatViewSetWidthMsg{Width: m.width})
+	m.menuBar.SetWidth(m.width)
+	if m.activePanel == PanelSubAgents {
+		m.resizeSubAgentPanel()
+	}
 	m.recalcViewportHeight()
 	return m, nil
 }
@@ -293,6 +343,11 @@ func (m *AppModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.cancelBridge()
 		}
 		return m, func() tea.Msg { return tea.QuitMsg{} }
+	}
+
+	// Dismiss the transient menu bar hint on any keypress.
+	if m.menuHintActive {
+		m.menuHintActive = false
 	}
 
 	// Page Up / Page Down always scroll the viewport.
@@ -314,7 +369,24 @@ func (m *AppModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	// Escape priority: picker → agent interrupt → no-op.
+	// List panel active — forward Up/Down/Enter/Esc.
+	if m.activePanel != PanelNone {
+		return m.handlePanelKey(msg)
+	}
+
+	// Menu bar focused — forward Left/Right/Enter/Esc.
+	if m.menuFocused {
+		return m.handleMenuBarKey(msg)
+	}
+
+	// Ctrl+B toggles menu bar focus (only when menu is visible).
+	if k.Code == 'b' && k.Mod&tea.ModCtrl != 0 && m.menuBar.Visible() {
+		m.menuFocused = true
+		m.menuBar.SetActive(true)
+		return m, nil
+	}
+
+	// Escape priority: picker → panel → menu → agent interrupt → no-op.
 	if k.Code == tea.KeyEsc {
 		if m.inputBox.PickerActive() {
 			var cmd tea.Cmd
@@ -332,6 +404,80 @@ func (m *AppModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.inputBox, cmd = m.inputBox.Update(msg)
 	return m, cmd
+}
+
+// handleMenuBarKey handles key events when the menu bar is focused.
+func (m *AppModel) handleMenuBarKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	k := msg.Key()
+
+	switch {
+	case k.Code == tea.KeyLeft:
+		m.menuBar.MoveLeft()
+	case k.Code == tea.KeyRight:
+		m.menuBar.MoveRight()
+	case k.Code == tea.KeyEnter || k.Code == tea.KeySpace:
+		if sel := m.menuBar.Select(); sel != nil {
+			return m.handleMenuItemSelected(sel.ID)
+		}
+	case k.Code == tea.KeyEsc:
+		m.menuFocused = false
+		m.menuBar.SetActive(false)
+	case k.Code == 'b' && k.Mod&tea.ModCtrl != 0:
+		// Ctrl+B toggles back to input.
+		m.menuFocused = false
+		m.menuBar.SetActive(false)
+	}
+	return m, nil
+}
+
+// handlePanelKey handles key events when a list panel is open.
+func (m *AppModel) handlePanelKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	k := msg.Key()
+
+	if m.activePanel == PanelSubAgents {
+		switch k.Code {
+		case tea.KeyUp:
+			m.subAgentPanel.MoveUp()
+		case tea.KeyDown:
+			m.subAgentPanel.MoveDown()
+		case tea.KeyEnter:
+			if sel := m.subAgentPanel.Select(); sel != nil {
+				m.closePanel()
+				return m, nil // Phase 6 will handle SubAgentSelectedMsg + ChatViewFocusAgentMsg
+			}
+		case tea.KeyEsc:
+			m.closePanel()
+		}
+	}
+	return m, nil
+}
+
+// handleMenuItemSelected activates the panel for the given menu item ID.
+func (m *AppModel) handleMenuItemSelected(id string) (tea.Model, tea.Cmd) {
+	if id == subagentpanel.PanelID {
+		if m.activePanel == PanelSubAgents {
+			m.closePanel()
+			return m, nil
+		}
+		m.activePanel = PanelSubAgents
+		m.subAgentPanel.SetActive(true)
+		m.subAgentPanel.Refresh(m.chatView)
+		m.resizeSubAgentPanel()
+		m.recalcViewportHeight()
+	}
+	// Menu bar loses focus when a panel opens.
+	m.menuFocused = false
+	m.menuBar.SetActive(false)
+	return m, nil
+}
+
+// closePanel closes whatever panel is open and restores viewport height.
+func (m *AppModel) closePanel() {
+	if m.activePanel == PanelSubAgents {
+		m.subAgentPanel.SetActive(false)
+	}
+	m.activePanel = PanelNone
+	m.recalcViewportHeight()
 }
 
 func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
@@ -462,7 +608,7 @@ func (m *AppModel) updateTokenCounter() {
 	}
 }
 
-// statusBar renders the task panel and token counter below the input.
+// statusBar renders the task panel, token counter, and keyboard hints below the input.
 func (m AppModel) statusBar() string {
 	var parts []string
 	if panel := m.taskPanel.View(); panel != "" {
@@ -481,6 +627,10 @@ func (m AppModel) statusBar() string {
 	if m.cacheInfo != "" {
 		segments = append(segments, m.cacheInfo)
 	}
+	// Keyboard hints.
+	if hint := m.keyboardHint(); hint != "" {
+		segments = append(segments, hint)
+	}
 	if len(segments) > 0 {
 		status := " " + strings.Join(segments, " | ")
 		parts = append(parts, styles.StatusStyle.Render(status))
@@ -491,6 +641,19 @@ func (m AppModel) statusBar() string {
 	return strings.Join(parts, "\n")
 }
 
+// keyboardHint returns context-sensitive keyboard hints for the status bar.
+func (m AppModel) keyboardHint() string {
+	switch {
+	case m.activePanel != PanelNone:
+		return styles.DimStyle.Render("↑↓ navigate  ⏎ select  esc close")
+	case m.menuFocused:
+		return styles.DimStyle.Render("←→ navigate  ⏎ select  esc back")
+	case m.menuHintActive:
+		return styles.DimStyle.Render("ctrl+b to browse sub-agents")
+	}
+	return ""
+}
+
 // recalcViewportHeight computes the available viewport height and sends it
 // to the chatview. Call after resize or when the input height changes.
 func (m *AppModel) recalcViewportHeight() {
@@ -499,8 +662,85 @@ func (m *AppModel) recalcViewportHeight() {
 	if panel := m.taskPanel.View(); panel != "" {
 		statusLines += strings.Count(panel, "\n") + 1
 	}
-	vpHeight := max(m.height-m.inputBox.ViewHeight()-statusLines, 3)
+	// Menu bar and list panel heights.
+	extraLines := m.menuBar.Height() + m.subAgentPanel.Height()
+	vpHeight := max(m.height-m.inputBox.ViewHeight()-statusLines-extraLines, 3)
 	m.chatView, _ = m.chatView.Update(msgs.ChatViewSetHeightMsg{Height: vpHeight})
+}
+
+// activePanelView returns the rendered view for the currently active panel.
+func (m AppModel) activePanelView() string {
+	switch m.activePanel {
+	case PanelSubAgents:
+		return m.subAgentPanel.View()
+	default:
+		return ""
+	}
+}
+
+// onAgentStart handles menu bar badge updates when a sub-agent starts.
+func (m *AppModel) onAgentStart(msg msgs.AgentStartMsg) {
+	if msg.Parent == "" {
+		return // top-level agent, not a sub-agent
+	}
+	agents := m.chatView.SubAgents()
+	badge := len(agents)
+
+	// Ensure menu bar is visible and has the "Subagents" item.
+	if !m.menuBar.Visible() {
+		m.menuBar.SetVisible(true)
+		m.menuBar.SetWidth(m.width)
+		// Show transient hint on first appearance.
+		if !m.menuHintShown {
+			m.menuHintShown = true
+			m.menuHintActive = true
+		}
+		m.recalcViewportHeight()
+	}
+	m.menuBar.AddOrUpdateItem(menubar.Item{
+		ID:    subagentpanel.PanelID,
+		Label: "Subagents",
+		Badge: badge,
+	})
+
+	// Refresh the panel list if it's currently open.
+	if m.activePanel == PanelSubAgents {
+		m.subAgentPanel.Refresh(m.chatView)
+	}
+}
+
+// onAgentEnd handles menu bar badge updates when a sub-agent ends.
+func (m *AppModel) onAgentEnd(msg msgs.AgentEndMsg) {
+	if msg.Parent == "" {
+		return
+	}
+	agents := m.chatView.SubAgents()
+	badge := len(agents)
+
+	m.menuBar.AddOrUpdateItem(menubar.Item{
+		ID:    subagentpanel.PanelID,
+		Label: "Subagents",
+		Badge: badge,
+	})
+
+	// Refresh the panel list if it's currently open.
+	if m.activePanel == PanelSubAgents {
+		m.subAgentPanel.Refresh(m.chatView)
+	}
+}
+
+// resizeSubAgentPanel computes and sets the panel size based on current items.
+func (m *AppModel) resizeSubAgentPanel() {
+	agents := m.chatView.SubAgents()
+	// Panel height: min(items + 2 borders, 12), or 3 for empty state.
+	h := len(agents) + 2
+	if len(agents) == 0 {
+		h = 3
+	}
+	if h > 12 {
+		h = 12
+	}
+	m.subAgentPanel.SetSize(m.width, h)
 }
 
 func (m *AppModel) handleAskUser(msg msgs.AskUserMsg) (tea.Model, tea.Cmd) {

@@ -577,7 +577,7 @@ Build the menu bar in isolation.
    - `README.md` per project conventions
    - Unit tests for navigation, selection, resize, disabled items
 
-### Phase 4: Sub-Agent Browser + AppModel Wiring
+### Phase 4: Sub-Agent Browser + AppModel Wiring ✅
 Wire the generic components into the sub-agent browser and integrate into AppModel.
 
 1. Create `cmd/shelly/internal/subagentpanel/` package composing `panel.Model` + `list.Model` (selectable)
