@@ -56,7 +56,16 @@ func (s *Search) checkPermission(ctx context.Context, dir string) error {
 	}
 
 	if realAbs != "" && realAbs != abs {
-		if err := s.askAndApproveDir(ctx, realAbs); err != nil {
+		if err := s.approver.Ensure(ctx, realAbs,
+			func() bool { return s.store.IsDirApproved(realAbs) },
+			func(ctx context.Context) codingtoolbox.ApprovalOutcome {
+				return codingtoolbox.ApprovalOutcome{
+					Err:    s.askAndApproveDir(ctx, realAbs),
+					Shared: true,
+				}
+			},
+			nil,
+		); err != nil {
 			return err
 		}
 	}
