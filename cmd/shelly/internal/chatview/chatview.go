@@ -684,6 +684,13 @@ func (m *ChatViewModel) endAgent(agentName, completionSummary string) {
 		if sa.FinalAnswer == "" && completionSummary != "" {
 			sa.FinalAnswer = completionSummary
 		}
+
+		// Replace the AgentContainer in parent's Items with a SummaryLineItem.
+		parentName := m.subAgentParent[agentName]
+		if parentAC := m.resolveContainer(parentName); parentAC != nil {
+			m.replaceWithSummaryLine(parentAC, sa)
+		}
+
 		delete(m.subAgents, agentName)
 		delete(m.subAgentParent, agentName)
 		// Clean up view stack entry if not currently viewed.
@@ -717,14 +724,41 @@ func (m *ChatViewModel) endAgent(agentName, completionSummary string) {
 	}
 }
 
+// replaceWithSummaryLine finds the AgentContainer for the given sub-agent
+// in the parent's Items and replaces it with a SummaryLineItem.
+func (m *ChatViewModel) replaceWithSummaryLine(parentAC *AgentContainer, sa *AgentContainer) {
+	end := sa.EndTime
+	if end.IsZero() {
+		end = time.Now()
+	}
+	summary := &SummaryLineItem{
+		Agent:         sa.Agent,
+		Prefix:        sa.Prefix,
+		ProviderLabel: sa.ProviderLabel,
+		FinalAnswer:   sa.FinalAnswer,
+		Color:         sa.Color,
+		Elapsed:       format.FmtDuration(end.Sub(sa.StartTime)),
+	}
+	for i, item := range parentAC.Items {
+		if ac, ok := item.(*AgentContainer); ok && ac.Agent == sa.Agent {
+			parentAC.Items[i] = summary
+			return
+		}
+	}
+}
+
 // flushAll ends all remaining agents and appends their collapsed summaries
 // to the committed buffer.
 func (m *ChatViewModel) flushAll() {
-	// End sub-agents first so their containers are marked Done.
+	// End sub-agents first and replace their containers with summary lines.
 	for name, sa := range m.subAgents {
 		sa.Done = true
 		if sa.EndTime.IsZero() {
 			sa.EndTime = time.Now()
+		}
+		parentName := m.subAgentParent[name]
+		if parentAC := m.resolveContainer(parentName); parentAC != nil {
+			m.replaceWithSummaryLine(parentAC, sa)
 		}
 		delete(m.subAgents, name)
 		delete(m.subAgentParent, name)

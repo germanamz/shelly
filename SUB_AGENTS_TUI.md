@@ -653,7 +653,7 @@ Now that panel + list components are validated via the sub-agent browser, apply 
    - `TestScrollPosition_AutoScrollOnNewContent` — returning to parent auto-scrolls if new messages arrived while away
 10. **Golden tests:** Verify root view rendering is unchanged after modifications
 
-### Phase 7: Agent Disposal
+### Phase 7: Agent Disposal ✅
 Separated from agent-scoped view to isolate the data lifecycle change. Depends on Phase 6 (view stack must exist for pinned pointer handling).
 
 1. Implement agent disposal on completion:

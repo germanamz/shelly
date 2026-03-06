@@ -347,3 +347,53 @@ func (m *PlanItem) View(width int) string {
 
 func (m *PlanItem) IsLive() bool { return false }
 func (m *PlanItem) Kind() string { return "plan" }
+
+// --- SummaryLineItem ---
+
+// SummaryLineItem is a single-line summary for a disposed sub-agent,
+// replacing the full AgentContainer in the parent's Items after the
+// sub-agent finishes.
+type SummaryLineItem struct {
+	Agent         string
+	Prefix        string // emoji prefix (e.g. "🤖")
+	ProviderLabel string
+	FinalAnswer   string
+	Color         string // hex color string
+	Elapsed       string // pre-formatted duration
+	Failed        bool   // true if the agent failed
+}
+
+func (m *SummaryLineItem) View(width int) string {
+	statusIcon := styles.DimStyle.Render("✓")
+	if m.Failed {
+		statusIcon = lipgloss.NewStyle().Foreground(styles.ColorError).Render("✗")
+	}
+
+	label := m.Agent
+	if m.ProviderLabel != "" {
+		label += " (" + m.ProviderLabel + ")"
+	}
+
+	header := colorStyle(m.Color).Render(fmt.Sprintf("%s %s", m.Prefix, label))
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%s %s", statusIcon, header)
+
+	suffix := ""
+	if m.Elapsed != "" {
+		suffix = " " + styles.DimStyle.Render(m.Elapsed)
+	}
+
+	if m.FinalAnswer != "" {
+		// Compute available width for the answer excerpt.
+		// Reserve space for the prefix, header, separator, and elapsed.
+		excerpt := format.Truncate(m.FinalAnswer, 60)
+		fmt.Fprintf(&sb, " %s %s", styles.DimStyle.Render("—"), styles.DimStyle.Render(excerpt))
+	}
+
+	sb.WriteString(suffix)
+	return sb.String()
+}
+
+func (m *SummaryLineItem) IsLive() bool { return false }
+func (m *SummaryLineItem) Kind() string { return "summary_line" }
