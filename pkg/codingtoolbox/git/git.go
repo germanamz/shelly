@@ -19,9 +19,6 @@ import (
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
-// maxBufferSize is the maximum number of bytes captured from stdout/stderr (1MB).
-const maxBufferSize = 1 << 20
-
 // allowedLogFormats is the set of git built-in format names accepted by
 // the git_log tool. Custom format strings (e.g. "format:%H") are not
 // allowed to prevent exfiltration of sensitive repository metadata.
@@ -100,31 +97,12 @@ func (g *Git) runGit(ctx context.Context, args ...string) (string, error) {
 		cmd.Dir = g.workDir
 	}
 
-	stdout := codingtoolbox.NewLimitedBuffer(maxBufferSize)
-	stderr := codingtoolbox.NewLimitedBuffer(maxBufferSize)
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-
-	err := cmd.Run()
-
-	var result strings.Builder
-	if stdout.Len() > 0 {
-		result.WriteString(stdout.String())
-	}
-
-	if stderr.Len() > 0 {
-		if result.Len() > 0 {
-			result.WriteString("\n")
-		}
-
-		result.WriteString(stderr.String())
-	}
-
+	output, err := codingtoolbox.RunCmd(cmd)
 	if err != nil {
-		return "", fmt.Errorf("git: %w\n%s", err, result.String())
+		return "", fmt.Errorf("git: %w\n%s", err, output)
 	}
 
-	return result.String(), nil
+	return output, nil
 }
 
 // --- git_status ---

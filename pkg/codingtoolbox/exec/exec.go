@@ -18,9 +18,6 @@ import (
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
-// maxBufferSize is the maximum number of bytes captured from stdout/stderr (1MB).
-const maxBufferSize = 1 << 20
-
 // OnExecFunc is called when a trusted command is about to execute, giving the
 // frontend an opportunity to display what is being run without blocking.
 type OnExecFunc func(ctx context.Context, display string)
@@ -95,31 +92,12 @@ func (e *Exec) handleRun(ctx context.Context, input json.RawMessage) (string, er
 
 	cmd := osexec.CommandContext(ctx, in.Command, in.Args...) //nolint:gosec // command is approved by user
 
-	stdout := codingtoolbox.NewLimitedBuffer(maxBufferSize)
-	stderr := codingtoolbox.NewLimitedBuffer(maxBufferSize)
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-
-	err := cmd.Run()
-
-	var result strings.Builder
-	if stdout.Len() > 0 {
-		result.WriteString(stdout.String())
-	}
-
-	if stderr.Len() > 0 {
-		if result.Len() > 0 {
-			result.WriteString("\n")
-		}
-
-		result.WriteString(stderr.String())
-	}
-
+	output, err := codingtoolbox.RunCmd(cmd)
 	if err != nil {
-		return "", fmt.Errorf("exec_run: %w\n%s", err, result.String())
+		return "", fmt.Errorf("exec_run: %w\n%s", err, output)
 	}
 
-	return result.String(), nil
+	return output, nil
 }
 
 func (e *Exec) checkPermission(ctx context.Context, command string, args []string) error {
