@@ -64,27 +64,7 @@ func (e *ObservationMaskEffect) Eval(_ context.Context, ic agent.IterationContex
 // shouldMask returns true when the context is estimated or measured to
 // have exceeded the configured threshold.
 func (e *ObservationMaskEffect) shouldMask(completer modeladapter.Completer, estimatedTokens int) bool {
-	if e.cfg.ContextWindow <= 0 || e.cfg.Threshold <= 0 {
-		return false
-	}
-
-	limit := int(float64(e.cfg.ContextWindow) * e.cfg.Threshold)
-
-	if estimatedTokens > 0 && estimatedTokens >= limit {
-		return true
-	}
-
-	reporter, ok := completer.(modeladapter.UsageReporter)
-	if !ok {
-		return false
-	}
-
-	last, ok := reporter.UsageTracker().Last()
-	if !ok {
-		return false
-	}
-
-	return last.InputTokens >= limit
+	return exceedsThreshold(completer, estimatedTokens, e.cfg.ContextWindow, e.cfg.Threshold)
 }
 
 // mask replaces tool result content in older messages with brief placeholders.

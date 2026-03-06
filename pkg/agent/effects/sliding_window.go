@@ -117,27 +117,7 @@ func (e *SlidingWindowEffect) Eval(ctx context.Context, ic agent.IterationContex
 // shouldManage returns true when the context is estimated or measured to
 // have exceeded the configured threshold.
 func (e *SlidingWindowEffect) shouldManage(completer modeladapter.Completer, estimatedTokens int) bool {
-	if e.cfg.ContextWindow <= 0 || e.cfg.Threshold <= 0 {
-		return false
-	}
-
-	limit := int(float64(e.cfg.ContextWindow) * e.cfg.Threshold)
-
-	if estimatedTokens > 0 && estimatedTokens >= limit {
-		return true
-	}
-
-	reporter, ok := completer.(modeladapter.UsageReporter)
-	if !ok {
-		return false
-	}
-
-	last, ok := reporter.UsageTracker().Last()
-	if !ok {
-		return false
-	}
-
-	return last.InputTokens >= limit
+	return exceedsThreshold(completer, estimatedTokens, e.cfg.ContextWindow, e.cfg.Threshold)
 }
 
 // manage applies the three-zone sliding window to the chat.

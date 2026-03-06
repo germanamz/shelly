@@ -128,27 +128,10 @@ func (e *OffloadEffect) ProvidedTools() *toolbox.ToolBox {
 
 // shouldOffload returns true when the context exceeds the threshold.
 func (e *OffloadEffect) shouldOffload(completer modeladapter.Completer, estimatedTokens int) bool {
-	if e.cfg.ContextWindow <= 0 || e.cfg.Threshold <= 0 || e.cfg.StorageDir == "" {
+	if e.cfg.StorageDir == "" {
 		return false
 	}
-
-	limit := int(float64(e.cfg.ContextWindow) * e.cfg.Threshold)
-
-	if estimatedTokens > 0 && estimatedTokens >= limit {
-		return true
-	}
-
-	reporter, ok := completer.(modeladapter.UsageReporter)
-	if !ok {
-		return false
-	}
-
-	last, ok := reporter.UsageTracker().Last()
-	if !ok {
-		return false
-	}
-
-	return last.InputTokens >= limit
+	return exceedsThreshold(completer, estimatedTokens, e.cfg.ContextWindow, e.cfg.Threshold)
 }
 
 // offload writes large tool results to disk and replaces them with placeholders.

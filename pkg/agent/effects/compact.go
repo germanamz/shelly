@@ -76,28 +76,7 @@ func (e *CompactEffect) Eval(ctx context.Context, ic agent.IterationContext) err
 // shouldCompact returns true when the context is estimated or measured to
 // have reached or exceeded contextWindow * threshold.
 func (e *CompactEffect) shouldCompact(completer modeladapter.Completer, estimatedTokens int) bool {
-	if e.cfg.ContextWindow <= 0 || e.cfg.Threshold <= 0 {
-		return false
-	}
-
-	limit := int(float64(e.cfg.ContextWindow) * e.cfg.Threshold)
-
-	// Use pre-call estimate when available (enables firing on iteration 0).
-	if estimatedTokens > 0 && estimatedTokens >= limit {
-		return true
-	}
-
-	reporter, ok := completer.(modeladapter.UsageReporter)
-	if !ok {
-		return false
-	}
-
-	last, ok := reporter.UsageTracker().Last()
-	if !ok {
-		return false
-	}
-
-	return last.InputTokens >= limit
+	return exceedsThreshold(completer, estimatedTokens, e.cfg.ContextWindow, e.cfg.Threshold)
 }
 
 // Summarize performs full conversation summarization, keeping the system prompt

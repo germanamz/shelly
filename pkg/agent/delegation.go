@@ -275,6 +275,20 @@ func waitForInitialChildResponse(ctx context.Context, reg *DelegationRegistry, d
 	}
 }
 
+// propagateParentConfig applies the common parent-to-child configuration that
+// all delegation paths share: unique instance name, registry, event wiring,
+// reflection directory, and task board.
+func propagateParentConfig(parent, child *Agent, configName string, t delegateTask) {
+	child.name = fmt.Sprintf("%s-%s-%d", configName, taskSlug(t.Task), parent.registry.NextID(configName))
+	child.registry = parent.registry
+	child.events.notifier = parent.events.notifier
+	child.events.eventFunc = delegationProgressFunc(parent.events.eventFunc, parent.events.notifier, child.name, parent.name)
+	child.events.cancelRegistrar = parent.events.cancelRegistrar
+	child.events.cancelUnregistrar = parent.events.cancelUnregistrar
+	child.delegation.reflectionDir = parent.delegation.reflectionDir
+	child.delegation.taskBoard = parent.delegation.taskBoard
+}
+
 // buildInteractiveDelegateChild creates a child agent wired for interactive
 // delegation with a shared question queue.
 func buildInteractiveDelegateChild(a *Agent, t delegateTask, delegationID string, questionCh chan PendingQuestion) (*Agent, error) {
@@ -283,14 +297,7 @@ func buildInteractiveDelegateChild(a *Agent, t delegateTask, delegationID string
 		return nil, fmt.Errorf("agent %q not found", t.Agent)
 	}
 
-	child.name = fmt.Sprintf("%s-%s-%d", t.Agent, taskSlug(t.Task), a.registry.NextID(t.Agent))
-	child.registry = a.registry
-	child.events.notifier = a.events.notifier
-	child.events.eventFunc = delegationProgressFunc(a.events.eventFunc, a.events.notifier, child.name, a.name)
-	child.events.cancelRegistrar = a.events.cancelRegistrar
-	child.events.cancelUnregistrar = a.events.cancelUnregistrar
-	child.delegation.reflectionDir = a.delegation.reflectionDir
-	child.delegation.taskBoard = a.delegation.taskBoard
+	propagateParentConfig(a, child, t.Agent, t)
 
 	// Wire per-delegation InteractionChannel.
 	child.interaction = NewSharedInteractionChannel(delegationID, questionCh)
@@ -504,14 +511,7 @@ func handleHandoff(ctx context.Context, a *Agent, child *Agent, t delegateTask, 
 	}
 
 	// Configure peer like a normal delegate child.
-	peer.name = fmt.Sprintf("%s-%s-%d", hr.TargetAgent, taskSlug(t.Task), a.registry.NextID(hr.TargetAgent))
-	peer.registry = a.registry
-	peer.events.notifier = a.events.notifier
-	peer.events.eventFunc = delegationProgressFunc(a.events.eventFunc, a.events.notifier, peer.name, a.name)
-	peer.events.cancelRegistrar = a.events.cancelRegistrar
-	peer.events.cancelUnregistrar = a.events.cancelUnregistrar
-	peer.delegation.reflectionDir = a.delegation.reflectionDir
-	peer.delegation.taskBoard = a.delegation.taskBoard
+	propagateParentConfig(a, peer, hr.TargetAgent, t)
 	peer.interaction = NewInteractionChannel()
 
 	// Transfer context: handoff context + reason wrapped in <handoff_context> tags.
@@ -552,16 +552,7 @@ func buildDelegateChild(a *Agent, t delegateTask) (*Agent, error) {
 		return nil, fmt.Errorf("agent %q not found", t.Agent)
 	}
 
-	// Generate a unique instance name: "<configName>-<slug>-<counter>".
-	child.name = fmt.Sprintf("%s-%s-%d", t.Agent, taskSlug(t.Task), a.registry.NextID(t.Agent))
-
-	child.registry = a.registry
-	child.events.notifier = a.events.notifier
-	child.events.eventFunc = delegationProgressFunc(a.events.eventFunc, a.events.notifier, child.name, a.name)
-	child.events.cancelRegistrar = a.events.cancelRegistrar
-	child.events.cancelUnregistrar = a.events.cancelUnregistrar
-	child.delegation.reflectionDir = a.delegation.reflectionDir
-	child.delegation.taskBoard = a.delegation.taskBoard
+	propagateParentConfig(a, child, t.Agent, t)
 
 	// Wire an InteractionChannel so the child can ask questions via request_input.
 	child.interaction = NewInteractionChannel()
