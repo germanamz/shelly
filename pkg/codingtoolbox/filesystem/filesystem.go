@@ -22,6 +22,8 @@ import (
 	"github.com/germanamz/shelly/pkg/tools/toolbox"
 )
 
+const maxReadSize = 10 << 20 // 10 MB
+
 // fileMode returns the existing file's permission bits, or 0o600 for new files.
 func fileMode(path string) fs.FileMode {
 	info, err := os.Stat(path)
@@ -218,7 +220,6 @@ func (f *FS) handleRead(ctx context.Context, input json.RawMessage) (string, err
 	}
 	defer file.Close() //nolint:errcheck // best-effort close on read
 
-	const maxReadSize = 10 << 20 // 10 MB
 	data, err := io.ReadAll(io.LimitReader(file, int64(maxReadSize)+1))
 	if err != nil {
 		return "", fmt.Errorf("fs_read: %w", err)
@@ -265,7 +266,6 @@ func (f *FS) handleReadLines(ctx context.Context, input json.RawMessage) (string
 	}
 	defer file.Close() //nolint:errcheck // best-effort close on read
 
-	const maxReadSize = 10 << 20 // 10 MB
 	raw, err := io.ReadAll(io.LimitReader(file, int64(maxReadSize)+1))
 	if err != nil {
 		return "", fmt.Errorf("fs_read_lines: %w", err)
