@@ -45,7 +45,9 @@ func (e *Engine) parallelInit(ctx context.Context, cfg Config, dir shellydir.Dir
 		start := time.Now()
 		projectRoot := filepath.Dir(dir.Root())
 		loadedCtx = projectctx.Load(dir, projectRoot, cfg.Context.MaxExternalFileSize)
-		knowledgeStale = projectctx.IsKnowledgeStale(projectRoot, dir)
+		if dir.Exists() {
+			knowledgeStale = projectctx.IsKnowledgeStale(projectRoot, dir)
+		}
 		status(fmt.Sprintf("Project context ready (%s)", time.Since(start).Round(time.Millisecond)))
 	})
 
