@@ -200,7 +200,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// --- Task panel ---
 	case msgs.TasksChangedMsg:
-		m.taskPanel, _ = m.taskPanel.Update(msg)
+		m.taskPanel.SetTasks(msg.Tasks)
+		m.onTasksChanged()
 		return m, nil
 
 	// --- Session picker ---
@@ -221,7 +222,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case msgs.TickMsg:
 		if m.state == StateProcessing || m.chatView.HasActiveChains() || m.taskPanel.HasActiveTasks() {
 			m.chatView, _ = m.chatView.Update(msgs.ChatViewAdvanceSpinnersMsg{})
-			m.taskPanel, _ = m.taskPanel.Update(msg)
+			m.taskPanel.AdvanceSpinner()
 			if m.subAgentPanel.Active() {
 				m.subAgentPanel.AdvanceSpinner()
 			}
@@ -327,8 +328,11 @@ func (m *AppModel) handleResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.inputBox, _ = m.inputBox.Update(msgs.InputSetWidthMsg{Width: m.width})
 	m.chatView, _ = m.chatView.Update(msgs.ChatViewSetWidthMsg{Width: m.width})
 	m.menuBar.SetWidth(m.width)
-	if m.activePanel == PanelSubAgents {
+	switch m.activePanel {
+	case PanelSubAgents:
 		m.resizeSubAgentPanel()
+	case PanelTasks:
+		m.resizeTaskPanel()
 	}
 	m.recalcViewportHeight()
 	return m, nil
@@ -434,7 +438,8 @@ func (m *AppModel) handleMenuBarKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *AppModel) handlePanelKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	k := msg.Key()
 
-	if m.activePanel == PanelSubAgents {
+	switch m.activePanel {
+	case PanelSubAgents:
 		switch k.Code {
 		case tea.KeyUp:
 			m.subAgentPanel.MoveUp()
@@ -448,21 +453,42 @@ func (m *AppModel) handlePanelKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case tea.KeyEsc:
 			m.closePanel()
 		}
+	case PanelTasks:
+		switch k.Code {
+		case tea.KeyUp:
+			m.taskPanel.MoveUp()
+		case tea.KeyDown:
+			m.taskPanel.MoveDown()
+		case tea.KeyEsc:
+			m.closePanel()
+		}
 	}
 	return m, nil
 }
 
 // handleMenuItemSelected activates the panel for the given menu item ID.
 func (m *AppModel) handleMenuItemSelected(id string) (tea.Model, tea.Cmd) {
-	if id == subagentpanel.PanelID {
+	switch id {
+	case subagentpanel.PanelID:
 		if m.activePanel == PanelSubAgents {
 			m.closePanel()
 			return m, nil
 		}
+		m.closePanel() // close any other panel first
 		m.activePanel = PanelSubAgents
 		m.subAgentPanel.SetActive(true)
 		m.subAgentPanel.Refresh(m.chatView)
 		m.resizeSubAgentPanel()
+		m.recalcViewportHeight()
+	case taskpanel.PanelID:
+		if m.activePanel == PanelTasks {
+			m.closePanel()
+			return m, nil
+		}
+		m.closePanel() // close any other panel first
+		m.activePanel = PanelTasks
+		m.taskPanel.SetActive(true)
+		m.resizeTaskPanel()
 		m.recalcViewportHeight()
 	}
 	// Menu bar loses focus when a panel opens.
@@ -473,8 +499,11 @@ func (m *AppModel) handleMenuItemSelected(id string) (tea.Model, tea.Cmd) {
 
 // closePanel closes whatever panel is open and restores viewport height.
 func (m *AppModel) closePanel() {
-	if m.activePanel == PanelSubAgents {
+	switch m.activePanel {
+	case PanelSubAgents:
 		m.subAgentPanel.SetActive(false)
+	case PanelTasks:
+		m.taskPanel.SetActive(false)
 	}
 	m.activePanel = PanelNone
 	m.recalcViewportHeight()
@@ -608,12 +637,9 @@ func (m *AppModel) updateTokenCounter() {
 	}
 }
 
-// statusBar renders the task panel, token counter, and keyboard hints below the input.
+// statusBar renders the token counter and keyboard hints below the input.
 func (m AppModel) statusBar() string {
 	var parts []string
-	if panel := m.taskPanel.View(); panel != "" {
-		parts = append(parts, panel)
-	}
 	var segments []string
 	if label := m.sess.ProviderInfo().Label(); label != "" {
 		segments = append(segments, label)
@@ -644,6 +670,8 @@ func (m AppModel) statusBar() string {
 // keyboardHint returns context-sensitive keyboard hints for the status bar.
 func (m AppModel) keyboardHint() string {
 	switch {
+	case m.activePanel == PanelTasks:
+		return styles.DimStyle.Render("↑↓ scroll  esc close")
 	case m.activePanel != PanelNone:
 		return styles.DimStyle.Render("↑↓ navigate  ⏎ select  esc close")
 	case m.menuFocused:
@@ -657,13 +685,10 @@ func (m AppModel) keyboardHint() string {
 // recalcViewportHeight computes the available viewport height and sends it
 // to the chatview. Call after resize or when the input height changes.
 func (m *AppModel) recalcViewportHeight() {
-	// Status bar: 1 line for token counter (always reserve), plus task panel lines.
+	// Status bar: 1 line for token counter (always reserve).
 	statusLines := 1
-	if panel := m.taskPanel.View(); panel != "" {
-		statusLines += strings.Count(panel, "\n") + 1
-	}
-	// Menu bar and list panel heights.
-	extraLines := m.menuBar.Height() + m.subAgentPanel.Height()
+	// Menu bar, sub-agent panel, and task panel heights.
+	extraLines := m.menuBar.Height() + m.subAgentPanel.Height() + m.taskPanel.Height()
 	vpHeight := max(m.height-m.inputBox.ViewHeight()-statusLines-extraLines, 3)
 	m.chatView, _ = m.chatView.Update(msgs.ChatViewSetHeightMsg{Height: vpHeight})
 }
@@ -673,6 +698,8 @@ func (m AppModel) activePanelView() string {
 	switch m.activePanel {
 	case PanelSubAgents:
 		return m.subAgentPanel.View()
+	case PanelTasks:
+		return m.taskPanel.View()
 	default:
 		return ""
 	}
@@ -741,6 +768,43 @@ func (m *AppModel) resizeSubAgentPanel() {
 		h = 12
 	}
 	m.subAgentPanel.SetSize(m.width, h)
+}
+
+// resizeTaskPanel computes and sets the panel size based on current task count.
+func (m *AppModel) resizeTaskPanel() {
+	count := len(m.taskPanel.Tasks())
+	// Panel height: min(items + 2 borders, 12), or 3 for empty state.
+	h := count + 2
+	if count == 0 {
+		h = 3
+	}
+	if h > 12 {
+		h = 12
+	}
+	m.taskPanel.SetSize(m.width, h)
+}
+
+// onTasksChanged handles menu bar badge updates and panel refresh when tasks change.
+func (m *AppModel) onTasksChanged() {
+	badge := m.taskPanel.ActiveTaskCount()
+
+	// Lazy item creation: add "Tasks" item on first TasksChangedMsg.
+	if !m.menuBar.Visible() {
+		m.menuBar.SetVisible(true)
+		m.menuBar.SetWidth(m.width)
+		m.recalcViewportHeight()
+	}
+	m.menuBar.AddOrUpdateItem(menubar.Item{
+		ID:    taskpanel.PanelID,
+		Label: "Tasks",
+		Badge: badge,
+	})
+
+	// Refresh the panel if it's currently open.
+	if m.activePanel == PanelTasks {
+		m.resizeTaskPanel()
+		m.recalcViewportHeight()
+	}
 }
 
 func (m *AppModel) handleAskUser(msg msgs.AskUserMsg) (tea.Model, tea.Cmd) {

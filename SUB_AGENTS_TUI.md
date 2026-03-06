@@ -607,7 +607,7 @@ Wire the generic components into the sub-agent browser and integrate into AppMod
    - `TestMenuBarHint_ShownOnFirstAppearance` — Transient status bar hint shown when menu bar first appears
    - `TestMenuBarHint_DismissedOnKeypress` — Hint dismissed on any keypress or after timeout
 
-### Phase 5: Task Browser (refactor taskpanel)
+### Phase 5: Task Browser (refactor taskpanel) ✅
 Now that panel + list components are validated via the sub-agent browser, apply them to the task browser.
 
 1. **Golden tests first:** Snapshot the current task panel rendered output as golden files before touching any code. These capture exact sort order, summary format, and visual layout. The refactor must not change behavior — any visual difference is an explicit, reviewable diff in the golden files.
