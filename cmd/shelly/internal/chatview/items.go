@@ -397,3 +397,71 @@ func (m *SummaryLineItem) View(width int) string {
 
 func (m *SummaryLineItem) IsLive() bool { return false }
 func (m *SummaryLineItem) Kind() string { return "summary_line" }
+
+// --- SubAgentRefItem ---
+
+// SubAgentRefItem is a compact inline reference to a sub-agent displayed in
+// the parent's Items list. While the sub-agent is running it shows a spinner;
+// when done it shows a one-line completion summary. This replaces nesting the
+// full AgentContainer inside the parent.
+type SubAgentRefItem struct {
+	Agent         string
+	Prefix        string
+	ProviderLabel string
+	Color         string
+	Task          string // delegation task description
+	Status        string // "running", "done", "failed"
+	FinalAnswer   string // set on completion
+	Elapsed       string // set on completion
+	FrameIdx      int    // for spinner animation
+}
+
+func (m *SubAgentRefItem) View(width int) string {
+	label := m.Agent
+	if m.ProviderLabel != "" {
+		label += " (" + m.ProviderLabel + ")"
+	}
+
+	var sb strings.Builder
+
+	switch m.Status {
+	case "done":
+		statusIcon := styles.DimStyle.Render("✓")
+		header := colorStyle(m.Color).Render(fmt.Sprintf("%s %s", m.Prefix, label))
+		fmt.Fprintf(&sb, "%s %s", statusIcon, header)
+		if m.FinalAnswer != "" {
+			excerpt := format.Truncate(m.FinalAnswer, 60)
+			fmt.Fprintf(&sb, " %s %s", styles.DimStyle.Render("—"), styles.DimStyle.Render(excerpt))
+		}
+		if m.Elapsed != "" {
+			fmt.Fprintf(&sb, " %s", styles.DimStyle.Render(m.Elapsed))
+		}
+	case "failed":
+		statusIcon := lipgloss.NewStyle().Foreground(styles.ColorError).Render("✗")
+		header := colorStyle(m.Color).Render(fmt.Sprintf("%s %s", m.Prefix, label))
+		fmt.Fprintf(&sb, "%s %s", statusIcon, header)
+		if m.FinalAnswer != "" {
+			excerpt := format.Truncate(m.FinalAnswer, 60)
+			fmt.Fprintf(&sb, " %s %s", styles.DimStyle.Render("—"), styles.DimStyle.Render(excerpt))
+		}
+		if m.Elapsed != "" {
+			fmt.Fprintf(&sb, " %s", styles.DimStyle.Render(m.Elapsed))
+		}
+	default: // "running"
+		frame := format.SpinnerFrames[m.FrameIdx%len(format.SpinnerFrames)]
+		header := colorStyle(m.Color).Render(fmt.Sprintf("⚡ %s", label))
+		fmt.Fprintf(&sb, "%s %s", header, styles.SpinnerStyle.Render(frame))
+		if m.Task != "" {
+			taskText := m.Task
+			if w := width - 4; w > 0 {
+				taskText = format.WordWrap(taskText, w)
+			}
+			fmt.Fprintf(&sb, "\n  %s", styles.DimStyle.Render("Task: "+taskText))
+		}
+	}
+
+	return sb.String()
+}
+
+func (m *SubAgentRefItem) IsLive() bool { return m.Status == "running" }
+func (m *SubAgentRefItem) Kind() string { return "sub_agent_ref" }

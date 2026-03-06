@@ -168,11 +168,13 @@ func TestChatViewSubAgent(t *testing.T) {
 	assert.NotContains(t, cv.agents, "child")
 	assert.Contains(t, cv.subAgents, "child")
 
-	// Parent should have a sub-agent item.
+	// Parent should have a SubAgentRefItem (not a nested AgentContainer).
 	parentAC := cv.agents["parent"]
 	assert.Len(t, parentAC.Items, 1)
-	_, ok := parentAC.Items[0].(*AgentContainer)
+	ref, ok := parentAC.Items[0].(*SubAgentRefItem)
 	assert.True(t, ok)
+	assert.Equal(t, "child", ref.Agent)
+	assert.Equal(t, "running", ref.Status)
 
 	// End child.
 	cv, _ = cv.Update(msgs.AgentEndMsg{Agent: "child", Parent: "parent"})
@@ -635,7 +637,7 @@ func TestPerAgentCommitted_FlushAllCollapsesIntoGlobal(t *testing.T) {
 
 // --- Phase 7: Agent Disposal tests ---
 
-func TestAgentDisposal_ReplacedWithSummaryLine(t *testing.T) {
+func TestAgentDisposal_SubAgentRefUpdatedOnEnd(t *testing.T) {
 	cv := newTestChatView()
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root", ProviderLabel: "anthropic/claude-sonnet-4"})
@@ -647,20 +649,21 @@ func TestAgentDisposal_ReplacedWithSummaryLine(t *testing.T) {
 	// End the child.
 	cv, _ = cv.Update(msgs.AgentEndMsg{Agent: "child", Parent: "root"})
 
-	// Parent should still have 1 item, but it should be a SummaryLineItem now.
+	// Parent should still have 1 item — the SubAgentRefItem updated to "done".
 	parentAC := cv.agents["root"]
 	assert.Len(t, parentAC.Items, 1)
-	sl, ok := parentAC.Items[0].(*SummaryLineItem)
-	assert.True(t, ok, "expected SummaryLineItem, got %T", parentAC.Items[0])
-	assert.Equal(t, "child", sl.Agent)
-	assert.Equal(t, "🦾", sl.Prefix)
-	assert.Equal(t, "anthropic/claude-sonnet-4", sl.ProviderLabel)
-	assert.Equal(t, "done with task", sl.FinalAnswer)
-	assert.NotEmpty(t, sl.Color)
-	assert.NotEmpty(t, sl.Elapsed)
+	ref, ok := parentAC.Items[0].(*SubAgentRefItem)
+	assert.True(t, ok, "expected SubAgentRefItem, got %T", parentAC.Items[0])
+	assert.Equal(t, "child", ref.Agent)
+	assert.Equal(t, "🦾", ref.Prefix)
+	assert.Equal(t, "anthropic/claude-sonnet-4", ref.ProviderLabel)
+	assert.Equal(t, "done with task", ref.FinalAnswer)
+	assert.Equal(t, "done", ref.Status)
+	assert.NotEmpty(t, ref.Color)
+	assert.NotEmpty(t, ref.Elapsed)
 }
 
-func TestAgentDisposal_SummaryLineRendersOneLine(t *testing.T) {
+func TestAgentDisposal_SubAgentRefRendersOneLine(t *testing.T) {
 	cv := newTestChatView()
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
@@ -671,12 +674,12 @@ func TestAgentDisposal_SummaryLineRendersOneLine(t *testing.T) {
 	cv, _ = cv.Update(msgs.AgentEndMsg{Agent: "child", Parent: "root"})
 
 	parentAC := cv.agents["root"]
-	sl := parentAC.Items[0].(*SummaryLineItem)
-	view := sl.View(80)
+	ref := parentAC.Items[0].(*SubAgentRefItem)
+	view := ref.View(80)
 	assert.NotEmpty(t, view)
-	assert.False(t, sl.IsLive())
-	assert.Equal(t, "summary_line", sl.Kind())
-	// Should contain the agent name and final answer.
+	assert.False(t, ref.IsLive())
+	assert.Equal(t, "sub_agent_ref", ref.Kind())
+	// Should contain the agent name.
 	assert.Contains(t, view, "child")
 }
 
@@ -699,10 +702,11 @@ func TestAgentDisposal_PinnedPointerSurvives(t *testing.T) {
 	assert.True(t, cv.viewStack[0].Container.Done)
 	assert.Same(t, container, cv.viewStack[0].Container)
 
-	// Parent item replaced with summary.
+	// Parent item updated to done.
 	parentAC := cv.agents["root"]
-	_, isSummary := parentAC.Items[0].(*SummaryLineItem)
-	assert.True(t, isSummary)
+	ref, isRef := parentAC.Items[0].(*SubAgentRefItem)
+	assert.True(t, isRef)
+	assert.Equal(t, "done", ref.Status)
 }
 
 func TestAgentDisposal_ViewStackCleanup(t *testing.T) {
@@ -726,16 +730,18 @@ func TestAgentDisposal_ViewStackCleanup(t *testing.T) {
 	// child-b still on stack.
 	assert.Equal(t, "child-b", cv.ViewedAgent())
 
-	// Parent should have 2 items: SummaryLineItem for child-a, AgentContainer for child-b.
+	// Parent should have 2 items: SubAgentRefItem for child-a (done), SubAgentRefItem for child-b (running).
 	parentAC := cv.agents["root"]
 	assert.Len(t, parentAC.Items, 2)
-	_, isSummary := parentAC.Items[0].(*SummaryLineItem)
-	assert.True(t, isSummary)
-	_, isContainer := parentAC.Items[1].(*AgentContainer)
-	assert.True(t, isContainer)
+	refA, isRefA := parentAC.Items[0].(*SubAgentRefItem)
+	assert.True(t, isRefA)
+	assert.Equal(t, "done", refA.Status)
+	refB, isRefB := parentAC.Items[1].(*SubAgentRefItem)
+	assert.True(t, isRefB)
+	assert.Equal(t, "running", refB.Status)
 }
 
-func TestAgentDisposal_FlushAllReplacesSummaryLines(t *testing.T) {
+func TestAgentDisposal_FlushAllUpdatesSubAgentRefs(t *testing.T) {
 	cv := newTestChatView()
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child-a", Prefix: "🦾", Parent: "root"})
@@ -749,7 +755,7 @@ func TestAgentDisposal_FlushAllReplacesSummaryLines(t *testing.T) {
 	assert.NotEmpty(t, cv.committed)
 }
 
-func TestAgentDisposal_CollapsedSummaryIncludesSummaryLines(t *testing.T) {
+func TestAgentDisposal_CollapsedSummaryIncludesSubAgentRefs(t *testing.T) {
 	cv := newTestChatView()
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root", ProviderLabel: "test-provider"})
@@ -777,8 +783,8 @@ func TestAgentDisposal_CompletionSummaryFallback(t *testing.T) {
 	cv, _ = cv.Update(msgs.AgentEndMsg{Agent: "child", Parent: "root", Summary: "fallback summary"})
 
 	parentAC := cv.agents["root"]
-	sl := parentAC.Items[0].(*SummaryLineItem)
-	assert.Equal(t, "fallback summary", sl.FinalAnswer)
+	ref := parentAC.Items[0].(*SubAgentRefItem)
+	assert.Equal(t, "fallback summary", ref.FinalAnswer)
 }
 
 func TestChatViewFlushAll(t *testing.T) {

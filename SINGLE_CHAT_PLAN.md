@@ -49,7 +49,7 @@ Sub-agent spawning appears in the parent as a **compact inline item** (similar t
 
 **Migration:** Move the initial welcome/system messages to remain in global `committed`. Agent-specific messages go to `AgentContainer.Committed`.
 
-### Step 2: Remove Nested Sub-Agent Rendering
+### Step 2: Remove Nested Sub-Agent Rendering ✅
 
 **Goal:** Sub-agents no longer render as expanding nested containers inside the parent.
 

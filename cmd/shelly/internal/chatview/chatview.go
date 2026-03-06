@@ -701,7 +701,16 @@ func (m *ChatViewModel) startAgent(agentName, prefix, parent, providerLabel, tas
 		if task != "" {
 			childAC.Items = append(childAC.Items, &TaskMessageItem{Text: task, Color: color})
 		}
-		parentAC.Items = append(parentAC.Items, childAC)
+		// Add a compact reference item to the parent instead of nesting the container.
+		ref := &SubAgentRefItem{
+			Agent:         agentName,
+			Prefix:        prefix,
+			ProviderLabel: providerLabel,
+			Color:         color,
+			Task:          task,
+			Status:        "running",
+		}
+		parentAC.Items = append(parentAC.Items, ref)
 		m.subAgents[agentName] = childAC
 		m.subAgentParent[agentName] = parent
 		return
@@ -729,10 +738,10 @@ func (m *ChatViewModel) endAgent(agentName, completionSummary string) {
 			sa.FinalAnswer = completionSummary
 		}
 
-		// Replace the AgentContainer in parent's Items with a SummaryLineItem.
+		// Update the SubAgentRefItem in the parent's Items.
 		parentName := m.subAgentParent[agentName]
 		if parentAC := m.resolveContainer(parentName); parentAC != nil {
-			m.replaceWithSummaryLine(parentAC, sa)
+			m.updateSubAgentRef(parentAC, sa)
 		}
 
 		delete(m.subAgents, agentName)
@@ -771,24 +780,19 @@ func (m *ChatViewModel) endAgent(agentName, completionSummary string) {
 	}
 }
 
-// replaceWithSummaryLine finds the AgentContainer for the given sub-agent
-// in the parent's Items and replaces it with a SummaryLineItem.
-func (m *ChatViewModel) replaceWithSummaryLine(parentAC *AgentContainer, sa *AgentContainer) {
+// updateSubAgentRef finds the SubAgentRefItem for the given sub-agent
+// in the parent's Items and updates its status, answer, and elapsed time.
+func (m *ChatViewModel) updateSubAgentRef(parentAC *AgentContainer, sa *AgentContainer) {
 	end := sa.EndTime
 	if end.IsZero() {
 		end = time.Now()
 	}
-	summary := &SummaryLineItem{
-		Agent:         sa.Agent,
-		Prefix:        sa.Prefix,
-		ProviderLabel: sa.ProviderLabel,
-		FinalAnswer:   sa.FinalAnswer,
-		Color:         sa.Color,
-		Elapsed:       format.FmtDuration(end.Sub(sa.StartTime)),
-	}
-	for i, item := range parentAC.Items {
-		if ac, ok := item.(*AgentContainer); ok && ac.Agent == sa.Agent {
-			parentAC.Items[i] = summary
+	elapsed := format.FmtDuration(end.Sub(sa.StartTime))
+	for _, item := range parentAC.Items {
+		if ref, ok := item.(*SubAgentRefItem); ok && ref.Agent == sa.Agent {
+			ref.Status = "done"
+			ref.FinalAnswer = sa.FinalAnswer
+			ref.Elapsed = elapsed
 			return
 		}
 	}
@@ -797,7 +801,7 @@ func (m *ChatViewModel) replaceWithSummaryLine(parentAC *AgentContainer, sa *Age
 // flushAll ends all remaining agents and appends their collapsed summaries
 // to the committed buffer.
 func (m *ChatViewModel) flushAll() {
-	// End sub-agents first and replace their containers with summary lines.
+	// End sub-agents first and update their ref items in the parent.
 	for name, sa := range m.subAgents {
 		sa.Done = true
 		if sa.EndTime.IsZero() {
@@ -805,7 +809,7 @@ func (m *ChatViewModel) flushAll() {
 		}
 		parentName := m.subAgentParent[name]
 		if parentAC := m.resolveContainer(parentName); parentAC != nil {
-			m.replaceWithSummaryLine(parentAC, sa)
+			m.updateSubAgentRef(parentAC, sa)
 		}
 		delete(m.subAgents, name)
 		delete(m.subAgentParent, name)

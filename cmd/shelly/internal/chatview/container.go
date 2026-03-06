@@ -275,11 +275,8 @@ func (ac *AgentContainer) CollapsedSummary() string {
 	// subagent remains visible after the parent collapses.
 	for _, item := range ac.Items {
 		switch sa := item.(type) {
-		case *AgentContainer:
-			saView := sa.View(0)
-			for line := range strings.SplitSeq(saView, "\n") {
-				fmt.Fprintf(&sb, " %s%s\n", styles.TreePipe, line)
-			}
+		case *SubAgentRefItem:
+			fmt.Fprintf(&sb, " %s%s\n", styles.TreePipe, sa.View(0))
 		case *SummaryLineItem:
 			fmt.Fprintf(&sb, " %s%s\n", styles.TreePipe, sa.View(0))
 		}
@@ -331,8 +328,10 @@ func (ac *AgentContainer) AdvanceSpinners() {
 					c.FrameIdx++
 				}
 			}
-		case *AgentContainer:
-			it.AdvanceSpinners()
+		case *SubAgentRefItem:
+			if it.Status == "running" {
+				it.FrameIdx++
+			}
 		}
 	}
 }
