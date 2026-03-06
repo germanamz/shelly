@@ -501,6 +501,39 @@ func TestAgentScoped_MaxShowZero(t *testing.T) {
 	assert.NotContains(t, view, "more items")
 }
 
+// --- Phase 12: Auto-scroll on view switch ---
+
+func TestAutoScroll_FocusAgentSetsScrollFlag(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+
+	// Before focusing, scrollToBottom is false.
+	assert.False(t, cv.scrollToBottom)
+
+	// focusAgent sets the flag; rebuildContent consumes it.
+	cv.focusAgent("child")
+	assert.True(t, cv.scrollToBottom)
+	cv.rebuildContent()
+	assert.False(t, cv.scrollToBottom, "rebuildContent should consume the flag")
+	assert.Equal(t, "child", cv.ViewedAgent())
+}
+
+func TestAutoScroll_NavigateBackSetsScrollFlag(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child"})
+
+	// navigateBack sets the flag.
+	cv.navigateBack()
+	assert.True(t, cv.scrollToBottom)
+	cv.rebuildContent()
+	assert.False(t, cv.scrollToBottom)
+	assert.Empty(t, cv.ViewedAgent())
+}
+
 // --- Phase 7: Agent Disposal tests ---
 
 func TestAgentDisposal_ReplacedWithSummaryLine(t *testing.T) {

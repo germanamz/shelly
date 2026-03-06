@@ -706,3 +706,60 @@ func TestIntegration_ChatViewCommittedProxy(t *testing.T) {
 	m.chatView, _ = m.chatView.Update(msgs.ChatViewCommitUserMsg{Text: "hello"})
 	assert.True(t, m.chatView.HasMessages)
 }
+
+// --- Phase 12: Polish Integration Tests ---
+
+// TestIntegration_SlashTasksToggle verifies /tasks command opens and toggles the task panel.
+func TestIntegration_SlashTasksToggle(t *testing.T) {
+	m := newIntegrationModel()
+
+	// Before any tasks: /tasks shows message but doesn't open panel.
+	m.executeTasks()
+	assert.Equal(t, PanelNone, m.activePanel)
+
+	// Add tasks to make menu visible.
+	m.taskPanel.SetTasks([]tasks.Task{
+		{ID: "t1", Title: "Fix bug", Status: tasks.StatusPending},
+	})
+	m.onTasksChanged()
+	require.True(t, m.menuBar.Visible())
+
+	// Now /tasks opens panel.
+	m.executeTasks()
+	assert.Equal(t, PanelTasks, m.activePanel)
+
+	// Again toggles it closed.
+	m.executeTasks()
+	assert.Equal(t, PanelNone, m.activePanel)
+}
+
+// TestIntegration_SlashTasksMutualExclusion verifies /tasks closes an open subagent panel.
+func TestIntegration_SlashTasksMutualExclusion(t *testing.T) {
+	m := newIntegrationModel()
+
+	rootMsg := msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"}
+	m.chatView, _ = m.chatView.Update(rootMsg)
+	spawnAgent(&m, "sub-1", "root", "anthropic/claude-sonnet-4")
+	m.taskPanel.SetTasks([]tasks.Task{
+		{ID: "t1", Title: "Fix bug", Status: tasks.StatusPending},
+	})
+	m.onTasksChanged()
+
+	// Open subagent panel.
+	m.executeSubagents()
+	require.Equal(t, PanelSubAgents, m.activePanel)
+
+	// Open tasks panel via menu — should close subagent panel.
+	m.handleMenuItemSelected(taskpanel.PanelID)
+	assert.Equal(t, PanelTasks, m.activePanel)
+}
+
+// TestIntegration_HelpTextContainsTasksAndNavigation verifies /help output includes
+// /tasks command and sub-agent navigation section.
+func TestIntegration_HelpTextContainsTasksAndNavigation(t *testing.T) {
+	help := helpText()
+	assert.Contains(t, help, "/tasks")
+	assert.Contains(t, help, "View task board")
+	assert.Contains(t, help, "Sub-Agent Navigation")
+	assert.Contains(t, help, "Navigate back")
+}

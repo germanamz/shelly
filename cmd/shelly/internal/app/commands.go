@@ -44,6 +44,9 @@ func (m *AppModel) dispatchCommand(text string) commandResult {
 	case "/subagents":
 		m.executeSubagents()
 		return commandResult{handled: true}
+	case "/tasks":
+		m.executeTasks()
+		return commandResult{handled: true}
 	}
 	return commandResult{}
 }
@@ -234,6 +237,25 @@ func (m *AppModel) executeSubagents() {
 	m.recalcViewportHeight()
 }
 
+func (m *AppModel) executeTasks() {
+	if !m.menuBar.Visible() {
+		note := styles.DimStyle.Render("No tasks available.")
+		m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: "\n" + note + "\n"})
+		return
+	}
+	// Toggle task panel open.
+	if m.activePanel == PanelTasks {
+		m.closePanel()
+		return
+	}
+	m.activePanel = PanelTasks
+	m.taskPanel.SetActive(true)
+	m.resizeTaskPanel()
+	m.menuFocused = false
+	m.menuBar.SetActive(false)
+	m.recalcViewportHeight()
+}
+
 func helpText() string {
 	return lipgloss.NewStyle().Foreground(styles.ColorMuted).Render(
 		fmt.Sprintf("Commands:\n" +
@@ -242,6 +264,7 @@ func helpText() string {
 			"  /compact       Compact conversation to reclaim context\n" +
 			"  /sessions      Browse and resume previous sessions\n" +
 			"  /subagents     Browse running sub-agents\n" +
+			"  /tasks         View task board\n" +
 			"  /settings      Open the configuration wizard\n" +
 			"  /quit          Exit the chat\n\n" +
 			"Shortcuts:\n" +
@@ -249,9 +272,15 @@ func helpText() string {
 			"  Shift+Enter    New line\n" +
 			"  Alt+Enter      New line\n" +
 			"  Ctrl+B         Browse sub-agents menu\n" +
-			"  Escape         Interrupt agent / dismiss picker\n" +
+			"  Escape         Navigate back / interrupt agent / dismiss picker\n" +
 			"  Ctrl+C         Exit\n" +
 			"  @              File picker\n" +
-			"  /              Command picker"),
+			"  /              Command picker\n\n" +
+			"Sub-Agent Navigation:\n" +
+			"  Ctrl+B         Open menu bar to browse sub-agents and tasks\n" +
+			"  ←→             Navigate menu bar items\n" +
+			"  ↑↓             Navigate list items\n" +
+			"  Enter          Select item / view sub-agent\n" +
+			"  Escape         Close panel / navigate back to parent view"),
 	)
 }

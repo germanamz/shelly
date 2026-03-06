@@ -56,10 +56,11 @@ type ChatViewModel struct {
 	viewedAgent string           // "" = root view, or agent instance name
 	viewStack   []viewStackEntry // navigation stack for back functionality
 
-	HasMessages   bool
-	Processing    bool
-	SpinnerIdx    int
-	ProcessingMsg string
+	HasMessages    bool
+	Processing     bool
+	SpinnerIdx     int
+	ProcessingMsg  string
+	scrollToBottom bool // when true, next rebuildContent forces scroll to bottom
 
 	Width int
 }
@@ -301,8 +302,7 @@ func (m *ChatViewModel) focusAgent(agentID string) {
 		Container: ac,
 	})
 	m.viewedAgent = agentID
-
-	// New entries start scrolled to bottom (handled by rebuildContent auto-scroll).
+	m.scrollToBottom = true // Force scroll to bottom after rebuildContent.
 }
 
 // navigateBack pops the view stack and returns to the previous view.
@@ -319,6 +319,7 @@ func (m *ChatViewModel) navigateBack() {
 		top := m.viewStack[len(m.viewStack)-1]
 		m.viewedAgent = top.AgentID
 	}
+	m.scrollToBottom = true // Auto-scroll to bottom on view switch.
 }
 
 // RenderBreadcrumb returns the breadcrumb line showing the navigation path.
@@ -415,7 +416,8 @@ func (m *ChatViewModel) commitUserMessage(text string, parts []content.Part) {
 // rebuildContent rebuilds the viewport content from committed + live content,
 // auto-scrolling to the bottom if the user was already there.
 func (m *ChatViewModel) rebuildContent() {
-	wasAtBottom := m.viewport.AtBottom() || m.viewport.TotalLineCount() <= m.viewport.Height()
+	wasAtBottom := m.scrollToBottom || m.viewport.AtBottom() || m.viewport.TotalLineCount() <= m.viewport.Height()
+	m.scrollToBottom = false
 
 	var full strings.Builder
 	for _, c := range m.committed {

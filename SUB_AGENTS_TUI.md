@@ -735,7 +735,7 @@ End-to-end tests that verify the full flow across components. These use a test h
 7. **`TestIntegration_CompactWhileViewingSubAgent`** — navigate to sub-agent → `/compact` → verify view resets to root, view stack cleared
 8. **`TestIntegration_ViewStackDepthCap`** — navigate 32 levels deep → verify 33rd push is rejected with feedback
 
-### Phase 12: Polish
+### Phase 12: Polish ✅
 1. Auto-scroll to bottom when switching agent views
 2. Handle edge case: viewed agent ends while user is viewing it (show "completed" state, allow staying — pinned pointer keeps data alive; input to this agent is rejected)
 3. Handle edge case: list panel open while items change (batched updates prevent flicker; cursor position preserved by ID matching)
