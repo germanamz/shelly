@@ -142,7 +142,6 @@ func answerDelegationQuestionsTool(a *Agent) toolbox.Tool {
 				case <-ctx.Done():
 					return "", ctx.Err()
 				}
-				_ = i
 			}
 
 			// Wait for each child to either ask a follow-up or complete.
