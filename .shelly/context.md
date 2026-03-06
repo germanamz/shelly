@@ -33,12 +33,16 @@ Shelly follows a layered architecture with clean separation of concerns:
 - **`pkg/state/`** - Key-value state store with watch support (blackboard pattern)
 - **`pkg/tasks/`** - Shared task board for multi-agent coordination
 - **`pkg/projectctx/`** - Curated context loading, structural project indexing
+- **`pkg/sessions/`** - File-based session persistence with JSON serialization
 
 ### Layer 6: Composition
 - **`pkg/engine/`** - Composition root, wires everything from YAML config
 
+### Support Packages
+- **`pkg/mcproots/`** - Zero-dependency MCP Roots protocol utilities
+
 ### Layer 7: Interface
-- **`cmd/shelly/`** - CLI entry point with bubbletea TUI
+- **`cmd/shelly/`** - CLI entry point with bubbletea v2 TUI (interactive, batch, index modes)
 
 ## Key Features
 
@@ -75,18 +79,35 @@ Shelly follows a layered architecture with clean separation of concerns:
 
 ```
 shelly/
-├── cmd/shelly/           # CLI entry point, TUI interface  
-├── pkg/                  # Core packages (see layer architecture above)
-├── .shelly/              # Project-specific configuration
-│   ├── config.yaml       # Engine configuration
-│   ├── skills/           # Custom skills directory
-│   ├── knowledge/        # Project knowledge graph (this indexing)
-│   └── local/            # Runtime state (notes, permissions, etc.)
-├── docs/                 # Additional documentation
-├── ARCHITECTURE.md       # Detailed architectural reference
-├── FEATURE_SPEC.md       # Comprehensive feature specification  
-├── CLAUDE.md            # Quick developer reference
-└── Taskfile.yml         # Build and development tasks
+├── cmd/shelly/              # CLI entry point, bubbletea v2 TUI
+│   └── internal/            # TUI components (model, views, styles, bridge)
+├── pkg/
+│   ├── agent/               # ReAct loop, delegation, registry, middleware
+│   │   └── effects/         # Compaction, trimming, loop detection, offloading
+│   ├── agentctx/            # Context key helpers for agent identity
+│   ├── chats/               # Provider-agnostic chat data model
+│   ├── codingtoolbox/       # Built-in tools (fs, exec, search, git, http, etc.)
+│   ├── engine/              # Composition root — YAML config → full runtime
+│   ├── mcproots/            # MCP Roots protocol utilities
+│   ├── modeladapter/        # Completer interface, usage, token estimation
+│   ├── projectctx/          # Project context loading, staleness detection
+│   ├── providers/           # LLM adapters (anthropic, openai, grok, gemini)
+│   ├── sessions/            # File-based session persistence
+│   ├── shellydir/           # .shelly/ directory resolution & bootstrapping
+│   ├── skill/               # Folder-based skill loading with YAML frontmatter
+│   ├── state/               # Shared KV store (blackboard pattern)
+│   ├── tasks/               # Shared task board for multi-agent coordination
+│   └── tools/               # Toolbox abstraction, MCP client/server
+├── .shelly/                 # Project-specific configuration
+│   ├── config.yaml          # Engine configuration
+│   ├── skills/              # Custom skills directory
+│   ├── knowledge/           # Project knowledge graph (11 files)
+│   └── local/               # Runtime state (notes, permissions, etc.)
+├── docs/                    # Additional documentation
+├── ARCHITECTURE.md          # Detailed architectural reference
+├── FEATURE_SPEC.md          # Comprehensive feature specification
+├── CLAUDE.md                # Quick developer reference
+└── Taskfile.yml             # Build and development tasks
 ```
 
 ## Development Workflow
@@ -103,8 +124,31 @@ Environment setup: Copy `.env.example` → `.env` for API keys.
 
 This context file serves as the entry point to the project knowledge graph. Detailed documentation for specific areas can be found in:
 
-*Knowledge files will be added here as indexing progresses...*
+### Foundation Layer (✅ Indexed)
+- **[Foundation Overview](knowledge/foundation-layer.md)** — Foundational components overview and relationships
+- **[Chat Data Model](knowledge/chats-foundation.md)** — Provider-agnostic chat data structures and message handling
+- **[Model Adapter](knowledge/modeladapter-abstraction.md)** — `Completer` interface, usage tracking, and token estimation
+- **[Agent Context](knowledge/agentctx-identity.md)** — Zero-dependency context key system for agent identity
+- **[Shelly Directory](knowledge/shellydir-paths.md)** — `.shelly/` directory resolution and bootstrapping
+
+### Providers Layer (✅ Indexed)
+- **[LLM Providers](knowledge/providers-layer.md)** — Anthropic, OpenAI, Grok, Gemini adapters; Completer implementations, message translation, tool-call mapping, streaming
+
+### Tool System (✅ Indexed)
+- **[Tool System](knowledge/tool-system.md)** — ToolBox abstraction, MCP client (stdio+HTTP) and server, JSON schema, built-in coding tools (filesystem, exec, search, git, http, notes, permissions, defaults, browser, ask), permission gating
+
+### Agent System (✅ Indexed)
+- **[Agent System](knowledge/agent-system.md)** — ReAct loop, dynamic delegation, registry, middleware, effects (compaction, trimming, loop detection, observation masking, offloading), event notification, interaction channels
+
+### Orchestration Layer (✅ Indexed)
+- **[Orchestration](knowledge/orchestration-layer.md)** — State store (blackboard KV), task board (multi-agent coordination), project context loading & staleness, MCP roots utilities, session persistence
+
+### Composition Layer (✅ Indexed)
+- **[Skills & Engine](knowledge/composition-layer.md)** — Skill loading system with YAML frontmatter, engine composition root (YAML config → full runtime)
+
+### CLI & TUI Interface (✅ Indexed)
+- **[CLI & TUI](knowledge/cli-tui-interface.md)** — Entry point, bubbletea v2 TUI architecture, state machine, event bridge, display rendering, input handling, batch mode, index mode
 
 ---
 
-*Last updated: Initial indexing - comprehensive project overview created*
+*Last updated: Full project indexing complete — all 11 knowledge files covering all layers*
