@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"time"
 	"unicode/utf8"
 
 	"github.com/germanamz/shelly/pkg/chats/message"
@@ -203,19 +202,11 @@ func runInteractiveDelegate(ctx context.Context, a *Agent, tasks []delegateTask)
 		// since buildInteractiveDelegateChild already configured the child.
 		go func() {
 			defer childCancel()
-			// Auto-claim task if task_id is provided.
-			taskBoard := a.delegation.taskBoard
-			if t.TaskID != "" && taskBoard != nil {
-				if claimErr := taskBoard.ClaimTask(t.TaskID, child.name); claimErr != nil {
-					doneCh <- delegateResult{
-						Agent: t.Agent,
-						Error: fmt.Sprintf("failed to claim task %q: %v", t.TaskID, claimErr),
-					}
-					return
-				}
+			if dr := claimTaskOrFail(a.delegation.taskBoard, t.TaskID, child.name, t.Agent); dr != nil {
+				doneCh <- *dr
+				return
 			}
-			dr := runChildWithHandoff(childCtx, a, child, t, 0)
-			doneCh <- dr
+			doneCh <- runChildWithHandoff(childCtx, a, child, t, 0)
 		}()
 	}
 
@@ -224,7 +215,7 @@ func runInteractiveDelegate(ctx context.Context, a *Agent, tasks []delegateTask)
 	var wg sync.WaitGroup
 	for i, ci := range children {
 		wg.Go(func() {
-			results[i] = waitForInitialChildResponse(ctx, reg, ci.delegationID, ci.task.Agent, ci.questionCh, ci.doneCh, a.delegation.questionTimeout)
+			results[i] = waitForChildEvent(ctx, reg, ci.delegationID, ci.task.Agent, ci.questionCh, ci.doneCh, a.delegation.questionTimeout)
 		})
 	}
 	wg.Wait()
@@ -234,45 +225,6 @@ func runInteractiveDelegate(ctx context.Context, a *Agent, tasks []delegateTask)
 		return "", fmt.Errorf("delegate: %w", err)
 	}
 	return string(data), nil
-}
-
-// waitForInitialChildResponse waits for a child to either complete or ask its
-// first question after being spawned in interactive mode.
-func waitForInitialChildResponse(ctx context.Context, reg *DelegationRegistry, delegationID, agentName string, questionCh <-chan PendingQuestion, doneCh <-chan delegateResult, timeout time.Duration) interactiveDelegateResult {
-	var timer <-chan time.Time
-	if timeout > 0 {
-		t := time.NewTimer(timeout)
-		defer t.Stop()
-		timer = t.C
-	}
-
-	for {
-		select {
-		case pq := <-questionCh:
-			return interactiveDelegateResult{
-				Agent:           agentName,
-				DelegationID:    delegationID,
-				PendingQuestion: &pq.Question,
-			}
-		case dr := <-doneCh:
-			reg.Remove(delegationID)
-			return completedInteractiveResult(agentName, dr)
-		case <-timer:
-			if pd, ok := reg.Get(delegationID); ok {
-				pd.Cancel()
-				reg.Remove(delegationID)
-			}
-			return interactiveDelegateResult{
-				Agent: agentName,
-				Error: fmt.Sprintf("question timeout (%s) exceeded for delegation %s", timeout, delegationID),
-			}
-		case <-ctx.Done():
-			return interactiveDelegateResult{
-				Agent: agentName,
-				Error: ctx.Err().Error(),
-			}
-		}
-	}
 }
 
 // propagateParentConfig applies the common parent-to-child configuration that
@@ -292,25 +244,12 @@ func propagateParentConfig(parent, child *Agent, configName string, t delegateTa
 // buildInteractiveDelegateChild creates a child agent wired for interactive
 // delegation with a shared question queue.
 func buildInteractiveDelegateChild(a *Agent, t delegateTask, delegationID string, questionCh chan PendingQuestion) (*Agent, error) {
-	child, ok := a.registry.Spawn(t.Agent, a.depth+1)
-	if !ok {
-		return nil, fmt.Errorf("agent %q not found", t.Agent)
-	}
-
-	propagateParentConfig(a, child, t.Agent, t)
-
-	// Wire per-delegation InteractionChannel.
-	child.interaction = NewSharedInteractionChannel(delegationID, questionCh)
-
-	prependContext(child, t.Context)
-
-	if reflections := searchReflections(a.delegation.reflectionDir, t.Task); reflections != "" {
-		child.chat.Append(message.NewText("user", role.User, reflections))
-	}
-
-	child.chat.Append(message.NewText("user", role.User, t.Task))
-
-	return child, nil
+	return spawnChild(a, childConfig{
+		agentName:   t.Agent,
+		task:        t,
+		contextMsg:  formatDelegationContext(t.Context),
+		interaction: NewSharedInteractionChannel(delegationID, questionCh),
+	})
 }
 
 // runDelegateTask builds a child agent for the given task, runs it, and returns
@@ -323,16 +262,8 @@ func runDelegateTask(ctx context.Context, a *Agent, t delegateTask) delegateResu
 		return delegateResult{Agent: t.Agent, Error: err.Error()}
 	}
 
-	taskBoard := a.delegation.taskBoard
-
-	// Auto-claim task if task_id is provided and TaskBoard is available.
-	if t.TaskID != "" && taskBoard != nil {
-		if claimErr := taskBoard.ClaimTask(t.TaskID, child.name); claimErr != nil {
-			return delegateResult{
-				Agent: t.Agent,
-				Error: fmt.Sprintf("failed to claim task %q: %v", t.TaskID, claimErr),
-			}
-		}
+	if dr := claimTaskOrFail(a.delegation.taskBoard, t.TaskID, child.name, t.Agent); dr != nil {
+		return *dr
 	}
 
 	return runChildWithHandoff(ctx, a, child, t, 0)
@@ -498,40 +429,27 @@ func handleHandoff(ctx context.Context, a *Agent, child *Agent, t delegateTask, 
 		return dr
 	}
 
-	// Spawn the peer agent.
-	peer, ok := a.registry.Spawn(hr.TargetAgent, a.depth+1)
-	if !ok {
-		dr := delegateResult{
-			Agent: t.Agent,
-			Error: fmt.Sprintf("handoff target %q not found", hr.TargetAgent),
-		}
+	// Spawn the peer agent with handoff context and reflections.
+	handoffCtxMsg := fmt.Sprintf(
+		"<handoff_context>\nThis task was handed off to you by agent %q.\nReason: %s\n\n%s\n</handoff_context>",
+		child.configName, hr.Reason, hr.Context,
+	)
+	peer, err := spawnChild(a, childConfig{
+		agentName:  hr.TargetAgent,
+		task:       t,
+		contextMsg: handoffCtxMsg,
+	})
+	if err != nil {
+		dr := delegateResult{Agent: t.Agent, Error: fmt.Sprintf("handoff: %v", err)}
 		dr.Warning = tryUpdateTask(taskBoard, t.TaskID, "failed")
 		emitDelegationResult(notifier, ctx, child.name, a.name, dr)
 		return dr
 	}
 
-	// Configure peer like a normal delegate child.
-	propagateParentConfig(a, peer, hr.TargetAgent, t)
-	peer.interaction = NewInteractionChannel()
-
-	// Transfer context: handoff context + reason wrapped in <handoff_context> tags.
-	handoffCtx := fmt.Sprintf(
-		"<handoff_context>\nThis task was handed off to you by agent %q.\nReason: %s\n\n%s\n</handoff_context>",
-		child.configName, hr.Reason, hr.Context,
-	)
-	peer.chat.Append(message.NewText("user", role.User, handoffCtx))
-	peer.chat.Append(message.NewText("user", role.User, t.Task))
-
 	// Re-claim task for the peer if task board is available.
-	if t.TaskID != "" && taskBoard != nil {
-		if claimErr := taskBoard.ClaimTask(t.TaskID, peer.name); claimErr != nil {
-			dr := delegateResult{
-				Agent: t.Agent,
-				Error: fmt.Sprintf("failed to claim task %q for handoff peer: %v", t.TaskID, claimErr),
-			}
-			emitDelegationResult(notifier, ctx, child.name, a.name, dr)
-			return dr
-		}
+	if dr := claimTaskOrFail(taskBoard, t.TaskID, peer.name, t.Agent); dr != nil {
+		emitDelegationResult(notifier, ctx, child.name, a.name, *dr)
+		return *dr
 	}
 
 	// Run the peer, continuing the handoff chain.
@@ -542,30 +460,29 @@ func handleHandoff(ctx context.Context, a *Agent, child *Agent, t delegateTask, 
 	return runChildWithHandoff(ctx, a, peer, peerTask, handoffCount+1)
 }
 
-// buildDelegateChild spawns a child agent from the registry and configures it
-// for delegation. It sets a unique instance name, propagates the parent's
-// registry, event handlers, reflection directory, and task board. It prepends
-// delegation context, relevant prior reflections, and the task message.
+// buildDelegateChild spawns a child agent configured for blocking delegation.
 func buildDelegateChild(a *Agent, t delegateTask) (*Agent, error) {
-	child, ok := a.registry.Spawn(t.Agent, a.depth+1)
-	if !ok {
-		return nil, fmt.Errorf("agent %q not found", t.Agent)
+	return spawnChild(a, childConfig{
+		agentName:  t.Agent,
+		task:       t,
+		contextMsg: formatDelegationContext(t.Context),
+	})
+}
+
+// claimTaskOrFail attempts to claim a task on the board. Returns a non-nil
+// delegateResult when the claim fails; returns nil on success or when no claim
+// is needed (empty taskID or nil board).
+func claimTaskOrFail(tb TaskBoard, taskID, childName, agentName string) *delegateResult {
+	if taskID == "" || tb == nil {
+		return nil
 	}
-
-	propagateParentConfig(a, child, t.Agent, t)
-
-	// Wire an InteractionChannel so the child can ask questions via request_input.
-	child.interaction = NewInteractionChannel()
-
-	prependContext(child, t.Context)
-
-	if reflections := searchReflections(a.delegation.reflectionDir, t.Task); reflections != "" {
-		child.chat.Append(message.NewText("user", role.User, reflections))
+	if err := tb.ClaimTask(taskID, childName); err != nil {
+		return &delegateResult{
+			Agent: agentName,
+			Error: fmt.Sprintf("failed to claim task %q: %v", taskID, err),
+		}
 	}
-
-	child.chat.Append(message.NewText("user", role.User, t.Task))
-
-	return child, nil
+	return nil
 }
 
 // tryUpdateTask updates a task's status on the board. Returns a non-empty
@@ -617,17 +534,52 @@ func buildDelegateResult(agentName string, reply message.Message, cr *Completion
 	return result
 }
 
-// prependContext adds a context message before the task message
-// in a child agent's chat. The context is wrapped in <delegation_context> tags.
-// If ctx is empty, no message is appended. Context exceeding
-// maxDelegateContextRunes is truncated with a suffix.
-func prependContext(child *Agent, ctx string) {
+// formatDelegationContext wraps a delegation context string in XML tags and
+// truncates it to maxDelegateContextRunes. Returns "" if ctx is empty.
+func formatDelegationContext(ctx string) string {
 	if ctx == "" {
-		return
+		return ""
 	}
 	if utf8.RuneCountInString(ctx) > maxDelegateContextRunes {
 		ctx = string([]rune(ctx)[:maxDelegateContextRunes]) + "… [context truncated]"
 	}
-	child.chat.Append(message.NewText("user", role.User,
-		"<delegation_context>\n"+ctx+"\n</delegation_context>"))
+	return "<delegation_context>\n" + ctx + "\n</delegation_context>"
+}
+
+// childConfig parameterizes child agent creation for delegation and handoff.
+type childConfig struct {
+	agentName   string              // Registry name of the agent to spawn.
+	task        delegateTask        // Delegation task (used for instance naming, task message, reflections).
+	contextMsg  string              // Pre-formatted context message (appended as-is; empty = skip).
+	interaction *InteractionChannel // Interaction channel to wire; nil = NewInteractionChannel().
+}
+
+// spawnChild creates a configured child agent from the registry. It handles
+// unique naming, parent config propagation, interaction wiring, context/
+// reflection prepending, and task message appending.
+func spawnChild(parent *Agent, cfg childConfig) (*Agent, error) {
+	child, ok := parent.registry.Spawn(cfg.agentName, parent.depth+1)
+	if !ok {
+		return nil, fmt.Errorf("agent %q not found", cfg.agentName)
+	}
+
+	propagateParentConfig(parent, child, cfg.agentName, cfg.task)
+
+	if cfg.interaction != nil {
+		child.interaction = cfg.interaction
+	} else {
+		child.interaction = NewInteractionChannel()
+	}
+
+	if cfg.contextMsg != "" {
+		child.chat.Append(message.NewText("user", role.User, cfg.contextMsg))
+	}
+
+	if reflections := searchReflections(parent.delegation.reflectionDir, cfg.task.Task); reflections != "" {
+		child.chat.Append(message.NewText("user", role.User, reflections))
+	}
+
+	child.chat.Append(message.NewText("user", role.User, cfg.task.Task))
+
+	return child, nil
 }

@@ -1408,35 +1408,28 @@ func TestDelegateToolErrorRollbackUpdateFails(t *testing.T) {
 	assert.Contains(t, results[0].Warning, "board unavailable")
 }
 
-// --- prependContext tests ---
+// --- formatDelegationContext tests ---
 
-func TestPrependContextUnderBudget(t *testing.T) {
-	child := &Agent{chat: chat.New()}
-	ctx := "short context"
-	prependContext(child, ctx)
+func TestFormatDelegationContextUnderBudget(t *testing.T) {
+	result := formatDelegationContext("short context")
 
-	require.Equal(t, 1, child.chat.Len())
-	assert.Contains(t, child.chat.At(0).TextContent(), "short context")
-	assert.NotContains(t, child.chat.At(0).TextContent(), "[context truncated]")
+	assert.Contains(t, result, "short context")
+	assert.Contains(t, result, "<delegation_context>")
+	assert.NotContains(t, result, "[context truncated]")
 }
 
-func TestPrependContextOverBudget(t *testing.T) {
-	child := &Agent{chat: chat.New()}
+func TestFormatDelegationContextOverBudget(t *testing.T) {
 	ctx := strings.Repeat("x", maxDelegateContextRunes+1000)
-	prependContext(child, ctx)
+	result := formatDelegationContext(ctx)
 
-	require.Equal(t, 1, child.chat.Len())
-	text := child.chat.At(0).TextContent()
-	assert.Contains(t, text, "… [context truncated]")
-	// The truncated content should be shorter than the original.
-	assert.Less(t, len(text), len(ctx))
+	assert.Contains(t, result, "… [context truncated]")
+	assert.Less(t, len(result), len(ctx))
 }
 
-func TestPrependContextEmpty(t *testing.T) {
-	child := &Agent{chat: chat.New()}
-	prependContext(child, "")
+func TestFormatDelegationContextEmpty(t *testing.T) {
+	result := formatDelegationContext("")
 
-	assert.Equal(t, 0, child.chat.Len())
+	assert.Empty(t, result)
 }
 
 func TestDelegateToolNoCompletionUpdatesTask(t *testing.T) {
@@ -1802,7 +1795,7 @@ func TestDelegateToolHandoffToNonexistentAgent(t *testing.T) {
 	var results []delegateResult
 	require.NoError(t, json.Unmarshal([]byte(result), &results))
 	require.Len(t, results, 1)
-	assert.Contains(t, results[0].Error, "handoff target \"ghost\" not found")
+	assert.Contains(t, results[0].Error, "agent \"ghost\" not found")
 }
 
 func TestDelegateToolHandoffWithTaskBoard(t *testing.T) {

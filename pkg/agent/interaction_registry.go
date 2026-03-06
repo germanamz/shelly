@@ -150,7 +150,7 @@ func answerDelegationQuestionsTool(a *Agent) toolbox.Tool {
 			for i, ans := range ai.Answers {
 				pd := pds[i]
 				wg.Go(func() {
-					results[i] = waitForChildResponse(ctx, reg, pd, ans.DelegationID, a.delegation.questionTimeout)
+					results[i] = waitForChildEvent(ctx, reg, ans.DelegationID, pd.Agent, pd.QuestionCh, pd.DoneCh, a.delegation.questionTimeout)
 				})
 			}
 			wg.Wait()
@@ -164,9 +164,10 @@ func answerDelegationQuestionsTool(a *Agent) toolbox.Tool {
 	}
 }
 
-// waitForChildResponse waits for a child to either complete or ask another
-// question after receiving an answer. Returns the appropriate result.
-func waitForChildResponse(ctx context.Context, reg *DelegationRegistry, pd *PendingDelegation, delegationID string, timeout time.Duration) interactiveDelegateResult {
+// waitForChildEvent waits for a child to either complete or ask a question.
+// It is the shared implementation for both initial spawn and follow-up answer
+// wait paths in interactive delegation.
+func waitForChildEvent(ctx context.Context, reg *DelegationRegistry, delegationID, agentName string, questionCh <-chan PendingQuestion, doneCh <-chan delegateResult, timeout time.Duration) interactiveDelegateResult {
 	var timer <-chan time.Time
 	if timeout > 0 {
 		t := time.NewTimer(timeout)
@@ -176,25 +177,27 @@ func waitForChildResponse(ctx context.Context, reg *DelegationRegistry, pd *Pend
 
 	for {
 		select {
-		case pq := <-pd.QuestionCh:
+		case pq := <-questionCh:
 			return interactiveDelegateResult{
-				Agent:           pd.Agent,
+				Agent:           agentName,
 				DelegationID:    delegationID,
 				PendingQuestion: &pq.Question,
 			}
-		case dr := <-pd.DoneCh:
+		case dr := <-doneCh:
 			reg.Remove(delegationID)
-			return completedInteractiveResult(pd.Agent, dr)
+			return completedInteractiveResult(agentName, dr)
 		case <-timer:
-			pd.Cancel()
-			reg.Remove(delegationID)
+			if pd, ok := reg.Get(delegationID); ok {
+				pd.Cancel()
+				reg.Remove(delegationID)
+			}
 			return interactiveDelegateResult{
-				Agent: pd.Agent,
+				Agent: agentName,
 				Error: fmt.Sprintf("question timeout (%s) exceeded for delegation %s", timeout, delegationID),
 			}
 		case <-ctx.Done():
 			return interactiveDelegateResult{
-				Agent: pd.Agent,
+				Agent: agentName,
 				Error: ctx.Err().Error(),
 			}
 		}
