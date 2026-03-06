@@ -6,6 +6,7 @@
 package filesystem
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -266,23 +267,6 @@ func (f *FS) handleReadLines(ctx context.Context, input json.RawMessage) (string
 	}
 	defer file.Close() //nolint:errcheck // best-effort close on read
 
-	raw, err := io.ReadAll(io.LimitReader(file, int64(maxReadSize)+1))
-	if err != nil {
-		return "", fmt.Errorf("fs_read_lines: %w", err)
-	}
-
-	if len(raw) > maxReadSize {
-		return "", fmt.Errorf("fs_read_lines: file exceeds maximum read size of 10 MB")
-	}
-
-	lines := strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n")
-	// Trim trailing empty element produced by a trailing newline.
-	if len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
-	}
-
-	totalLines := len(lines)
-
 	startLine := 1
 	if in.Offset > 0 {
 		startLine = in.Offset
@@ -294,16 +278,50 @@ func (f *FS) handleReadLines(ctx context.Context, input json.RawMessage) (string
 		limit = in.Limit
 	}
 
-	endLine := min(startLine+limit-1, totalLines)
+	endLine := startLine + limit - 1
+
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // up to 1MB per line
+
+	var (
+		lineNum    int
+		totalBytes int
+		collected  []string
+	)
+
+	for scanner.Scan() {
+		lineNum++
+		totalBytes += len(scanner.Bytes()) + 1 // +1 for newline
+		if totalBytes > maxReadSize {
+			return "", fmt.Errorf("fs_read_lines: file exceeds maximum read size of 10 MB")
+		}
+
+		if lineNum >= startLine && lineNum <= endLine {
+			collected = append(collected, scanner.Text())
+		}
+
+		// After collecting the requested range, just count remaining lines
+		// without storing their content.
+	}
+
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("fs_read_lines: %w", err)
+	}
+
+	totalLines := lineNum
 
 	if startLine > totalLines {
-		return fmt.Sprintf("[Lines %d-%d of %d]\n(empty range)", startLine, endLine, totalLines), nil
+		actualEnd := min(endLine, totalLines)
+		return fmt.Sprintf("[Lines %d-%d of %d]\n(empty range)", startLine, actualEnd, totalLines), nil
 	}
+
+	// Clamp endLine to actual file length.
+	endLine = min(endLine, totalLines)
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "[Lines %d-%d of %d]\n", startLine, endLine, totalLines) //nolint:gosec // G705 false positive: writing to strings.Builder, not HTTP response
-	for i := startLine - 1; i < endLine; i++ {
-		fmt.Fprintf(&sb, "%6d→%s\n", i+1, lines[i]) //nolint:gosec // G705 false positive: writing to strings.Builder, not HTTP response
+	for i, line := range collected {
+		fmt.Fprintf(&sb, "%6d→%s\n", startLine+i, line) //nolint:gosec // G705 false positive: writing to strings.Builder, not HTTP response
 	}
 
 	return sb.String(), nil
