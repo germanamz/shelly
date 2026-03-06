@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -71,7 +72,7 @@ func runIndex(args []string) error {
 		}
 		skillPath := filepath.Join(skillDir, "SKILL.md")
 		// Only write if missing.
-		if _, err := os.Stat(skillPath); os.IsNotExist(err) {
+		if _, err := os.Stat(skillPath); errors.Is(err, os.ErrNotExist) {
 			if err := os.WriteFile(skillPath, []byte(sk.Content), 0o644); err != nil { //nolint:gosec // skill content, not secret
 				return fmt.Errorf("index: write skill %q: %w", sk.Name, err)
 			}
