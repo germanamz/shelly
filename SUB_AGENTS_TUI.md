@@ -550,7 +550,7 @@ Build the data layer first — everything else depends on being able to query su
    - `TestFindContainer_Exists` — returns valid pointer
    - `TestFindContainer_NotFound` — returns nil
 
-### Phase 2: Generic Components — Panel + List
+### Phase 2: Generic Components — Panel + List ✅
 Build the reusable components in isolation. No wiring to AppModel yet.
 
 1. Create `cmd/shelly/internal/panel/` package
