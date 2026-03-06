@@ -241,6 +241,8 @@ func propagateParentConfig(parent, child *Agent, configName string, t delegateTa
 	child.events.eventFunc = delegationProgressFunc(parent.events.eventFunc, parent.events.notifier, child.name, parent.name)
 	child.events.cancelRegistrar = parent.events.cancelRegistrar
 	child.events.cancelUnregistrar = parent.events.cancelUnregistrar
+	child.events.inboxRegistrar = parent.events.inboxRegistrar
+	child.events.inboxUnregistrar = parent.events.inboxUnregistrar
 	child.delegation.reflectionDir = parent.delegation.reflectionDir
 	child.delegation.taskBoard = parent.delegation.taskBoard
 }
@@ -308,6 +310,17 @@ func runChildWithHandoff(ctx context.Context, a *Agent, child *Agent, t delegate
 		defer func() {
 			if a.events.cancelUnregistrar != nil {
 				a.events.cancelUnregistrar(child.name)
+			}
+		}()
+	}
+
+	// Initialize and register the child's inbox for user message routing.
+	child.InitInbox()
+	if a.events.inboxRegistrar != nil {
+		a.events.inboxRegistrar(child.name, child.Inbox())
+		defer func() {
+			if a.events.inboxUnregistrar != nil {
+				a.events.inboxUnregistrar(child.name)
 			}
 		}()
 	}

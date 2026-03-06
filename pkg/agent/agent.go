@@ -53,6 +53,13 @@ type CancelRegistrar func(name string, cancel context.CancelFunc)
 // CancelUnregistrar removes a previously registered cancel function.
 type CancelUnregistrar func(name string)
 
+// InboxRegistrar registers an inbox channel for a named child agent so that
+// the engine can deliver user messages to it via SendToAgent.
+type InboxRegistrar func(name string, inbox chan message.Message)
+
+// InboxUnregistrar removes a previously registered inbox channel.
+type InboxUnregistrar func(name string)
+
 // ToolCallEventData carries metadata for tool_call_start / tool_call_end events.
 type ToolCallEventData struct {
 	ToolName string `json:"tool_name"`
@@ -98,6 +105,8 @@ type Options struct {
 	EventFunc              EventFunc         // Optional callback for fine-grained loop events (tool calls, message added).
 	CancelRegistrar        CancelRegistrar   // Registers child-agent cancel funcs for external cancellation.
 	CancelUnregistrar      CancelUnregistrar // Unregisters child-agent cancel funcs.
+	InboxRegistrar         InboxRegistrar    // Registers child-agent inbox channels for user message routing.
+	InboxUnregistrar       InboxUnregistrar  // Unregisters child-agent inbox channels.
 	ProviderLabel          string            // Display label for the provider (e.g. "anthropic/claude-sonnet-4").
 	InteractionMode        string            // "" | "auto" | "interactive" | "blocking". Controls child question handling.
 	QuestionTimeout        time.Duration     // Timeout for child questions in interactive mode (0 = no timeout).
@@ -127,6 +136,8 @@ type eventConfig struct {
 	eventFunc         EventFunc
 	cancelRegistrar   CancelRegistrar
 	cancelUnregistrar CancelUnregistrar
+	inboxRegistrar    InboxRegistrar
+	inboxUnregistrar  InboxUnregistrar
 }
 
 // Agent is the unified agent type. It runs a ReAct loop, can delegate to other
@@ -153,8 +164,9 @@ type Agent struct {
 	completion             completionHandler
 	handoff                handoffHandler
 	interaction            *InteractionChannel
-	interactiveDelegations *DelegationRegistry // nil when interaction_mode != "interactive"
-	usageDiffLock          *sync.Mutex         // shared lock for AgentUsageCompleter wrapping
+	interactiveDelegations *DelegationRegistry  // nil when interaction_mode != "interactive"
+	usageDiffLock          *sync.Mutex          // shared lock for AgentUsageCompleter wrapping
+	inbox                  chan message.Message // buffered(1) inbox for user messages injected while running
 }
 
 // New creates an Agent with the given configuration.
@@ -190,6 +202,8 @@ func New(name, description, instructions string, completer modeladapter.Complete
 			eventFunc:         opts.EventFunc,
 			cancelRegistrar:   opts.CancelRegistrar,
 			cancelUnregistrar: opts.CancelUnregistrar,
+			inboxRegistrar:    opts.InboxRegistrar,
+			inboxUnregistrar:  opts.InboxUnregistrar,
 		},
 		usageDiffLock: opts.UsageDiffLock,
 	}
@@ -257,6 +271,18 @@ func (a *Agent) CompletionResult() *CompletionResult { return a.completion.Resul
 // HandoffResult returns the handoff data set by the handoff tool,
 // or nil if the agent stopped without calling it.
 func (a *Agent) HandoffResult() *HandoffResult { return a.handoff.Result() }
+
+// Inbox returns the agent's message inbox channel, or nil if not initialized.
+func (a *Agent) Inbox() chan message.Message { return a.inbox }
+
+// InitInbox creates the buffered inbox channel (capacity 1) for receiving
+// user messages while the agent is running. Safe to call multiple times;
+// subsequent calls are no-ops.
+func (a *Agent) InitInbox() {
+	if a.inbox == nil {
+		a.inbox = make(chan message.Message, 1)
+	}
+}
 
 // SetRegistry enables dynamic delegation by setting the agent's registry.
 func (a *Agent) SetRegistry(r *Registry) {
@@ -412,6 +438,17 @@ func (a *Agent) run(ctx context.Context) (message.Message, error) {
 			msg := message.New(a.name, role.Tool, result)
 			a.chat.Append(msg)
 			a.emitEvent(ctx, "message_added", MessageAddedEventData{Role: string(role.Tool), Message: msg})
+		}
+
+		// Check inbox for injected user messages after tool results are
+		// collected and before the next LLM completion.
+		if a.inbox != nil {
+			select {
+			case userMsg := <-a.inbox:
+				a.chat.Append(userMsg)
+				a.emitEvent(ctx, "message_added", MessageAddedEventData{Role: string(userMsg.Role), Message: userMsg})
+			default:
+			}
 		}
 
 		if a.completion.IsComplete() || a.handoff.IsHandoff() {

@@ -706,7 +706,7 @@ Separated from agent-scoped view to isolate the data lifecycle change. Depends o
    - `TestAgentUsage_FreezeOnEnd` — AgentEndMsg.Usage freezes stats
    - `TestAgentUsage_CleanupOnStackPop` — disposed agent usage removed when leaving stack
 
-### Phase 10: Input Routing
+### Phase 10: Input Routing ✅
 1. Modify `AppModel` input submission to route messages to `viewedAgent` when set
 2. Engine API: add `SendToAgent(agentID string, msg chats.Message) error` — resolves agent from registry, sends to per-agent inbox channel
 3. Per-agent `chan chats.Message` inbox (buffered, capacity 1) — checked by ReAct loop after each tool execution cycle, before next LLM completion

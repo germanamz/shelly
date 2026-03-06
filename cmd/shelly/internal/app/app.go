@@ -20,6 +20,8 @@ import (
 	"github.com/germanamz/shelly/cmd/shelly/internal/subagentpanel"
 	"github.com/germanamz/shelly/cmd/shelly/internal/taskpanel"
 	"github.com/germanamz/shelly/pkg/chats/content"
+	"github.com/germanamz/shelly/pkg/chats/message"
+	"github.com/germanamz/shelly/pkg/chats/role"
 	"github.com/germanamz/shelly/pkg/engine"
 	"github.com/germanamz/shelly/pkg/modeladapter"
 	"github.com/germanamz/shelly/pkg/modeladapter/usage"
@@ -208,6 +210,13 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case msgs.RespondErrorMsg:
 		errLine := styles.ErrorBlockStyle.Width(m.width).Render(
 			lipgloss.NewStyle().Foreground(styles.ColorError).Render("error responding: " + msg.Err.Error()),
+		)
+		m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: "\n" + errLine + "\n"})
+		return m, nil
+
+	case msgs.SubAgentSendErrorMsg:
+		errLine := styles.ErrorBlockStyle.Width(m.width).Render(
+			lipgloss.NewStyle().Foreground(styles.ColorError).Render(msg.Err.Error()),
 		)
 		m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: "\n" + errLine + "\n"})
 		return m, nil
@@ -543,6 +552,11 @@ func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
 		return m, result.cmd
 	}
 
+	// Route to viewed sub-agent if applicable.
+	if agentID := m.chatView.ViewedAgent(); agentID != "" {
+		return m.handleSubAgentSubmit(agentID, msg)
+	}
+
 	// Commit user message to viewport.
 	m.chatView, _ = m.chatView.Update(msgs.ChatViewCommitUserMsg{Text: text, Parts: msg.Parts})
 	m.chatView, _ = m.chatView.Update(msgs.ChatViewMarkSentMsg{})
@@ -582,6 +596,36 @@ func (m *AppModel) handleSubmit(msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, tea.Batch(sendCmd, tickCmd())
+}
+
+// handleSubAgentSubmit routes a user message to the currently viewed sub-agent.
+func (m *AppModel) handleSubAgentSubmit(agentID string, msg msgs.InputSubmitMsg) (tea.Model, tea.Cmd) {
+	// Check if the agent has completed.
+	if info, ok := m.agentUsage[agentID]; ok && info.Ended {
+		errLine := styles.ErrorBlockStyle.Width(m.width).Render(
+			lipgloss.NewStyle().Foreground(styles.ColorError).Render("Agent has completed — navigate back to send messages"),
+		)
+		m.chatView, _ = m.chatView.Update(msgs.ChatViewAppendMsg{Content: "\n" + errLine + "\n"})
+		return m, nil
+	}
+
+	// Commit user message to viewport.
+	m.chatView, _ = m.chatView.Update(msgs.ChatViewCommitUserMsg(msg))
+	m.chatView, _ = m.chatView.Update(msgs.ChatViewMarkSentMsg{})
+
+	// Build the message and send to the agent's inbox.
+	parts := buildSendParts(msg.Text, msg.Parts)
+	userMsg := message.New("user", role.User, parts...)
+
+	eng := m.eng
+	sendCmd := func() tea.Msg {
+		err := eng.SendToAgent(agentID, userMsg)
+		if err != nil {
+			return msgs.SubAgentSendErrorMsg{AgentID: agentID, Err: err}
+		}
+		return nil
+	}
+	return m, sendCmd
 }
 
 // buildSendParts assembles content parts from text and attachment parts.

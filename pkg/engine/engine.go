@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/germanamz/shelly/pkg/agent"
+	"github.com/germanamz/shelly/pkg/chats/message"
 	"github.com/germanamz/shelly/pkg/chats/role"
 	"github.com/germanamz/shelly/pkg/codingtoolbox/ask"
 	"github.com/germanamz/shelly/pkg/modeladapter"
@@ -52,6 +53,9 @@ type Engine struct {
 
 	cancelMu     sync.Mutex
 	agentCancels map[string]context.CancelFunc
+
+	inboxMu      sync.Mutex
+	agentInboxes map[string]chan message.Message
 }
 
 // New creates an Engine from the given configuration. It validates the config,
@@ -92,6 +96,7 @@ func New(ctx context.Context, cfg Config) (*Engine, error) {
 		sessions:       make(map[string]*Session),
 		dir:            dir,
 		agentCancels:   make(map[string]context.CancelFunc),
+		agentInboxes:   make(map[string]chan message.Message),
 	}
 
 	e.sessionStore = sessions.New(dir.SessionsDir())
@@ -398,6 +403,45 @@ func (e *Engine) CancelAgent(name string) bool {
 		cancel()
 	}
 	return ok
+}
+
+// RegisterAgentInbox stores the inbox channel for the named agent so that
+// SendToAgent can deliver user messages to it.
+func (e *Engine) RegisterAgentInbox(name string, inbox chan message.Message) {
+	e.inboxMu.Lock()
+	defer e.inboxMu.Unlock()
+	e.agentInboxes[name] = inbox
+}
+
+// UnregisterAgentInbox removes the inbox channel for the named agent.
+func (e *Engine) UnregisterAgentInbox(name string) {
+	e.inboxMu.Lock()
+	defer e.inboxMu.Unlock()
+	delete(e.agentInboxes, name)
+}
+
+// ErrAgentNotFound is returned when SendToAgent targets an unknown agent.
+var ErrAgentNotFound = fmt.Errorf("engine: agent not found")
+
+// ErrAgentInboxFull is returned when the agent already has a pending message.
+var ErrAgentInboxFull = fmt.Errorf("engine: agent has a pending message")
+
+// SendToAgent delivers a user message to a running agent's inbox. Returns
+// ErrAgentNotFound if the agent is not registered, or ErrAgentInboxFull if
+// the inbox already has a pending message.
+func (e *Engine) SendToAgent(agentID string, msg message.Message) error {
+	e.inboxMu.Lock()
+	inbox, ok := e.agentInboxes[agentID]
+	e.inboxMu.Unlock()
+	if !ok {
+		return ErrAgentNotFound
+	}
+	select {
+	case inbox <- msg:
+		return nil
+	default:
+		return ErrAgentInboxFull
+	}
 }
 
 // Close cancels the engine context, shuts down MCP clients, and releases

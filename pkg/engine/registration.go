@@ -44,6 +44,8 @@ type agentEvents struct {
 	eventFunc         agent.EventFunc
 	cancelRegistrar   agent.CancelRegistrar
 	cancelUnregistrar agent.CancelUnregistrar
+	inboxRegistrar    agent.InboxRegistrar
+	inboxUnregistrar  agent.InboxUnregistrar
 }
 
 // registrationContext groups intermediate resolved state used while registering
@@ -177,6 +179,8 @@ func (e *Engine) buildRegistrationContext(ac AgentConfig) (registrationContext, 
 			eventFunc:         e.buildAgentEventFunc(),
 			cancelRegistrar:   agent.CancelRegistrar(e.RegisterAgentCancel),
 			cancelUnregistrar: agent.CancelUnregistrar(e.UnregisterAgentCancel),
+			inboxRegistrar:    agent.InboxRegistrar(e.RegisterAgentInbox),
+			inboxUnregistrar:  agent.InboxUnregistrar(e.UnregisterAgentInbox),
 		},
 		contextStr:      e.projectCtx.String(),
 		contextWindow:   contextWindow,
@@ -362,6 +366,8 @@ func (e *Engine) registerFactory(rc registrationContext) error {
 			EventFunc:          rc.events.eventFunc,
 			CancelRegistrar:    rc.events.cancelRegistrar,
 			CancelUnregistrar:  rc.events.cancelUnregistrar,
+			InboxRegistrar:     rc.events.inboxRegistrar,
+			InboxUnregistrar:   rc.events.inboxUnregistrar,
 			ReflectionDir:      rc.reflectionDir,
 			Prefix:             rc.identity.prefix,
 			ProviderLabel:      rc.identity.providerLabel,

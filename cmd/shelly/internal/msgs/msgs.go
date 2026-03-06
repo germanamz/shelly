@@ -102,6 +102,12 @@ type RespondErrorMsg struct {
 	Err error
 }
 
+// SubAgentSendErrorMsg is sent when routing a message to a sub-agent fails.
+type SubAgentSendErrorMsg struct {
+	AgentID string
+	Err     error
+}
+
 // FilePickerEntriesMsg delivers the discovered file list.
 type FilePickerEntriesMsg struct {
 	Entries []string
