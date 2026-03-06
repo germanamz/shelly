@@ -333,6 +333,24 @@ func sanitizeSchema(raw json.RawMessage) json.RawMessage {
 		obj["items"] = sanitizeSchema(items)
 	}
 
+	// Recurse into schema combinators.
+	for _, key := range []string{"allOf", "anyOf", "oneOf"} {
+		arr, ok := obj[key]
+		if !ok {
+			continue
+		}
+		var elems []json.RawMessage
+		if err := json.Unmarshal(arr, &elems); err != nil {
+			continue
+		}
+		for i, elem := range elems {
+			elems[i] = sanitizeSchema(elem)
+		}
+		if b, err := json.Marshal(elems); err == nil {
+			obj[key] = b
+		}
+	}
+
 	b, err := json.Marshal(obj)
 	if err != nil {
 		return raw
