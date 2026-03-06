@@ -155,6 +155,32 @@ func TestBatchSubmitter_PollBatch_ErroredResult(t *testing.T) {
 	assert.Contains(t, r1.Err.Error(), "too many tokens")
 }
 
+func TestBatchSubmitter_PollBatch_EmptyContent(t *testing.T) {
+	callNum := 0
+	_, sub := newBatchTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		callNum++
+		switch callNum {
+		case 1:
+			writeJSON(t, w, map[string]any{
+				"id":                "batch-empty",
+				"processing_status": "ended",
+			})
+		case 2:
+			w.Header().Set("Content-Type", "application/jsonl")
+			_, _ = w.Write([]byte(`{"custom_id":"req-1","result":{"type":"succeeded","message":{"content":[],"stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":0}}}}`))
+		}
+	})
+
+	results, done, err := sub.PollBatch(context.Background(), "batch-empty")
+	require.NoError(t, err)
+	assert.True(t, done)
+	assert.Len(t, results, 1)
+
+	r1 := results["req-1"]
+	require.Error(t, r1.Err)
+	assert.Contains(t, r1.Err.Error(), "empty content in response")
+}
+
 func TestBatchSubmitter_CancelBatch(t *testing.T) {
 	_, sub := newBatchTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/v1/messages/batches/batch-cancel/cancel", r.URL.Path)

@@ -183,6 +183,12 @@ func (b *BatchSubmitter) convertResult(item batchResultLine) batch.Result {
 		}
 	}
 
+	if len(item.Result.Message.Content) == 0 {
+		return batch.Result{
+			Err: fmt.Errorf("anthropic batch: request %s: empty content in response", item.CustomID),
+		}
+	}
+
 	msg := b.adapter.parseResponse(item.Result.Message)
 	tc := usage.TokenCount{
 		InputTokens:  item.Result.Message.Usage.InputTokens,
