@@ -34,6 +34,10 @@ var ErrTokenBudgetExhausted = errors.New("agent: token budget exhausted")
 // exceeds the configured time budget.
 var ErrTimeBudgetExhausted = errors.New("agent: time budget exhausted")
 
+// ErrStallDetected is returned when the agent is active but not making
+// progress (e.g. calling different tools but getting the same errors).
+var ErrStallDetected = errors.New("agent: stall detected")
+
 // EventNotifier is called by orchestration tools to publish sub-agent
 // lifecycle events (e.g. "agent_start", "agent_end") to the engine's EventBus.
 type EventNotifier func(ctx context.Context, kind string, agentName string, data any)

@@ -240,4 +240,4 @@ These integrate with the existing delegation error handling in `pkg/agent/delega
 3. **Phase 4** (graceful exhaustion) — Small change, big UX improvement
 4. **Phase 5** (raise limits + update templates) — Applies the new effects to real configs
 5. **Phase 6** (engine wiring) — Factories and auto-generation
-6. **Phase 3** (stall_detect) — Most complex, lowest priority since loop_detect already covers the worst case
+6. ~~**Phase 3** (stall_detect) — Most complex, lowest priority since loop_detect already covers the worst case~~ **DONE**
