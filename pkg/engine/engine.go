@@ -266,16 +266,14 @@ func (e *Engine) RemoveSession(id string) bool {
 // resolveProviderInfo looks up the ProviderConfig for the given agent and
 // returns a ProviderInfo with Kind and Model.
 func (e *Engine) resolveProviderInfo(agentName string) ProviderInfo {
-	var providerName string
+	var agentProvider string
 	for _, ac := range e.cfg.Agents {
 		if ac.Name == agentName {
-			providerName = ac.Provider
+			agentProvider = ac.Provider
 			break
 		}
 	}
-	if providerName == "" && len(e.cfg.Providers) > 0 {
-		providerName = e.cfg.Providers[0].Name
-	}
+	providerName := e.agentProviderName(agentProvider)
 	for _, pc := range e.cfg.Providers {
 		if pc.Name == providerName {
 			return ProviderInfo{Kind: pc.Kind, Model: pc.Model}

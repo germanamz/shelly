@@ -85,7 +85,6 @@ func writeReflection(dir string, agentName string, task string, cr *CompletionRe
 	os.WriteFile(path, []byte(b.String()), 0o600) //nolint:errcheck,gosec // best-effort reflection
 }
 
-
 // searchReflections searches for relevant reflections before delegating.
 // Returns an empty string if no relevant reflections are found.
 func searchReflections(dir string, task string) string {

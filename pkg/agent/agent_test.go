@@ -219,7 +219,7 @@ func TestRunWarnIterations(t *testing.T) {
 	// Iteration 0 (no warning), iteration 1 (no warning),
 	// iteration 2 (warning injected before Complete), iteration 3 (already warned).
 	// Verify no warning text in snapshots for iterations 0 and 1.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		for _, m := range chatSnapshots[i] {
 			assert.NotContains(t, m.TextContent(), "You are approaching your iteration limit. Complete your current task",
 				"unexpected warning at iteration %d", i)

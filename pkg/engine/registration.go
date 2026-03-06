@@ -186,12 +186,21 @@ func (e *Engine) buildRegistrationContext(ac AgentConfig) (registrationContext, 
 	}, nil
 }
 
+// agentProviderName returns the provider name for an agent, falling back to
+// the first configured provider when the agent does not specify one.
+func (e *Engine) agentProviderName(provider string) string {
+	if provider != "" {
+		return provider
+	}
+	if len(e.cfg.Providers) > 0 {
+		return e.cfg.Providers[0].Name
+	}
+	return ""
+}
+
 // resolveCompleter finds the completer for the agent's provider reference.
 func (e *Engine) resolveCompleter(ac AgentConfig) (modeladapter.Completer, error) {
-	providerName := ac.Provider
-	if providerName == "" && len(e.cfg.Providers) > 0 {
-		providerName = e.cfg.Providers[0].Name
-	}
+	providerName := e.agentProviderName(ac.Provider)
 
 	completer, ok := e.completers[providerName]
 	if !ok {
@@ -254,10 +263,7 @@ func (e *Engine) appendSkillToolbox(skills []skill.Skill, tbs []*toolbox.ToolBox
 
 // resolveAgentContextWindow finds the context window for the agent's provider.
 func (e *Engine) resolveAgentContextWindow(ac AgentConfig) int {
-	providerName := ac.Provider
-	if providerName == "" && len(e.cfg.Providers) > 0 {
-		providerName = e.cfg.Providers[0].Name
-	}
+	providerName := e.agentProviderName(ac.Provider)
 	for _, pc := range e.cfg.Providers {
 		if pc.Name == providerName {
 			return resolveContextWindow(pc, e.cfg.DefaultContextWindows)
