@@ -723,7 +723,7 @@ Separated from agent-scoped view to isolate the data lifecycle change. Depends o
    - `TestInputRouting_CompactionThenQueued` — compaction completes before queued message is appended
    - `TestInputRouting_InboxFull_Rejected` — second message rejected when first is still pending
 
-### Phase 11: Integration Tests
+### Phase 11: Integration Tests ✅
 End-to-end tests that verify the full flow across components. These use a test harness that simulates the `AppModel` with mock engine events.
 
 1. **`TestIntegration_SpawnAndBrowse`** — spawn agent → open panel → verify agent appears in list → select agent → verify chat view switches → agent completes → verify disposal
