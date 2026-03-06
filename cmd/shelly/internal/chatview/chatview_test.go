@@ -534,6 +534,105 @@ func TestAutoScroll_NavigateBackSetsScrollFlag(t *testing.T) {
 	assert.Empty(t, cv.ViewedAgent())
 }
 
+// --- Step 1: Per-Agent Committed History tests ---
+
+func TestPerAgentCommitted_UserMessageRoutedToSubAgent(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+
+	// Focus the sub-agent.
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child"})
+
+	// Commit a user message while viewing the sub-agent.
+	cv, _ = cv.Update(msgs.ChatViewCommitUserMsg{Text: "hello sub-agent"})
+
+	// Message should be in the sub-agent's Committed, not global.
+	childAC := cv.FindContainer("child")
+	assert.Len(t, childAC.Committed, 1)
+	assert.Contains(t, childAC.Committed[0], "hello sub-agent")
+	// Global committed should be empty.
+	assert.Empty(t, cv.committed)
+}
+
+func TestPerAgentCommitted_UserMessageAtRootGoesToGlobal(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+
+	// Commit a user message at root view.
+	cv, _ = cv.Update(msgs.ChatViewCommitUserMsg{Text: "hello root"})
+
+	// Message should be in global committed.
+	assert.Len(t, cv.committed, 1)
+	assert.Contains(t, cv.committed[0], "hello root")
+
+	// Root agent should have no per-agent committed.
+	rootAC := cv.agents["root"]
+	assert.Empty(t, rootAC.Committed)
+}
+
+func TestPerAgentCommitted_RebuildShowsAgentHistory(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.ChatViewAppendMsg{Content: "welcome message"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+
+	// Focus the sub-agent and send a message.
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child"})
+	cv, _ = cv.Update(msgs.ChatViewCommitUserMsg{Text: "sub-agent message"})
+
+	view := cv.View()
+	// Sub-agent's committed message should be visible.
+	assert.Contains(t, view, "sub-agent message")
+	// Global committed (welcome) should NOT be visible when viewing sub-agent.
+	assert.NotContains(t, view, "welcome message")
+}
+
+func TestPerAgentCommitted_NavigateBackShowsGlobal(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.ChatViewAppendMsg{Content: "global content"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+
+	// Focus sub-agent, send message, navigate back.
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child"})
+	cv, _ = cv.Update(msgs.ChatViewCommitUserMsg{Text: "child msg"})
+	cv, _ = cv.Update(msgs.ChatViewNavigateBackMsg{})
+
+	view := cv.View()
+	// Global content should be visible again.
+	assert.Contains(t, view, "global content")
+}
+
+func TestPerAgentCommitted_EndTopLevelCollapsesIntoGlobal(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+
+	// Manually add committed history to the agent.
+	rootAC := cv.agents["root"]
+	rootAC.Committed = append(rootAC.Committed, "agent-specific content\n")
+
+	cv, _ = cv.Update(msgs.AgentEndMsg{Agent: "root"})
+
+	// Agent's committed history should be folded into global.
+	combined := strings.Join(cv.committed, "\n")
+	assert.Contains(t, combined, "agent-specific content")
+}
+
+func TestPerAgentCommitted_FlushAllCollapsesIntoGlobal(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+
+	// Add per-agent committed history.
+	rootAC := cv.agents["root"]
+	rootAC.Committed = append(rootAC.Committed, "flushed content\n")
+
+	cv, _ = cv.Update(msgs.ChatViewFlushAllMsg{})
+
+	combined := strings.Join(cv.committed, "\n")
+	assert.Contains(t, combined, "flushed content")
+}
+
 // --- Phase 7: Agent Disposal tests ---
 
 func TestAgentDisposal_ReplacedWithSummaryLine(t *testing.T) {

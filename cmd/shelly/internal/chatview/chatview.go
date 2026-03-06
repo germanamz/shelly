@@ -387,11 +387,20 @@ func (m *ChatViewModel) cleanViewStackEntry(agentID string) {
 }
 
 // appendContent adds text to the committed buffer.
+// When viewing a sub-agent, content is routed to that agent's per-agent buffer.
 func (m *ChatViewModel) appendContent(text string) {
+	if m.viewedAgent != "" {
+		if ac := m.viewedAgentContainer(); ac != nil {
+			ac.Committed = append(ac.Committed, text)
+			return
+		}
+	}
 	m.committed = append(m.committed, text)
 }
 
 // commitUserMessage renders a user message and appends it to the committed buffer.
+// When viewing a sub-agent, the message is routed to that agent's per-agent
+// Committed buffer instead of the global one.
 func (m *ChatViewModel) commitUserMessage(text string, parts []content.Part) {
 	highlighted := highlightFilePaths(text)
 
@@ -410,6 +419,14 @@ func (m *ChatViewModel) commitUserMessage(text string, parts []content.Part) {
 
 	sb.WriteString("\n")
 	m.HasMessages = true
+
+	// Route to the viewed agent's per-agent buffer if viewing a sub-agent.
+	if m.viewedAgent != "" {
+		if ac := m.viewedAgentContainer(); ac != nil {
+			ac.Committed = append(ac.Committed, sb.String())
+			return
+		}
+	}
 	m.committed = append(m.committed, sb.String())
 }
 
@@ -420,14 +437,25 @@ func (m *ChatViewModel) rebuildContent() {
 	m.scrollToBottom = false
 
 	var full strings.Builder
-	for _, c := range m.committed {
+
+	// When viewing a sub-agent, show its per-agent committed history;
+	// otherwise show the global committed buffer.
+	var committedBuf []string
+	if m.viewedAgent != "" {
+		if ac := m.viewedAgentContainer(); ac != nil {
+			committedBuf = ac.Committed
+		}
+	} else {
+		committedBuf = m.committed
+	}
+	for _, c := range committedBuf {
 		full.WriteString(c)
 	}
 
 	// Append live agent content with a blank-line separator.
 	live := m.liveContent()
 	if live != "" {
-		if len(m.committed) > 0 {
+		if len(committedBuf) > 0 {
 			full.WriteString("\n")
 		}
 		full.WriteString(live)
@@ -735,6 +763,9 @@ func (m *ChatViewModel) endAgent(agentName, completionSummary string) {
 		}
 	}
 
+	// Collapse per-agent committed history into the global buffer.
+	m.committed = append(m.committed, ac.Committed...)
+
 	if summary != "" {
 		m.committed = append(m.committed, "\n"+summary+"\n")
 	}
@@ -790,6 +821,8 @@ func (m *ChatViewModel) flushAll() {
 		if ac.EndTime.IsZero() {
 			ac.EndTime = time.Now()
 		}
+		// Collapse per-agent committed history into the global buffer.
+		m.committed = append(m.committed, ac.Committed...)
 		summary := ac.CollapsedSummary()
 		if summary != "" {
 			m.committed = append(m.committed, "\n"+summary+"\n")

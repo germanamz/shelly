@@ -27,6 +27,7 @@ type AgentContainer struct {
 	Prefix        string // configurable emoji prefix (e.g. "🤖", "📝", "🦾")
 	ProviderLabel string // provider display label (e.g. "anthropic/claude-sonnet-4")
 	Items         []DisplayItem
+	Committed     []string                 // per-agent committed history (user messages, etc.)
 	CallIndex     map[string]*ToolCallItem // callID → ToolCallItem for O(1) lookup
 	StartTime     time.Time
 	EndTime       time.Time // frozen when Done is set

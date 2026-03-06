@@ -35,7 +35,7 @@ Only one agent's messages render at a time. The viewport shows the **selected ag
 
 Sub-agent spawning appears in the parent as a **compact inline item** (similar to a tool call), showing status, name, and a one-line summary when done.
 
-### Step 1: Per-Agent Committed History
+### Step 1: Per-Agent Committed History ✅
 
 **Goal:** Each agent maintains its own committed message buffer so switching between agents shows the correct chat history.
 
