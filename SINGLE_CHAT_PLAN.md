@@ -146,7 +146,7 @@ This already works — `handleAgentMsg` in `chatview.go` resolves the container 
 **Breadcrumb simplification:**
 - Since nesting is flattened visually, breadcrumb shows: `<- root > agent-name` (max 1 level deep in the breadcrumb, since the viewport always shows one agent's full chat)
 
-### Step 7: Spinner Animation for SubAgentRefItem
+### Step 7: Spinner Animation for SubAgentRefItem ✅
 
 **Changes in `container.go` `advanceFrame`:**
 
