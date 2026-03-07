@@ -902,6 +902,109 @@ func TestFocusedSubAgent_CommittedPlusLive(t *testing.T) {
 	assert.Contains(t, view, "search_tool")
 }
 
+// --- Step 9: Final validation tests ---
+
+func TestSubAgentMessages_DontAppearInParent(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+
+	// Send a tool call message to the child sub-agent.
+	childMsg := message.New("child", role.Assistant,
+		content.ToolCall{ID: "tc-child-1", Name: "fs_read", Arguments: `{"path":"child.txt"}`},
+	)
+	cv, _ = cv.Update(msgs.ChatMessageMsg{Msg: childMsg})
+
+	// The child's container should have the tool call.
+	childAC := cv.FindContainer("child")
+	foundToolCall := false
+	for _, item := range childAC.Items {
+		if tc, ok := item.(*ToolCallItem); ok && tc.CallID == "tc-child-1" {
+			foundToolCall = true
+		}
+	}
+	assert.True(t, foundToolCall, "child container should have the tool call")
+
+	// The parent's container should only have the SubAgentRefItem, not the tool call.
+	parentAC := cv.agents["root"]
+	assert.Len(t, parentAC.Items, 1)
+	_, isRef := parentAC.Items[0].(*SubAgentRefItem)
+	assert.True(t, isRef, "parent should only have SubAgentRefItem, got %T", parentAC.Items[0])
+}
+
+func TestSubAgentRefItem_RunningThenDone(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root", ProviderLabel: "anthropic/claude-sonnet-4"})
+
+	// Verify the ref is running with a spinner.
+	parentAC := cv.agents["root"]
+	ref, ok := parentAC.Items[0].(*SubAgentRefItem)
+	assert.True(t, ok)
+	assert.Equal(t, "running", ref.Status)
+	assert.True(t, ref.IsLive())
+
+	// Running view should contain the spinner character and agent name.
+	runningView := ref.View(80)
+	assert.Contains(t, runningView, "child")
+	assert.Contains(t, runningView, "anthropic/claude-sonnet-4")
+
+	// Advance spinners — FrameIdx should increment.
+	cv, _ = cv.Update(msgs.ChatViewAdvanceSpinnersMsg{})
+	assert.Greater(t, ref.FrameIdx, 0)
+
+	// Complete the sub-agent.
+	childAC := cv.FindContainer("child")
+	childAC.FinalAnswer = "refactored 3 files"
+	cv, _ = cv.Update(msgs.AgentEndMsg{Agent: "child", Parent: "root"})
+
+	// Ref should now be done.
+	assert.Equal(t, "done", ref.Status)
+	assert.False(t, ref.IsLive())
+	assert.Equal(t, "refactored 3 files", ref.FinalAnswer)
+	assert.NotEmpty(t, ref.Elapsed)
+
+	// Done view should show checkmark and answer excerpt.
+	doneView := ref.View(80)
+	assert.Contains(t, doneView, "child")
+	assert.Contains(t, doneView, "refactored 3 files")
+}
+
+func TestViewedAgent_SwitchRendersCorrectHistory(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.ChatViewAppendMsg{Content: "root welcome"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child-a", Prefix: "🦾", Parent: "root"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child-b", Prefix: "🦾", Parent: "root"})
+
+	// Add committed history to each child.
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child-a"})
+	cv, _ = cv.Update(msgs.ChatViewCommitUserMsg{Text: "message for child-a"})
+
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child-b"})
+	cv, _ = cv.Update(msgs.ChatViewCommitUserMsg{Text: "message for child-b"})
+
+	// Viewing child-b should show its message, not child-a's or root's.
+	view := cv.View()
+	assert.Contains(t, view, "message for child-b")
+	assert.NotContains(t, view, "message for child-a")
+	assert.NotContains(t, view, "root welcome")
+
+	// Switch to child-a.
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child-a"})
+	view = cv.View()
+	assert.Contains(t, view, "message for child-a")
+	assert.NotContains(t, view, "message for child-b")
+	assert.NotContains(t, view, "root welcome")
+
+	// Navigate back to root.
+	cv, _ = cv.Update(msgs.ChatViewNavigateBackMsg{})
+	view = cv.View()
+	assert.Contains(t, view, "root welcome")
+	assert.NotContains(t, view, "message for child-a")
+	assert.NotContains(t, view, "message for child-b")
+}
+
 func TestChatViewFlushAll(t *testing.T) {
 	cv := newTestChatView()
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "a1", Prefix: "🤖"})

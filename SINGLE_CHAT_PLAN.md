@@ -161,7 +161,7 @@ This already works — `handleAgentMsg` in `chatview.go` resolves the container 
 - Keep existing logic for top-level agents (collapse committed + summary into global buffer)
 - Clean up `subAgents` map
 
-### Step 9: Update Tests
+### Step 9: Update Tests ✅
 
 **Changes in `chatview_test.go`:**
 
