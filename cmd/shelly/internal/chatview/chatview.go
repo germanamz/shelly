@@ -793,6 +793,10 @@ func (m *ChatViewModel) updateSubAgentRef(parentAC *AgentContainer, sa *AgentCon
 // flushAll ends all remaining agents and appends their collapsed summaries
 // to the committed buffer.
 func (m *ChatViewModel) flushAll() {
+	// Reset navigation back to root — the viewed agent is about to be cleaned up.
+	m.viewedAgent = ""
+	m.viewStack = nil
+
 	// End sub-agents first and update their ref items in the parent.
 	for name, sa := range m.subAgents {
 		sa.Done = true

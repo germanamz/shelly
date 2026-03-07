@@ -741,6 +741,22 @@ func TestAgentDisposal_FlushAllUpdatesSubAgentRefs(t *testing.T) {
 	assert.NotEmpty(t, cv.committed)
 }
 
+func TestAgentDisposal_FlushAllResetsNavigation(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+
+	// Navigate into the sub-agent.
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child"})
+	assert.Equal(t, "child", cv.ViewedAgent())
+
+	cv, _ = cv.Update(msgs.ChatViewFlushAllMsg{})
+
+	// Navigation should be reset to root.
+	assert.Empty(t, cv.ViewedAgent())
+	assert.Empty(t, cv.ViewStack())
+}
+
 func TestAgentDisposal_CollapsedSummaryIncludesSubAgentRefs(t *testing.T) {
 	cv := newTestChatView()
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})

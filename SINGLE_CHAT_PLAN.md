@@ -153,7 +153,7 @@ This already works — `handleAgentMsg` in `chatview.go` resolves the container 
 - When advancing frames, also advance `FrameIdx` on any `SubAgentRefItem` in the container's Items that has `Status == "running"`
 - This keeps the spinner animated in the parent's view
 
-### Step 8: Update `flushAll`
+### Step 8: Update `flushAll` ✅
 
 **Changes in `chatview.go` `flushAll`:**
 
