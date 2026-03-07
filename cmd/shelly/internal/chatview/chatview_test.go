@@ -787,6 +787,66 @@ func TestAgentDisposal_CompletionSummaryFallback(t *testing.T) {
 	assert.Equal(t, "fallback summary", ref.FinalAnswer)
 }
 
+// --- Step 3: Full View Switch tests ---
+
+func TestFocusedSubAgent_RendersFlat(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+
+	// Add tool calls to the child.
+	childAC := cv.FindContainer("child")
+	childAC.AddToolCall("tc-1", "fs_read", `{"path":"test.txt"}`)
+
+	// Focus the sub-agent.
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child"})
+	view := cv.View()
+
+	// Should contain the tool call (rendered as "Reading file").
+	assert.Contains(t, view, "Reading file")
+	// Should NOT contain tree-pipe indentation (sub-agent styling).
+	assert.NotContains(t, view, "┃")
+}
+
+func TestFocusedSubAgent_NoSubAgentHeader(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+
+	childAC := cv.FindContainer("child")
+	childAC.AddToolCall("tc-1", "test_tool", `{}`)
+
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child"})
+	live := cv.liveContent()
+
+	// The focused view should render items flat — no colored header line with "🦾 child".
+	// The first line should be the tool call, not a sub-agent header.
+	lines := strings.Split(live, "\n")
+	assert.NotEmpty(t, lines)
+	// First line should NOT start with the sub-agent prefix+name pattern.
+	assert.NotContains(t, lines[0], "🦾 child")
+}
+
+func TestFocusedSubAgent_CommittedPlusLive(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+
+	// Focus and commit a message to the sub-agent.
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child"})
+	cv, _ = cv.Update(msgs.ChatViewCommitUserMsg{Text: "user question"})
+
+	// Add a live tool call.
+	childAC := cv.FindContainer("child")
+	childAC.AddToolCall("tc-1", "search_tool", `{"q":"test"}`)
+	cv.rebuildContent()
+
+	view := cv.View()
+	// Both committed user message and live tool call should be visible.
+	assert.Contains(t, view, "user question")
+	assert.Contains(t, view, "search_tool")
+}
+
 func TestChatViewFlushAll(t *testing.T) {
 	cv := newTestChatView()
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "a1", Prefix: "🤖"})

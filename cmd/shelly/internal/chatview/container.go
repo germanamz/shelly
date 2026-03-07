@@ -254,6 +254,40 @@ func (ac *AgentContainer) View(width int) string {
 	return sb.String()
 }
 
+// ViewFlat renders the agent container's items flat (like a top-level agent),
+// ignoring MaxShow windowing and sub-agent styling (no tree-pipe indentation,
+// no colored header). Used when the agent is focused in the single chat view.
+func (ac *AgentContainer) ViewFlat(width int) string {
+	if ac.Done {
+		return ac.CollapsedSummary()
+	}
+
+	items := ac.Items
+	frame := format.SpinnerFrames[ac.FrameIdx%len(format.SpinnerFrames)]
+
+	if len(items) == 0 {
+		label := ac.Agent
+		if ac.ProviderLabel != "" {
+			label += " (" + ac.ProviderLabel + ")"
+		}
+		return fmt.Sprintf("%s %s is thinking... %s\n",
+			ac.Prefix, label, styles.SpinnerStyle.Render(frame))
+	}
+
+	var sb strings.Builder
+	for _, item := range items {
+		sb.WriteString(item.View(width))
+		sb.WriteString("\n")
+	}
+
+	if !ac.hasLiveItems() {
+		fmt.Fprintf(&sb, "%s %s is thinking... %s\n",
+			ac.Prefix, ac.Agent, styles.SpinnerStyle.Render(frame))
+	}
+
+	return sb.String()
+}
+
 // CollapsedSummary returns a summary after agent completion, including the final answer if present.
 func (ac *AgentContainer) CollapsedSummary() string {
 	end := ac.EndTime

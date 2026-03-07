@@ -470,18 +470,14 @@ func (m *ChatViewModel) rebuildContent() {
 
 // liveContent renders the current live agent activity (spinners, tool calls).
 func (m *ChatViewModel) liveContent() string {
-	// Agent-scoped view: render only the viewed agent's container.
+	// Agent-scoped view: render the viewed agent's items flat (like a top-level agent).
+	// The agent's identity is shown in the breadcrumb, so no sub-agent header is needed.
 	if m.viewedAgent != "" {
 		ac := m.viewedAgentContainer()
 		if ac == nil {
 			return ""
 		}
-		// Temporarily set MaxShow=0 to show full history.
-		origMaxShow := ac.MaxShow
-		ac.MaxShow = 0
-		view := ac.View(m.Width)
-		ac.MaxShow = origMaxShow
-		return view
+		return ac.ViewFlat(m.Width)
 	}
 
 	var live strings.Builder

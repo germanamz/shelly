@@ -87,7 +87,7 @@ type SubAgentRefItem struct {
 
 This replaces both the live nested container AND the `SummaryLineItem` replacement logic.
 
-### Step 3: Modify `liveContent` for Full View Switch
+### Step 3: Modify `liveContent` for Full View Switch ✅
 
 **Goal:** `liveContent()` renders the selected agent's full history, not just its container.
 
