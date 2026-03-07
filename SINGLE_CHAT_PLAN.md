@@ -122,7 +122,7 @@ else:
 
 **Deferred cleanup:** Sub-agent containers stay in `subAgents` until the session ends, allowing post-completion browsing. The `SubAgentRefItem` in the parent acts as a clickable/selectable reference.
 
-### Step 5: Route Messages to Correct Agent
+### Step 5: Route Messages to Correct Agent ✅
 
 **Goal:** Incoming messages (tool calls, thinking, text) are routed to the correct agent container regardless of which agent is currently viewed.
 
