@@ -188,7 +188,12 @@ func TestIntegration_RapidAgentChurn(t *testing.T) {
 	}
 
 	assert.Equal(t, 0, m.menuBar.Items()[0].Badge)
-	assert.Empty(t, m.chatView.SubAgents())
+	// Completed sub-agents are retained for post-completion browsing.
+	agents := m.chatView.SubAgents()
+	assert.Len(t, agents, 10)
+	for _, a := range agents {
+		assert.Equal(t, "done", a.Status)
+	}
 
 	// Menu bar should still be visible (persists for session).
 	assert.True(t, m.menuBar.Visible())

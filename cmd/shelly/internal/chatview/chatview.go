@@ -740,8 +740,10 @@ func (m *ChatViewModel) endAgent(agentName, completionSummary string) {
 			m.updateSubAgentRef(parentAC, sa)
 		}
 
-		delete(m.subAgents, agentName)
-		delete(m.subAgentParent, agentName)
+		// Keep the container in subAgents (marked Done) so the user can
+		// navigate to it after completion. Cleanup happens when the parent
+		// top-level agent ends or on flushAll.
+
 		// Clean up view stack entry if not currently viewed.
 		m.cleanViewStackEntry(agentName)
 		return
@@ -768,11 +770,47 @@ func (m *ChatViewModel) endAgent(agentName, completionSummary string) {
 		}
 	}
 
+	// Clean up any sub-agents that belonged to this top-level agent.
+	m.cleanupChildSubAgents(agentName)
+
 	// Collapse per-agent committed history into the global buffer.
 	m.committed = append(m.committed, ac.Committed...)
 
 	if summary != "" {
 		m.committed = append(m.committed, "\n"+summary+"\n")
+	}
+}
+
+// cleanupChildSubAgents removes all sub-agents whose ancestry traces back to
+// the given top-level agent from the subAgents and subAgentParent maps.
+func (m *ChatViewModel) cleanupChildSubAgents(topAgent string) {
+	// Collect names first to avoid mutating the map during iteration.
+	var toDelete []string
+	for name := range m.subAgentParent {
+		if m.isDescendantOf(name, topAgent) {
+			toDelete = append(toDelete, name)
+		}
+	}
+	for _, name := range toDelete {
+		delete(m.subAgents, name)
+		delete(m.subAgentParent, name)
+		m.cleanViewStackEntry(name)
+	}
+}
+
+// isDescendantOf returns true if the given agent is a descendant of ancestor
+// by walking the subAgentParent chain.
+func (m *ChatViewModel) isDescendantOf(agent, ancestor string) bool {
+	current := agent
+	for {
+		parent, ok := m.subAgentParent[current]
+		if !ok {
+			return false
+		}
+		if parent == ancestor {
+			return true
+		}
+		current = parent
 	}
 }
 

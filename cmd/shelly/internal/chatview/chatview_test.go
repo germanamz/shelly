@@ -176,9 +176,10 @@ func TestChatViewSubAgent(t *testing.T) {
 	assert.Equal(t, "child", ref.Agent)
 	assert.Equal(t, "running", ref.Status)
 
-	// End child.
+	// End child — container is retained (marked Done) for post-completion browsing.
 	cv, _ = cv.Update(msgs.AgentEndMsg{Agent: "child", Parent: "parent"})
-	assert.NotContains(t, cv.subAgents, "child")
+	assert.Contains(t, cv.subAgents, "child")
+	assert.True(t, cv.subAgents["child"].Done)
 }
 
 func TestChatViewIgnoreSystemAndUser(t *testing.T) {
@@ -272,18 +273,21 @@ func TestSubAgents_NestedDepth(t *testing.T) {
 	assert.Equal(t, "child", gcInfo.ParentID)
 }
 
-func TestSubAgents_ExcludesCompleted(t *testing.T) {
+func TestSubAgents_RetainsCompleted(t *testing.T) {
 	cv := newTestChatView()
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child-a", Prefix: "🦾", Parent: "root"})
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child-b", Prefix: "🦾", Parent: "root"})
 
-	// End child-a.
+	// End child-a — container stays in subAgents for post-completion browsing.
 	cv, _ = cv.Update(msgs.AgentEndMsg{Agent: "child-a", Parent: "root"})
 
 	infos := cv.SubAgents()
-	assert.Len(t, infos, 1)
-	assert.Equal(t, "child-b", infos[0].ID)
+	assert.Len(t, infos, 2)
+	infoA := findInfoByID(infos, "child-a")
+	assert.Equal(t, "done", infoA.Status)
+	infoB := findInfoByID(infos, "child-b")
+	assert.Equal(t, "running", infoB.Status)
 }
 
 func TestFindContainer_Exists(t *testing.T) {
@@ -772,6 +776,59 @@ func TestAgentDisposal_CollapsedSummaryIncludesSubAgentRefs(t *testing.T) {
 	// The committed summary should include the child's summary line.
 	combined := strings.Join(cv.committed, "\n")
 	assert.Contains(t, combined, "child")
+}
+
+func TestAgentDisposal_SubAgentCleanedOnParentEnd(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+
+	// End child — retained in subAgents.
+	cv, _ = cv.Update(msgs.AgentEndMsg{Agent: "child", Parent: "root"})
+	assert.Contains(t, cv.subAgents, "child")
+
+	// End parent — child should be cleaned up.
+	cv, _ = cv.Update(msgs.AgentEndMsg{Agent: "root"})
+	assert.NotContains(t, cv.subAgents, "child")
+	assert.NotContains(t, cv.subAgentParent, "child")
+}
+
+func TestAgentDisposal_NestedSubAgentsCleanedOnParentEnd(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "grandchild", Prefix: "🦾", Parent: "child"})
+
+	// End grandchild and child.
+	cv, _ = cv.Update(msgs.AgentEndMsg{Agent: "grandchild", Parent: "child"})
+	cv, _ = cv.Update(msgs.AgentEndMsg{Agent: "child", Parent: "root"})
+	assert.Contains(t, cv.subAgents, "child")
+	assert.Contains(t, cv.subAgents, "grandchild")
+
+	// End root — both should be cleaned up.
+	cv, _ = cv.Update(msgs.AgentEndMsg{Agent: "root"})
+	assert.NotContains(t, cv.subAgents, "child")
+	assert.NotContains(t, cv.subAgents, "grandchild")
+}
+
+func TestAgentDisposal_FocusCompletedSubAgent(t *testing.T) {
+	cv := newTestChatView()
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
+
+	// Add committed history to the child.
+	childAC := cv.FindContainer("child")
+	childAC.Committed = append(childAC.Committed, "child history\n")
+
+	// End child — still browsable.
+	cv, _ = cv.Update(msgs.AgentEndMsg{Agent: "child", Parent: "root"})
+
+	// Focus the completed child.
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child"})
+	assert.Equal(t, "child", cv.ViewedAgent())
+
+	view := cv.View()
+	assert.Contains(t, view, "child history")
 }
 
 func TestAgentDisposal_CompletionSummaryFallback(t *testing.T) {

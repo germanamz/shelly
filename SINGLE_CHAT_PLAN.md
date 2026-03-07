@@ -109,7 +109,7 @@ else:
 - When viewing a sub-agent, the viewport shows that agent's `Committed` buffer followed by its live `Items` — identical to how root agents render
 - The global `committed` buffer is NOT shown when viewing a sub-agent
 
-### Step 4: Update `endAgent` for Sub-Agents
+### Step 4: Update `endAgent` for Sub-Agents ✅
 
 **Goal:** When a sub-agent ends, update the `SubAgentRefItem` in the parent instead of replacing an `AgentContainer`.
 

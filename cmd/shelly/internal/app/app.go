@@ -830,8 +830,7 @@ func (m *AppModel) onAgentStart(msg msgs.AgentStartMsg) {
 		return // top-level agent, not a sub-agent
 	}
 	m.initAgentUsage(msg.Agent, msg.ProviderLabel)
-	agents := m.chatView.SubAgents()
-	badge := len(agents)
+	badge := m.countRunningSubAgents()
 
 	// Ensure menu bar is visible and has the "Subagents" item.
 	if !m.menuBar.Visible() {
@@ -923,8 +922,7 @@ func (m *AppModel) onAgentEnd(msg msgs.AgentEndMsg) {
 		m.recordAgentUsage(msg.Agent, *msg.Usage, true)
 	}
 
-	agents := m.chatView.SubAgents()
-	badge := len(agents)
+	badge := m.countRunningSubAgents()
 
 	m.menuBar.AddOrUpdateItem(menubar.Item{
 		ID:    subagentpanel.PanelID,
@@ -939,6 +937,17 @@ func (m *AppModel) onAgentEnd(msg msgs.AgentEndMsg) {
 
 	// Clean up usage entries for completed agents no longer on the view stack.
 	m.cleanupAgentUsage()
+}
+
+// countRunningSubAgents returns the number of sub-agents with status "running".
+func (m *AppModel) countRunningSubAgents() int {
+	count := 0
+	for _, info := range m.chatView.SubAgents() {
+		if info.Status == "running" {
+			count++
+		}
+	}
+	return count
 }
 
 // resizeSubAgentPanel computes and sets the panel size based on current items.
