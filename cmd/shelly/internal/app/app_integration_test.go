@@ -75,7 +75,8 @@ func TestIntegration_SpawnAndBrowse(t *testing.T) {
 	require.Equal(t, PanelSubAgents, m.activePanel)
 	require.True(t, m.subAgentPanel.Active())
 
-	// Select the agent via Enter.
+	// Move past root entry to the agent and select via Enter.
+	m.handleKey(downMsg())
 	m.handleKey(enterMsg())
 
 	// Chat view should now be focused on the agent.
@@ -98,9 +99,9 @@ func TestIntegration_SpawnAndBrowse(t *testing.T) {
 	assert.Equal(t, 500, info.Usage.InputTokens)
 }
 
-// --- Integration Test 2: Nested Navigation ---
+// --- Integration Test 2: Flat Navigation ---
 
-func TestIntegration_NestedNavigation(t *testing.T) {
+func TestIntegration_FlatNavigation(t *testing.T) {
 	m := newIntegrationModel()
 
 	// Build agent hierarchy: root → parent → child.
@@ -118,22 +119,17 @@ func TestIntegration_NestedNavigation(t *testing.T) {
 	m.chatView, _ = m.chatView.Update(msgs.ChatViewFocusAgentMsg{AgentID: "orchestrator-42"})
 	assert.Equal(t, "orchestrator-42", m.chatView.ViewedAgent())
 
-	// Navigate deeper to child.
+	// Navigate to child — flat nav replaces, stack stays at depth 1.
 	m.chatView, _ = m.chatView.Update(msgs.ChatViewFocusAgentMsg{AgentID: "coder-impl-7"})
 	assert.Equal(t, "coder-impl-7", m.chatView.ViewedAgent())
-	assert.Len(t, m.chatView.ViewStack(), 2)
+	assert.Len(t, m.chatView.ViewStack(), 1)
 
-	// Breadcrumb should contain both.
+	// Breadcrumb should show root and current agent only.
 	bc := m.chatView.RenderBreadcrumb()
 	assert.Contains(t, bc, "root")
-	assert.Contains(t, bc, "orchestrator-42")
 	assert.Contains(t, bc, "coder-impl-7")
 
-	// Esc back to parent (input is empty by default in test model).
-	m.handleKey(escMsg())
-	assert.Equal(t, "orchestrator-42", m.chatView.ViewedAgent())
-
-	// Esc back to root.
+	// Esc goes straight to root.
 	m.handleKey(escMsg())
 	assert.Empty(t, m.chatView.ViewedAgent())
 	assert.Empty(t, m.chatView.ViewStack())
@@ -309,17 +305,16 @@ func TestIntegration_CompactWhileViewingSubAgent(t *testing.T) {
 	assert.Equal(t, 0, m.chatView.HeaderHeight())
 }
 
-// --- Integration Test 8: View Stack Depth Cap ---
+// --- Integration Test 8: Flat Navigation Replaces ---
 
-func TestIntegration_ViewStackDepthCap(t *testing.T) {
+func TestIntegration_FlatNavigationReplaces(t *testing.T) {
 	m := newIntegrationModel()
 
 	rootMsg := msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"}
 	m.chatView, _ = m.chatView.Update(rootMsg)
 
-	// Build a deep chain of agents and navigate to each.
-	const maxDepth = 32
-	for i := range maxDepth {
+	// Focus multiple agents sequentially — each replaces the previous.
+	for i := range 5 {
 		name := fmt.Sprintf("agent-%d", i)
 		parent := "root"
 		if i > 0 {
@@ -329,24 +324,13 @@ func TestIntegration_ViewStackDepthCap(t *testing.T) {
 		m.chatView, _ = m.chatView.Update(msgs.ChatViewFocusAgentMsg{AgentID: name})
 	}
 
-	assert.Len(t, m.chatView.ViewStack(), maxDepth)
-	assert.Equal(t, "agent-31", m.chatView.ViewedAgent())
+	// Stack depth is always 1 with flat navigation.
+	assert.Len(t, m.chatView.ViewStack(), 1)
+	assert.Equal(t, "agent-4", m.chatView.ViewedAgent())
 
-	// One more push should be rejected.
-	spawnAgent(&m, "overflow", "root", "anthropic/claude-sonnet-4")
-	m.chatView, _ = m.chatView.Update(msgs.ChatViewFocusAgentMsg{AgentID: "overflow"})
-	assert.Len(t, m.chatView.ViewStack(), maxDepth) // unchanged
-	assert.Equal(t, "agent-31", m.chatView.ViewedAgent())
-
-	// Can still navigate back through the full stack.
-	for i := maxDepth - 1; i >= 0; i-- {
-		expected := ""
-		if i > 0 {
-			expected = fmt.Sprintf("agent-%d", i-1)
-		}
-		m.handleKey(escMsg())
-		assert.Equal(t, expected, m.chatView.ViewedAgent())
-	}
+	// Single Esc goes back to root.
+	m.handleKey(escMsg())
+	assert.Empty(t, m.chatView.ViewedAgent())
 	assert.Empty(t, m.chatView.ViewStack())
 }
 

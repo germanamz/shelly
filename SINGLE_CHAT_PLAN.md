@@ -130,7 +130,7 @@ This already works — `handleAgentMsg` in `chatview.go` resolves the container 
 
 **User input routing** (`app.go` `handleSubAgentSubmit`): Already routes to the viewed agent via `m.eng.SendToAgent`. The committed user message needs to go to the viewed agent's `Committed` buffer (Step 1).
 
-### Step 6: Update Sub-Agent Panel & Navigation
+### Step 6: Update Sub-Agent Panel & Navigation ✅
 
 **Changes in `subagentpanel.go`:**
 

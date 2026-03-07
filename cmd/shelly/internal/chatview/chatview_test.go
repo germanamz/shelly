@@ -344,27 +344,22 @@ func TestFocusAgent_NonexistentAgent(t *testing.T) {
 	assert.Empty(t, cv.viewStack)
 }
 
-func TestFocusAgent_DepthCapReached(t *testing.T) {
+func TestFocusAgent_FlatNavigation(t *testing.T) {
 	cv := newTestChatView()
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child-a", Prefix: "🦾", Parent: "root"})
+	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child-b", Prefix: "🦾", Parent: "root"})
 
-	// Create enough sub-agents and push them to fill the stack.
-	for i := range maxViewStackDepth {
-		name := fmt.Sprintf("agent-%d", i)
-		parent := "root"
-		if i > 0 {
-			parent = fmt.Sprintf("agent-%d", i-1)
-		}
-		cv, _ = cv.Update(msgs.AgentStartMsg{Agent: name, Prefix: "🦾", Parent: parent})
-		cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: name})
-	}
-	assert.Len(t, cv.viewStack, maxViewStackDepth)
+	// Focus child-a.
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child-a"})
+	assert.Equal(t, "child-a", cv.ViewedAgent())
+	assert.Len(t, cv.viewStack, 1)
 
-	// One more should be rejected.
-	extraName := "agent-overflow"
-	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: extraName, Prefix: "🦾", Parent: "root"})
-	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: extraName})
-	assert.Len(t, cv.viewStack, maxViewStackDepth) // unchanged
+	// Focus child-b — replaces child-a, stack stays at depth 1.
+	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child-b"})
+	assert.Equal(t, "child-b", cv.ViewedAgent())
+	assert.Len(t, cv.viewStack, 1)
+	assert.Equal(t, "child-b", cv.viewStack[0].AgentID)
 }
 
 func TestNavigateBack_PopsStack(t *testing.T) {
@@ -388,18 +383,13 @@ func TestNavigateBack_AtRoot_Noop(t *testing.T) {
 	assert.Empty(t, cv.viewStack)
 }
 
-func TestNavigateBack_MultiLevel(t *testing.T) {
+func TestNavigateBack_AlwaysReturnsToRoot(t *testing.T) {
 	cv := newTestChatView()
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "root", Prefix: "🤖"})
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child", Prefix: "🦾", Parent: "root"})
-	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "grandchild", Prefix: "🦾", Parent: "child"})
 
+	// Focus child, then navigate back — goes straight to root.
 	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child"})
-	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "grandchild"})
-	assert.Equal(t, "grandchild", cv.ViewedAgent())
-	assert.Len(t, cv.viewStack, 2)
-
-	cv, _ = cv.Update(msgs.ChatViewNavigateBackMsg{})
 	assert.Equal(t, "child", cv.ViewedAgent())
 	assert.Len(t, cv.viewStack, 1)
 
@@ -414,18 +404,15 @@ func TestViewStack_CleanupOnAgentEnd(t *testing.T) {
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child-a", Prefix: "🦾", Parent: "root"})
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child-b", Prefix: "🦾", Parent: "root"})
 
-	// Focus child-a, then go back, then focus child-b.
-	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child-a"})
-	cv, _ = cv.Update(msgs.ChatViewNavigateBackMsg{})
+	// Focus child-b (flat nav — child-a was never stacked).
 	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child-b"})
 
 	// child-a ends while viewing child-b.
 	cv, _ = cv.Update(msgs.AgentEndMsg{Agent: "child-a", Parent: "root"})
 
-	// child-a should be cleaned from the stack (it's not currently viewed).
-	for _, entry := range cv.viewStack {
-		assert.NotEqual(t, "child-a", entry.AgentID)
-	}
+	// Stack should only have child-b.
+	assert.Len(t, cv.viewStack, 1)
+	assert.Equal(t, "child-b", cv.viewStack[0].AgentID)
 }
 
 func TestViewStack_AgentEndsWhileViewing(t *testing.T) {
@@ -719,19 +706,14 @@ func TestAgentDisposal_ViewStackCleanup(t *testing.T) {
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child-a", Prefix: "🦾", Parent: "root"})
 	cv, _ = cv.Update(msgs.AgentStartMsg{Agent: "child-b", Prefix: "🦾", Parent: "root"})
 
-	// Focus child-a, navigate back, focus child-b.
-	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child-a"})
-	cv, _ = cv.Update(msgs.ChatViewNavigateBackMsg{})
+	// Focus child-b (flat nav replaces any previous entry).
 	cv, _ = cv.Update(msgs.ChatViewFocusAgentMsg{AgentID: "child-b"})
 
 	// Dispose child-a (not currently viewed).
 	cv, _ = cv.Update(msgs.AgentEndMsg{Agent: "child-a", Parent: "root"})
 
-	// child-a should be cleaned from the view stack.
-	for _, entry := range cv.viewStack {
-		assert.NotEqual(t, "child-a", entry.AgentID)
-	}
-	// child-b still on stack.
+	// Stack should only have child-b.
+	assert.Len(t, cv.viewStack, 1)
 	assert.Equal(t, "child-b", cv.ViewedAgent())
 
 	// Parent should have 2 items: SubAgentRefItem for child-a (done), SubAgentRefItem for child-b (running).

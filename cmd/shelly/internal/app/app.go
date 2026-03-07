@@ -483,7 +483,12 @@ func (m *AppModel) handlePanelKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if sel := m.subAgentPanel.Select(); sel != nil {
 				agentID := sel.AgentID
 				m.closePanel()
-				m.chatView, _ = m.chatView.Update(msgs.ChatViewFocusAgentMsg{AgentID: agentID})
+				if agentID == "" {
+					// Root entry selected — navigate back to root view.
+					m.chatView, _ = m.chatView.Update(msgs.ChatViewNavigateBackMsg{})
+				} else {
+					m.chatView, _ = m.chatView.Update(msgs.ChatViewFocusAgentMsg{AgentID: agentID})
+				}
 				m.recalcViewportHeight()
 			}
 		case tea.KeyEsc:

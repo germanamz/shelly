@@ -69,18 +69,31 @@ func (m Model) Select() *SubAgentSelectedMsg {
 func (m *Model) AdvanceSpinner() { m.list.AdvanceSpinner() }
 
 // Refresh rebuilds the list from the chatview's sub-agent data.
+// The first item is always the root view entry so users can navigate back.
 func (m *Model) Refresh(cv chatview.ChatViewModel) {
 	agents := cv.SubAgents()
-	items := make([]list.Item, len(agents))
-	for i, sa := range agents {
-		items[i] = list.Item{
+	items := make([]list.Item, 0, len(agents)+1)
+
+	// Root entry — selecting it navigates back to the root view.
+	rootStatus := list.StatusNone
+	if cv.ViewedAgent() == "" {
+		rootStatus = list.StatusDone // indicate current view
+	}
+	items = append(items, list.Item{
+		ID:     "",
+		Label:  "root",
+		Status: rootStatus,
+	})
+
+	for _, sa := range agents {
+		items = append(items, list.Item{
 			ID:     sa.ID,
 			Label:  sa.Label,
 			Detail: sa.Provider,
 			Status: agentStatusToListStatus(sa.Status),
 			Color:  sa.Color,
 			Indent: sa.Depth,
-		}
+		})
 	}
 	m.list.SetItems(items)
 }

@@ -28,9 +28,6 @@ const LogoArt = `
                  /___/
 `
 
-// maxViewStackDepth is the maximum navigation depth for the view stack.
-const maxViewStackDepth = 32
-
 // viewStackEntry holds state for one level of agent navigation.
 type viewStackEntry struct {
 	AgentID      string
@@ -281,49 +278,40 @@ func (m ChatViewModel) HeaderHeight() int {
 }
 
 // focusAgent switches the view to display the given agent's history.
+// Navigation is flat: viewing any agent replaces the current selection
+// (max depth 1 — root or one agent).
 func (m *ChatViewModel) focusAgent(agentID string) {
+	if agentID == "" {
+		m.navigateBack()
+		return
+	}
 	ac := m.FindContainer(agentID)
 	if ac == nil {
 		return
 	}
-	if len(m.viewStack) >= maxViewStackDepth {
-		return
-	}
 
-	// Save current scroll position on the current stack top (or root).
-	scrollPos := m.viewport.ScrollPercent()
-	scrollOffset := int(scrollPos * float64(m.viewport.TotalLineCount()))
-	if len(m.viewStack) > 0 {
-		m.viewStack[len(m.viewStack)-1].ScrollOffset = scrollOffset
-	}
-
-	m.viewStack = append(m.viewStack, viewStackEntry{
+	// Flat navigation: replace the entire stack with a single entry.
+	m.viewStack = []viewStackEntry{{
 		AgentID:   agentID,
 		Container: ac,
-	})
+	}}
 	m.viewedAgent = agentID
 	m.scrollToBottom = true // Force scroll to bottom after rebuildContent.
 }
 
-// navigateBack pops the view stack and returns to the previous view.
+// navigateBack returns to the root view, clearing the view stack.
 func (m *ChatViewModel) navigateBack() {
 	if len(m.viewStack) == 0 {
 		return
 	}
 
-	m.viewStack = m.viewStack[:len(m.viewStack)-1]
-
-	if len(m.viewStack) == 0 {
-		m.viewedAgent = ""
-	} else {
-		top := m.viewStack[len(m.viewStack)-1]
-		m.viewedAgent = top.AgentID
-	}
+	m.viewStack = nil
+	m.viewedAgent = ""
 	m.scrollToBottom = true // Auto-scroll to bottom on view switch.
 }
 
 // RenderBreadcrumb returns the breadcrumb line showing the navigation path.
-// Only renders when viewing a sub-agent. Composed by AppModel in the layout.
+// Only renders when viewing a sub-agent (max 1 level: "<- root > agent-name").
 func (m ChatViewModel) RenderBreadcrumb() string {
 	if m.viewedAgent == "" {
 		return ""
@@ -331,45 +319,18 @@ func (m ChatViewModel) RenderBreadcrumb() string {
 
 	backStyle := lipgloss.NewStyle().Foreground(styles.ColorAccent)
 	sepStyle := styles.DimStyle
-	var parts []string
-	parts = append(parts, backStyle.Render("<- root"))
 
-	for i, entry := range m.viewStack {
-		parts = append(parts, sepStyle.Render(" > "))
-		agentStyle := colorStyle(m.colorRegistry[entry.AgentID])
-		if i == len(m.viewStack)-1 {
-			agentStyle = agentStyle.Bold(true)
-		}
-		// Strikethrough for completed agents.
-		ac := entry.Container
+	agentStyle := colorStyle(m.colorRegistry[m.viewedAgent]).Bold(true)
+	if len(m.viewStack) > 0 {
+		ac := m.viewStack[0].Container
 		if ac != nil && ac.Done {
 			agentStyle = agentStyle.Strikethrough(true)
 		}
-		parts = append(parts, agentStyle.Render(entry.AgentID))
 	}
 
-	line := strings.Join(parts, "")
-
-	// Truncate if exceeds width.
-	if m.Width > 0 && lipgloss.Width(line) > m.Width {
-		// Simple truncation: keep first and last segment, collapse middle.
-		if len(m.viewStack) > 1 {
-			var truncParts []string
-			truncParts = append(truncParts, backStyle.Render("<- root"))
-			truncParts = append(truncParts, sepStyle.Render(" > "))
-			truncParts = append(truncParts, sepStyle.Render("..."))
-			truncParts = append(truncParts, sepStyle.Render(" > "))
-			last := m.viewStack[len(m.viewStack)-1]
-			lastStyle := colorStyle(m.colorRegistry[last.AgentID]).Bold(true)
-			if last.Container != nil && last.Container.Done {
-				lastStyle = lastStyle.Strikethrough(true)
-			}
-			truncParts = append(truncParts, lastStyle.Render(last.AgentID))
-			line = strings.Join(truncParts, "")
-		}
-	}
-
-	return line
+	return backStyle.Render("<- root") +
+		sepStyle.Render(" > ") +
+		agentStyle.Render(m.viewedAgent)
 }
 
 // cleanViewStackEntry removes the view stack entry for the given agent,
@@ -378,11 +339,8 @@ func (m *ChatViewModel) cleanViewStackEntry(agentID string) {
 	if m.viewedAgent == agentID {
 		return // keep pinned — will be removed on navigate-away
 	}
-	for i, entry := range m.viewStack {
-		if entry.AgentID == agentID {
-			m.viewStack = append(m.viewStack[:i], m.viewStack[i+1:]...)
-			return
-		}
+	if len(m.viewStack) == 1 && m.viewStack[0].AgentID == agentID {
+		m.viewStack = nil
 	}
 }
 
